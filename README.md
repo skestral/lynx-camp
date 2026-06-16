@@ -36,23 +36,27 @@ The first version is intentionally notification-first. It opens Recreation.gov b
 The dashboard is organized around the work that usually matters first:
 
 1. Scan state and summary counts show whether Camp Finder is idle, scanning, or showing the last completed scan.
-2. Availability Results are placed before the setup panels so new matches are not buried below target and watch configuration.
-3. Result filters let you switch between active, all, available, opened, booked, and dismissed results.
-4. Result search matches park name, campground, site, loop, campsite type, watch name, and stay dates.
-5. Sort controls support newest first, arrival date, and park/campground grouping.
-6. Select Visible lets you bulk dismiss, mark booked, or reopen the results currently in view.
+2. The map shows tracked park groups. Selecting a marker filters the results list to that park.
+3. Availability Results stay in the main working area so new matches are not buried below target and watch configuration.
+4. Target and watch setup live in the slide-out drawer. Use the Targets and Watches buttons in the header or sidebar to open it.
+5. Result filters let you switch between active, all, available, opened, booked, and dismissed results.
+6. Result search matches park name, campground, site, loop, campsite type, watch name, and stay dates.
+7. Sort controls support newest first, arrival date, and park/campground grouping.
+8. Select Visible lets you bulk dismiss, mark booked, or reopen the results currently in view.
 
-The target and watch panels remain on the same page because this is intended as a local operations dashboard, not a public marketing site. In normal use, you add or import targets, create watch rules, then spend most of your time in the scan status and results sections.
+In normal use, you add or import targets, create watch rules, then spend most of your time in the map, scan status, and results sections. Release hints, recent scan activity, and notification status stay beside the results on desktop and stack underneath on smaller screens.
 
 ## Preset Packs
 
-The app ships with park packs sourced from Recreation.gov campground search:
+The app currently ships with static park packs that were built from Recreation.gov campground search:
 
 - PNW and Northern Rockies National Parks: Olympic, Mount Rainier, Crater Lake, North Cascades, and Glacier Recreation.gov campground facilities.
 - Individual park packs: Olympic, Mount Rainier, Crater Lake, North Cascades, Glacier, Yellowstone, and Grand Teton.
 - California National Parks: Yosemite, Sequoia/Kings Canyon, and Joshua Tree starter campgrounds.
 
 Preset targets use campground IDs verified through Recreation.gov search results and include facilities whose Recreation.gov parent is the named park. Some parks also have concession-run or non-reservable campgrounds outside Recreation.gov, so those cannot be scanned by this Recreation.gov-backed app yet. The release settings still remain editable at the target level in the database model, because Recreation.gov booking windows can vary by facility.
+
+These packs can be made dynamic. The safest design is to keep the static packs as a fallback and add a refresh action that re-runs Recreation.gov campground search for the configured park names, compares the current facility IDs against the saved pack, and shows when the source list was last refreshed. That keeps the app useful when the network or upstream API is unavailable, while still letting the campground lists drift with Recreation.gov over time.
 
 Paused targets are skipped by background scans and Scan All. Paused watch rules are kept in the dashboard but are also skipped until resumed.
 

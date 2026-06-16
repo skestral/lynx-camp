@@ -45,9 +45,21 @@ type LoadState = "idle" | "loading" | "error";
 
 type ResultView = "active" | "all" | Result["status"];
 type ResultSort = "newest" | "arrival" | "park";
+type SetupDrawerMode = "targets" | "watches";
 type ScanProgress = {
   title: string;
   detail: string;
+};
+
+type ParkSummary = {
+  parkName: string;
+  stateCodes: string;
+  targetCount: number;
+  activeTargetCount: number;
+  resultCount: number;
+  activeResultCount: number;
+  x: number;
+  y: number;
 };
 
 type ResultStayGroup = {
@@ -103,6 +115,28 @@ const resultSortOptions: Array<{ value: ResultSort; label: string }> = [
   { value: "newest", label: "Newest" },
   { value: "arrival", label: "Arrival date" },
   { value: "park", label: "Park" }
+];
+
+const parkMarkerPositions: Record<string, { x: number; y: number }> = {
+  "Olympic National Park": { x: 17, y: 41 },
+  "Mount Rainier National Park": { x: 27, y: 52 },
+  "North Cascades National Park": { x: 31, y: 28 },
+  "Crater Lake National Park": { x: 30, y: 78 },
+  "Glacier National Park": { x: 66, y: 26 },
+  "Yellowstone National Park": { x: 73, y: 62 },
+  "Grand Teton National Park": { x: 72, y: 73 },
+  "Yosemite National Park": { x: 23, y: 86 },
+  "Sequoia & Kings Canyon National Parks": { x: 30, y: 91 },
+  "Joshua Tree National Park": { x: 42, y: 95 }
+};
+
+const fallbackMarkerPositions = [
+  { x: 20, y: 35 },
+  { x: 38, y: 42 },
+  { x: 56, y: 34 },
+  { x: 70, y: 52 },
+  { x: 45, y: 70 },
+  { x: 25, y: 66 }
 ];
 
 function weekdayLabel(days: number[]) {
@@ -252,6 +286,8 @@ export default function App() {
   const [filterLoop, setFilterLoop] = useState("");
   const [filterSite, setFilterSite] = useState("");
   const [filterMinPeople, setFilterMinPeople] = useState("");
+  const [setupDrawerOpen, setSetupDrawerOpen] = useState(false);
+  const [setupDrawerMode, setSetupDrawerMode] = useState<SetupDrawerMode>("targets");
 
   const activeTargets = targets.filter((target) => target.active);
   const activeWatches = watches.filter((watch) => watch.active && watch.target_active);
@@ -331,6 +367,68 @@ export default function App() {
         .slice(0, 4),
     [activeWatches]
   );
+  const parkSummaries = useMemo<ParkSummary[]>(() => {
+    const summaries = new Map<
+      string,
+      Omit<ParkSummary, "stateCodes" | "x" | "y"> & { stateCodeSet: Set<string> }
+    >();
+
+    for (const target of targets) {
+      const parkName = target.park_name || "Unassigned park";
+      const summary =
+        summaries.get(parkName) ||
+        {
+          parkName,
+          stateCodeSet: new Set<string>(),
+          targetCount: 0,
+          activeTargetCount: 0,
+          resultCount: 0,
+          activeResultCount: 0
+        };
+      summary.targetCount += 1;
+      if (target.active) summary.activeTargetCount += 1;
+      if (target.state_code) summary.stateCodeSet.add(target.state_code);
+      summaries.set(parkName, summary);
+    }
+
+    for (const result of results) {
+      const parkName = result.park_name || result.target_name || "Unassigned park";
+      const summary =
+        summaries.get(parkName) ||
+        {
+          parkName,
+          stateCodeSet: new Set<string>(),
+          targetCount: 0,
+          activeTargetCount: 0,
+          resultCount: 0,
+          activeResultCount: 0
+        };
+      summary.resultCount += 1;
+      if (isActiveAvailability(result)) summary.activeResultCount += 1;
+      summaries.set(parkName, summary);
+    }
+
+    return Array.from(summaries.values())
+      .sort((a, b) => {
+        const activeSort = b.activeResultCount - a.activeResultCount;
+        if (activeSort !== 0) return activeSort;
+        return a.parkName.localeCompare(b.parkName);
+      })
+      .map((summary, index) => {
+        const fallback = fallbackMarkerPositions[index % fallbackMarkerPositions.length];
+        const position = parkMarkerPositions[summary.parkName] || fallback;
+        return {
+          parkName: summary.parkName,
+          stateCodes: Array.from(summary.stateCodeSet).sort().join("/") || "US",
+          targetCount: summary.targetCount,
+          activeTargetCount: summary.activeTargetCount,
+          resultCount: summary.resultCount,
+          activeResultCount: summary.activeResultCount,
+          x: position.x,
+          y: position.y
+        };
+      });
+  }, [results, targets]);
   const resultGroups = useMemo<ResultParkGroup[]>(() => {
     const parkMap = new Map<string, ResultParkGroup>();
 
@@ -861,6 +959,18 @@ export default function App() {
     }
   }
 
+  function openSetupDrawer(mode: SetupDrawerMode) {
+    setSetupDrawerMode(mode);
+    setSetupDrawerOpen(true);
+  }
+
+  function focusPark(summary: ParkSummary) {
+    setResultQuery(summary.parkName);
+    setResultSort("park");
+    setResultView(summary.activeResultCount > 0 ? "active" : "all");
+    setResultGroupOpen((current) => ({ ...current, [`park:${summary.parkName}`]: true }));
+  }
+
   function resultCard(result: Result) {
     const selected = selectedResultSet.has(result.id);
     return (
@@ -957,12 +1067,20 @@ export default function App() {
           <a className="nav-item" href="#activity">
             <Timer size={18} /> Activity
           </a>
-          <a className="nav-item" href="#targets">
+          <button
+            className={`nav-item ${setupDrawerOpen && setupDrawerMode === "targets" ? "active" : ""}`}
+            onClick={() => openSetupDrawer("targets")}
+            type="button"
+          >
             <MapPin size={18} /> Targets
-          </a>
-          <a className="nav-item" href="#watches">
+          </button>
+          <button
+            className={`nav-item ${setupDrawerOpen && setupDrawerMode === "watches" ? "active" : ""}`}
+            onClick={() => openSetupDrawer("watches")}
+            type="button"
+          >
             <CalendarDays size={18} /> Watches
-          </a>
+          </button>
           <a className="nav-item" href="#settings">
             <Settings size={18} /> Settings
           </a>
@@ -980,6 +1098,14 @@ export default function App() {
             <p>{activeTargets.length} targets &middot; {watchSummary} &middot; {activeResults.length} active matches</p>
           </div>
           <div className="topbar-actions">
+            <button className="icon-button" onClick={() => openSetupDrawer("targets")} type="button" title="Open campground targets">
+              <MapPin size={18} />
+              <span>Targets</span>
+            </button>
+            <button className="icon-button" onClick={() => openSetupDrawer("watches")} type="button" title="Open watch rules">
+              <CalendarDays size={18} />
+              <span>Watches</span>
+            </button>
             <button className="icon-button" onClick={runAllScans} disabled={scanAllBusy || activeWatches.length === 0} title="Run every active watch now">
               <Play size={18} />
               <span>{scanAllBusy ? "Scanning" : "Scan All"}</span>
@@ -1028,8 +1154,34 @@ export default function App() {
           <SummaryMetric label="Notifications" value={notifications.length.toString()} icon={<Bell size={18} />} />
         </section>
 
-        <div className="content-grid">
-          <section className="panel" id="targets">
+        <div className={`drawer-backdrop ${setupDrawerOpen ? "show" : ""}`} onClick={() => setSetupDrawerOpen(false)} />
+        <div className={`content-grid setup-drawer ${setupDrawerOpen ? "open" : ""}`}>
+          <div className="drawer-heading">
+            <div>
+              <h2>{setupDrawerMode === "targets" ? "Target Setup" : "Watch Builder"}</h2>
+              <p>{setupDrawerMode === "targets" ? "Add and maintain campground targets." : "Build date rules and scan filters."}</p>
+            </div>
+            <div className="drawer-controls">
+              <button
+                className={`drawer-tab ${setupDrawerMode === "targets" ? "active" : ""}`}
+                onClick={() => setSetupDrawerMode("targets")}
+                type="button"
+              >
+                <MapPin size={16} /> Targets
+              </button>
+              <button
+                className={`drawer-tab ${setupDrawerMode === "watches" ? "active" : ""}`}
+                onClick={() => setSetupDrawerMode("watches")}
+                type="button"
+              >
+                <CalendarDays size={16} /> Watches
+              </button>
+              <button className="icon-only" onClick={() => setSetupDrawerOpen(false)} title="Close setup drawer" type="button">
+                <X size={17} />
+              </button>
+            </div>
+          </div>
+          <section className={`panel ${setupDrawerMode === "targets" ? "" : "drawer-panel-hidden"}`} id="targets">
             <div className="panel-heading">
               <div>
                 <h2>Campground Targets</h2>
@@ -1222,7 +1374,7 @@ export default function App() {
             )}
           </section>
 
-          <section className="panel" id="watches">
+          <section className={`panel ${setupDrawerMode === "watches" ? "" : "drawer-panel-hidden"}`} id="watches">
             <div className="panel-heading">
               <div>
                 <h2>Watch Rules</h2>
@@ -1376,6 +1528,80 @@ export default function App() {
         </div>
 
         <div className="content-grid lower">
+          <section className="map-dashboard" aria-label="Target map">
+            <div className="map-panel">
+              <div className="map-toolbar">
+                <div>
+                  <h2>Target Map</h2>
+                  <p>Tap a park to filter active availability without leaving the results view.</p>
+                </div>
+                <div className="map-actions">
+                  <button className="icon-button" onClick={() => setResultQuery("")} type="button">
+                    <X size={17} />
+                    <span>Clear Filter</span>
+                  </button>
+                  <button className="icon-button primary" onClick={() => openSetupDrawer("targets")} type="button">
+                    <Plus size={17} />
+                    <span>Add Target</span>
+                  </button>
+                </div>
+              </div>
+              <div className="map-canvas">
+                <div className="map-water" />
+                <div className="map-range north" />
+                <div className="map-range south" />
+                {parkSummaries.length === 0 && (
+                  <div className="map-empty">
+                    <MapPin size={28} />
+                    <strong>No target parks yet</strong>
+                    <small>Open Targets to import a preset pack or search Recreation.gov.</small>
+                  </div>
+                )}
+                {parkSummaries.map((summary) => (
+                  <button
+                    className={`map-marker ${summary.activeResultCount > 0 ? "has-results" : ""} ${
+                      resultQuery === summary.parkName ? "selected" : ""
+                    }`}
+                    key={summary.parkName}
+                    onClick={() => focusPark(summary)}
+                    style={{ left: `${summary.x}%`, top: `${summary.y}%` }}
+                    type="button"
+                  >
+                    <MapPin size={15} />
+                    <span>
+                      <strong>{summary.parkName.replace(" National Park", "")}</strong>
+                      <small>
+                        {summary.stateCodes} &middot; {summary.activeResultCount} active
+                      </small>
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+            <aside className="map-list">
+              <div className="subheading">
+                <strong>Park Queue</strong>
+                <small>{parkSummaries.length} park group{parkSummaries.length === 1 ? "" : "s"} tracked</small>
+              </div>
+              {parkSummaries.slice(0, 7).map((summary) => (
+                <button
+                  className={`park-chip ${resultQuery === summary.parkName ? "selected" : ""}`}
+                  key={summary.parkName}
+                  onClick={() => focusPark(summary)}
+                  type="button"
+                >
+                  <span>
+                    <strong>{summary.parkName}</strong>
+                    <small>{summary.activeTargetCount}/{summary.targetCount} targets active</small>
+                  </span>
+                  <span className={`status ${summary.activeResultCount ? "success" : "quiet"}`}>
+                    {summary.activeResultCount || summary.resultCount}
+                  </span>
+                </button>
+              ))}
+            </aside>
+          </section>
+
           <section className="panel release-panel">
             <div className="panel-heading">
               <div>
