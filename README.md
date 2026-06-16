@@ -19,15 +19,30 @@ The first version is intentionally notification-first. It opens Recreation.gov b
 - Reuse fresh Recreation.gov month responses across watches and back off automatically after HTTP 429 rate limits.
 - Temporarily increase scan cadence around calculated release times.
 - Run every active watch on demand with the Scan All control.
+- See the latest scan state at the top of the dashboard, including manual scans and background scans that are still running.
 - Review recent scan activity, including candidate counts, matches, status, and messages.
 - Calculate likely release windows from a target-specific booking window, release time, and timezone.
 - Store availability matches once so notifications are deduped.
 - Send one bulk notification per scan when multiple new site/date matches appear.
 - Triage availability results as opened, booked, dismissed, or active again.
+- Filter, sort, select, and bulk-update availability results from the dashboard.
 - Show notification channel status and send a test notification.
 - Notify by webhook, ntfy mobile push, and/or SMTP email when configured.
 - Export and restore target/watch configuration backups.
 - Run as a single Docker Compose service on your local network.
+
+## Dashboard Workflow
+
+The dashboard is organized around the work that usually matters first:
+
+1. Scan state and summary counts show whether Camp Finder is idle, scanning, or showing the last completed scan.
+2. Availability Results are placed before the setup panels so new matches are not buried below target and watch configuration.
+3. Result filters let you switch between active, all, available, opened, booked, and dismissed results.
+4. Result search matches park name, campground, site, loop, campsite type, watch name, and stay dates.
+5. Sort controls support newest first, arrival date, and park/campground grouping.
+6. Select Visible lets you bulk dismiss, mark booked, or reopen the results currently in view.
+
+The target and watch panels remain on the same page because this is intended as a local operations dashboard, not a public marketing site. In normal use, you add or import targets, create watch rules, then spend most of your time in the scan status and results sections.
 
 ## Preset Packs
 
@@ -126,13 +141,15 @@ The Target Settings form includes a Detect Window action. It samples Recreation.
 
 For campgrounds with staggered releases, use View Profiles in Target Settings. It groups sampled Recreation.gov campsite metadata by loop, site type, and reservation window, which helps you decide whether a watch should filter to a specific loop and use a different day/week/month release window.
 
-The Recent Scan Activity panel shows the latest background and manual scan runs so you can confirm that watches are actually running, see how many candidate stays were checked, and spot scanner errors without opening logs.
+The scan status strip at the top of the dashboard changes as soon as a manual scan starts. It also uses recent scan-run records, so background scans that are still marked `running` can surface after the periodic dashboard refresh. The Recent Scan Activity panel keeps the detailed history: watch name, target, candidate stays, matches, status, timestamp, and scanner message. That combination is meant to answer two different questions quickly: what is happening right now, and what happened during the last few scans.
 
 ## Booking Assist
 
-Availability results include the Recreation.gov booking link plus status actions. Open marks a fresh match as opened, Copy puts a booking brief on your clipboard with the campground, watch, site, loop, type, stay dates, and Recreation.gov link. If the browser blocks clipboard access, the same brief appears above the results table for manual selection. Booked records that you successfully reserved it, Dismiss removes it from active attention, and Reopen moves a handled result back to active availability. Future scans preserve booked and dismissed decisions for the same campsite/date result instead of notifying you about the same handled match again.
+Availability results include the Recreation.gov booking link plus status actions. Open marks a fresh match as opened, Copy puts a booking brief on your clipboard with the campground, watch, site, loop, type, stay dates, and Recreation.gov link. If the browser blocks clipboard access, the same brief appears above the results for manual selection. Booked records that you successfully reserved it, Dismiss removes it from active attention, and Reopen moves a handled result back to active availability. Future scans preserve booked and dismissed decisions for the same campsite/date result instead of notifying you about the same handled match again.
 
-When a scan discovers several new site/date matches at once, Camp Finder sends one bulk alert instead of one notification per campsite. `CAMPFINDER_MAX_NOTIFICATION_RESULTS` controls how many examples appear in that notification and defaults to `5`; the rest remain visible in the results table.
+Results are grouped by national park, campground, and stay dates. Use the status filter and search field to narrow the dashboard before selecting results. Bulk actions apply to selected results only; Clear All dismisses every active availability result, which is useful when a scan finds many sites that you do not want to pursue.
+
+When a scan discovers several new site/date matches at once, Camp Finder sends one bulk alert instead of one notification per campsite. `CAMPFINDER_MAX_NOTIFICATION_RESULTS` controls how many examples appear in that notification and defaults to `5`; the rest remain visible in the results dashboard.
 
 ## Notification Setup
 

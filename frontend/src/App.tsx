@@ -1,4 +1,5 @@
 import {
+  Activity,
   Bell,
   CalendarDays,
   CheckCircle2,
@@ -7,6 +8,8 @@ import {
   Clipboard,
   Download,
   ExternalLink,
+  Filter,
+  ListChecks,
   MapPin,
   Pause,
   Pencil,
@@ -39,6 +42,13 @@ import type {
 } from "./types";
 
 type LoadState = "idle" | "loading" | "error";
+
+type ResultView = "active" | "all" | Result["status"];
+type ResultSort = "newest" | "arrival" | "park";
+type ScanProgress = {
+  title: string;
+  detail: string;
+};
 
 type ResultStayGroup = {
   id: string;
@@ -80,6 +90,21 @@ const weekdayOptions = [
   { value: 6, label: "Sun" }
 ];
 
+const resultViewOptions: Array<{ value: ResultView; label: string }> = [
+  { value: "active", label: "Active" },
+  { value: "all", label: "All" },
+  { value: "available", label: "Available" },
+  { value: "opened", label: "Opened" },
+  { value: "booked", label: "Booked" },
+  { value: "dismissed", label: "Dismissed" }
+];
+
+const resultSortOptions: Array<{ value: ResultSort; label: string }> = [
+  { value: "newest", label: "Newest" },
+  { value: "arrival", label: "Arrival date" },
+  { value: "park", label: "Park" }
+];
+
 function weekdayLabel(days: number[]) {
   return [...days]
     .sort((a, b) => a - b)
@@ -118,7 +143,7 @@ function isActiveAvailability(result: Result) {
 function statusTone(status: string) {
   if (status.startsWith("error")) return "danger";
   if (status === "available" || status === "booked") return "success";
-  if (status === "clear" || status === "opened") return "calm";
+  if (status === "clear" || status === "opened" || status === "running") return "calm";
   return "quiet";
 }
 
@@ -200,6 +225,12 @@ export default function App() {
   const [resultBusyId, setResultBusyId] = useState<number | null>(null);
   const [resultGroupOpen, setResultGroupOpen] = useState<Record<string, boolean>>({});
   const [clearResultsBusy, setClearResultsBusy] = useState(false);
+  const [resultView, setResultView] = useState<ResultView>("active");
+  const [resultSort, setResultSort] = useState<ResultSort>("arrival");
+  const [resultQuery, setResultQuery] = useState("");
+  const [selectedResultIds, setSelectedResultIds] = useState<number[]>([]);
+  const [bulkResultBusy, setBulkResultBusy] = useState<Result["status"] | null>(null);
+  const [scanProgress, setScanProgress] = useState<ScanProgress | null>(null);
   const [bookingPreview, setBookingPreview] = useState<{ site: string; text: string } | null>(null);
   const [importingPackId, setImportingPackId] = useState<string | null>(null);
   const [configBusy, setConfigBusy] = useState<"export" | "import" | null>(null);
@@ -225,6 +256,59 @@ export default function App() {
   const activeTargets = targets.filter((target) => target.active);
   const activeWatches = watches.filter((watch) => watch.active && watch.target_active);
   const activeResults = results.filter(isActiveAvailability);
+  const selectedResultSet = useMemo(() => new Set(selectedResultIds), [selectedResultIds]);
+  const selectedResults = useMemo(
+    () => results.filter((result) => selectedResultSet.has(result.id)),
+    [results, selectedResultSet]
+  );
+  const filteredResults = useMemo(() => {
+    const query = resultQuery.trim().toLowerCase();
+    const filtered = results.filter((result) => {
+      const matchesView =
+        resultView === "all"
+          ? true
+          : resultView === "active"
+            ? isActiveAvailability(result)
+            : result.status === resultView;
+      if (!matchesView) return false;
+      if (!query) return true;
+      return [
+        result.park_name,
+        result.target_name,
+        result.campground_name,
+        result.site,
+        result.loop,
+        result.campsite_type,
+        result.watch_name,
+        result.arrival_date,
+        result.departure_date
+      ]
+        .filter(Boolean)
+        .some((value) => value.toLowerCase().includes(query));
+    });
+
+    return [...filtered].sort((a, b) => {
+      if (resultSort === "arrival") {
+        const arrival = a.arrival_date.localeCompare(b.arrival_date);
+        if (arrival !== 0) return arrival;
+        return a.site.localeCompare(b.site);
+      }
+      if (resultSort === "park") {
+        const park = (a.park_name || a.target_name).localeCompare(b.park_name || b.target_name);
+        if (park !== 0) return park;
+        const campground = a.campground_name.localeCompare(b.campground_name);
+        if (campground !== 0) return campground;
+        return a.arrival_date.localeCompare(b.arrival_date);
+      }
+      return b.discovered_at.localeCompare(a.discovered_at);
+    });
+  }, [results, resultQuery, resultSort, resultView]);
+  const visibleResultIds = useMemo(() => filteredResults.map((result) => result.id), [filteredResults]);
+  const allVisibleResultsSelected =
+    visibleResultIds.length > 0 && visibleResultIds.every((id) => selectedResultSet.has(id));
+  const runningScan = scanRuns.find((run) => run.status === "running" && !run.finished_at);
+  const scanInProgress = scanAllBusy || scanBusyId !== null || Boolean(runningScan);
+  const latestScan = scanRuns.find((run) => run.status !== "running") || scanRuns[0];
   const watchSummary = `${activeWatches.length} active watch${activeWatches.length === 1 ? "" : "es"}`;
   const latestRelease = useMemo(
     () =>
@@ -250,7 +334,7 @@ export default function App() {
   const resultGroups = useMemo<ResultParkGroup[]>(() => {
     const parkMap = new Map<string, ResultParkGroup>();
 
-    for (const result of results) {
+    for (const result of filteredResults) {
       const active = isActiveAvailability(result);
       const parkName = result.park_name || result.target_name || "Unknown national park";
       const campgroundName = result.campground_name || "Unknown campground";
@@ -304,10 +388,10 @@ export default function App() {
       }
     }
     return groups;
-  }, [results]);
+  }, [filteredResults]);
 
-  async function refresh() {
-    setLoadState("loading");
+  async function refresh(options?: { silent?: boolean }) {
+    if (!options?.silent) setLoadState("loading");
     try {
       const [targetData, presetData, watchData, resultData, scanRunData, notificationData, notificationStatusData] = await Promise.all([
         api.targets(),
@@ -332,13 +416,28 @@ export default function App() {
       }
     } catch (error) {
       setLoadState("error");
-      setMessage(error instanceof Error ? error.message : "Unable to load Camp Finder.");
+      if (!options?.silent) setMessage(error instanceof Error ? error.message : "Unable to load Camp Finder.");
     }
   }
 
   useEffect(() => {
     refresh();
   }, []);
+
+  useEffect(() => {
+    const handle = window.setInterval(() => {
+      if (document.visibilityState === "visible") void refresh({ silent: true });
+    }, 30000);
+    return () => window.clearInterval(handle);
+  }, [targetSettingsId, watchTarget]);
+
+  useEffect(() => {
+    const visible = new Set(visibleResultIds);
+    setSelectedResultIds((current) => {
+      const next = current.filter((id) => visible.has(id));
+      return next.length === current.length ? current : next;
+    });
+  }, [visibleResultIds]);
 
   useEffect(() => {
     if (query.trim().length < 2) {
@@ -598,7 +697,12 @@ export default function App() {
   }
 
   async function runScan(watchId: number) {
+    const watch = watches.find((item) => item.id === watchId);
     setScanBusyId(watchId);
+    setScanProgress({
+      title: `Scanning ${watch?.name || "watch"}`,
+      detail: watch ? `${watch.target_name} is checking candidate stays now.` : "Checking candidate stays now."
+    });
     setMessage("");
     try {
       const result = await api.runScan(watchId);
@@ -608,11 +712,16 @@ export default function App() {
       setMessage(error instanceof Error ? error.message : "Scan failed.");
     } finally {
       setScanBusyId(null);
+      setScanProgress(null);
     }
   }
 
   async function runAllScans() {
     setScanAllBusy(true);
+    setScanProgress({
+      title: "Scanning all active watches",
+      detail: `${activeWatches.length} watch${activeWatches.length === 1 ? "" : "es"} queued for an immediate check.`
+    });
     setMessage("");
     try {
       const result = await api.runAllScans();
@@ -622,6 +731,7 @@ export default function App() {
       setMessage(error instanceof Error ? error.message : "Scan all failed.");
     } finally {
       setScanAllBusy(false);
+      setScanProgress(null);
     }
   }
 
@@ -673,6 +783,34 @@ export default function App() {
     setResultGroupOpen((current) => ({ ...current, [groupId]: !(current[groupId] ?? true) }));
   }
 
+  function toggleResultSelection(resultId: number) {
+    setSelectedResultIds((current) =>
+      current.includes(resultId) ? current.filter((id) => id !== resultId) : [...current, resultId]
+    );
+  }
+
+  function toggleVisibleResultSelection() {
+    setSelectedResultIds(allVisibleResultsSelected ? [] : visibleResultIds);
+  }
+
+  async function updateSelectedResultsStatus(status: Result["status"]) {
+    if (selectedResultIds.length === 0) return;
+    setBulkResultBusy(status);
+    setMessage("");
+    try {
+      await Promise.all(selectedResultIds.map((resultId) => api.updateResultStatus(resultId, status)));
+      setMessage(
+        `Updated ${selectedResultIds.length} selected result${selectedResultIds.length === 1 ? "" : "s"} to ${status}.`
+      );
+      setSelectedResultIds([]);
+      await refresh();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Bulk result update failed.");
+    } finally {
+      setBulkResultBusy(null);
+    }
+  }
+
   async function updateResultStatus(resultId: number, status: Result["status"]) {
     setResultBusyId(resultId);
     setMessage("");
@@ -697,6 +835,7 @@ export default function App() {
     try {
       const cleared = await api.clearResults();
       setMessage(`Cleared ${cleared.cleared_count} active availability result${cleared.cleared_count === 1 ? "" : "s"}.`);
+      setSelectedResultIds([]);
       await refresh();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Unable to clear availability results.");
@@ -722,77 +861,83 @@ export default function App() {
     }
   }
 
-  function resultRow(result: Result) {
+  function resultCard(result: Result) {
+    const selected = selectedResultSet.has(result.id);
     return (
-      <tr key={result.id}>
-        <td>
-          <strong>{result.site}</strong>
-          <small>{[result.loop, result.campsite_type].filter(Boolean).join(" / ") || "Campsite"}</small>
-        </td>
-        <td>
+      <article className={`result-card ${selected ? "selected" : ""}`} key={result.id}>
+        <label className="result-select">
+          <input
+            checked={selected}
+            onChange={() => toggleResultSelection(result.id)}
+            type="checkbox"
+          />
+          <span>
+            <strong>{result.site}</strong>
+            <small>{[result.loop, result.campsite_type].filter(Boolean).join(" / ") || "Campsite"}</small>
+          </span>
+        </label>
+        <div className="result-card-meta">
           <span className={`status ${statusTone(result.status)}`}>{result.status}</span>
-        </td>
-        <td>
-          <strong>{result.watch_name}</strong>
-          <small>{formatDateTime(result.discovered_at)}</small>
-        </td>
-        <td>
-          <div className="result-actions">
-            <a
-              className="link-button"
-              href={result.booking_url}
-              target="_blank"
-              rel="noreferrer"
-              onClick={() => {
-                if (result.status === "available") void updateResultStatus(result.id, "opened");
-              }}
-            >
-              <ExternalLink size={16} /> Open
-            </a>
+          <span>
+            <strong>{result.watch_name}</strong>
+            <small>Found {formatDateTime(result.discovered_at)}</small>
+          </span>
+        </div>
+        <div className="result-actions">
+          <a
+            className="link-button"
+            href={result.booking_url}
+            target="_blank"
+            rel="noreferrer"
+            onClick={() => {
+              if (result.status === "available") void updateResultStatus(result.id, "opened");
+            }}
+          >
+            <ExternalLink size={16} /> Open
+          </a>
+          <button
+            className="icon-button"
+            type="button"
+            onClick={() => void copyBookingDetails(result)}
+            title="Copy campground, site, dates, and booking link"
+          >
+            <Clipboard size={16} /> Copy
+          </button>
+          {(result.status === "available" || result.status === "opened") && (
             <button
               className="icon-button"
               type="button"
-              onClick={() => void copyBookingDetails(result)}
-              title="Copy campground, site, dates, and booking link"
+              disabled={resultBusyId === result.id}
+              onClick={() => void updateResultStatus(result.id, "booked")}
+              title="Mark this availability as booked"
             >
-              <Clipboard size={16} /> Copy
+              <CheckCircle2 size={16} /> Booked
             </button>
-            {(result.status === "available" || result.status === "opened") && (
-              <button
-                className="icon-button"
-                type="button"
-                disabled={resultBusyId === result.id}
-                onClick={() => void updateResultStatus(result.id, "booked")}
-                title="Mark this availability as booked"
-              >
-                <CheckCircle2 size={16} /> Booked
-              </button>
-            )}
-            {(result.status === "available" || result.status === "opened") && (
-              <button
-                className="icon-button"
-                type="button"
-                disabled={resultBusyId === result.id}
-                onClick={() => void updateResultStatus(result.id, "dismissed")}
-                title="Dismiss this availability"
-              >
-                <Trash2 size={16} /> Dismiss
-              </button>
-            )}
-            {(result.status === "booked" || result.status === "dismissed") && (
-              <button
-                className="icon-button"
-                type="button"
-                disabled={resultBusyId === result.id}
-                onClick={() => void updateResultStatus(result.id, "available")}
-                title="Move this result back to active availability"
-              >
-                <RefreshCw size={16} /> Reopen
-              </button>
-            )}
-          </div>
-        </td>
-      </tr>
+          )}
+          {(result.status === "available" || result.status === "opened") && (
+            <button
+              className="icon-button"
+              type="button"
+              disabled={resultBusyId === result.id}
+              onClick={() => void updateResultStatus(result.id, "dismissed")}
+              title="Dismiss this availability"
+            >
+              <Trash2 size={16} /> Dismiss
+            </button>
+          )}
+          {(result.status === "booked" || result.status === "dismissed") && (
+            <button
+              className="icon-button"
+              type="button"
+              disabled={resultBusyId === result.id}
+              onClick={() => void updateResultStatus(result.id, "available")}
+              title="Move this result back to active availability"
+            >
+              <RefreshCw size={16} /> Reopen
+            </button>
+          )}
+        </div>
+      </article>
     );
   }
 
@@ -806,17 +951,17 @@ export default function App() {
           <span>Camp Finder</span>
         </div>
         <nav className="nav-list" aria-label="Primary">
-          <a className="nav-item active" href="#targets">
-            <MapPin size={18} /> Targets
-          </a>
-          <a className="nav-item" href="#watches">
-            <CalendarDays size={18} /> Watches
-          </a>
-          <a className="nav-item" href="#results">
+          <a className="nav-item active" href="#results">
             <Bell size={18} /> Alerts
           </a>
           <a className="nav-item" href="#activity">
             <Timer size={18} /> Activity
+          </a>
+          <a className="nav-item" href="#targets">
+            <MapPin size={18} /> Targets
+          </a>
+          <a className="nav-item" href="#watches">
+            <CalendarDays size={18} /> Watches
           </a>
           <a className="nav-item" href="#settings">
             <Settings size={18} /> Settings
@@ -837,9 +982,9 @@ export default function App() {
           <div className="topbar-actions">
             <button className="icon-button" onClick={runAllScans} disabled={scanAllBusy || activeWatches.length === 0} title="Run every active watch now">
               <Play size={18} />
-              <span>Scan All</span>
+              <span>{scanAllBusy ? "Scanning" : "Scan All"}</span>
             </button>
-            <button className="icon-button primary" onClick={refresh} disabled={loadState === "loading"} title="Refresh data">
+            <button className="icon-button primary" onClick={() => void refresh()} disabled={loadState === "loading"} title="Refresh data">
               <RefreshCw size={18} />
               <span>Refresh</span>
             </button>
@@ -848,6 +993,33 @@ export default function App() {
 
         {message && <div className="notice">{message}</div>}
         {loadState === "error" && <div className="notice danger">The API is not reachable yet.</div>}
+        <section className={`scan-status-card ${scanInProgress ? "running" : ""}`} aria-live="polite">
+          <span className="scan-status-icon">
+            {scanInProgress ? <RefreshCw className="spinning" size={20} /> : <Activity size={20} />}
+          </span>
+          <span>
+            <strong>
+              {scanProgress?.title ||
+                (runningScan ? `Scanning ${runningScan.watch_name}` : latestScan ? `Last scan: ${latestScan.watch_name}` : "No scans yet")}
+            </strong>
+            <small>
+              {scanProgress?.detail ? (
+                scanProgress.detail
+              ) : runningScan ? (
+                <>
+                  {runningScan.target_name} &middot; started {formatDateTime(runningScan.started_at)}
+                </>
+              ) : latestScan ? (
+                <>
+                  {latestScan.target_name} &middot; {latestScan.candidate_count} stays &middot; {latestScan.available_count} matches &middot;{" "}
+                  {formatDateTime(latestScan.finished_at || latestScan.started_at)}
+                </>
+              ) : (
+                "Ready when watches are added."
+              )}
+            </small>
+          </span>
+        </section>
 
         <section className="summary-grid" aria-label="Monitor summary">
           <SummaryMetric label="Targets" value={activeTargets.length.toString()} icon={<MapPin size={18} />} />
@@ -1368,8 +1540,87 @@ export default function App() {
                 </button>
               </div>
             )}
+            <div className="result-toolbar">
+              <label className="toolbar-field">
+                <Filter size={16} />
+                <select value={resultView} onChange={(event) => setResultView(event.target.value as ResultView)}>
+                  {resultViewOptions.map((option) => (
+                    <option key={option.value} value={option.value}>{option.label}</option>
+                  ))}
+                </select>
+              </label>
+              <div className="toolbar-field search-field">
+                <Search size={16} />
+                <input
+                  value={resultQuery}
+                  onChange={(event) => setResultQuery(event.target.value)}
+                  placeholder="Search park, campground, site"
+                />
+                {resultQuery && (
+                  <button
+                    className="inline-clear"
+                    onClick={() => setResultQuery("")}
+                    title="Clear result search"
+                    type="button"
+                  >
+                    <X size={14} />
+                  </button>
+                )}
+              </div>
+              <label className="toolbar-field">
+                <ListChecks size={16} />
+                <select value={resultSort} onChange={(event) => setResultSort(event.target.value as ResultSort)}>
+                  {resultSortOptions.map((option) => (
+                    <option key={option.value} value={option.value}>{option.label}</option>
+                  ))}
+                </select>
+              </label>
+              <div className="result-bulk-actions">
+                <button
+                  className="icon-button"
+                  disabled={visibleResultIds.length === 0}
+                  onClick={toggleVisibleResultSelection}
+                  type="button"
+                >
+                  <ListChecks size={16} />
+                  <span>{allVisibleResultsSelected ? "Deselect" : "Select Visible"}</span>
+                </button>
+                <button
+                  className="icon-button"
+                  disabled={selectedResults.length === 0 || bulkResultBusy !== null}
+                  onClick={() => void updateSelectedResultsStatus("dismissed")}
+                  type="button"
+                >
+                  <Trash2 size={16} />
+                  <span>Dismiss</span>
+                </button>
+                <button
+                  className="icon-button"
+                  disabled={selectedResults.length === 0 || bulkResultBusy !== null}
+                  onClick={() => void updateSelectedResultsStatus("booked")}
+                  type="button"
+                >
+                  <CheckCircle2 size={16} />
+                  <span>Booked</span>
+                </button>
+                <button
+                  className="icon-button"
+                  disabled={selectedResults.length === 0 || bulkResultBusy !== null}
+                  onClick={() => void updateSelectedResultsStatus("available")}
+                  type="button"
+                >
+                  <RefreshCw size={16} />
+                  <span>Reopen</span>
+                </button>
+              </div>
+              <span className="result-count">
+                {filteredResults.length} shown &middot; {selectedResults.length} selected
+              </span>
+            </div>
             <div className="result-groups">
-              {resultGroups.length === 0 && <p className="empty">No availability saved yet.</p>}
+              {resultGroups.length === 0 && (
+                <p className="empty">{results.length ? "No results match the current view." : "No availability saved yet."}</p>
+              )}
               {resultGroups.map((park) => {
                 const parkOpen = isResultGroupOpen(park.id);
                 return (
@@ -1430,18 +1681,8 @@ export default function App() {
                                           </span>
                                         </button>
                                         {stayOpen && (
-                                          <div className="table-wrap result-table-wrap">
-                                            <table className="result-table">
-                                              <thead>
-                                                <tr>
-                                                  <th>Site</th>
-                                                  <th>Status</th>
-                                                  <th>Watch / Found</th>
-                                                  <th>Actions</th>
-                                                </tr>
-                                              </thead>
-                                              <tbody>{stay.results.map(resultRow)}</tbody>
-                                            </table>
+                                          <div className="result-card-list">
+                                            {stay.results.map(resultCard)}
                                           </div>
                                         )}
                                       </section>
