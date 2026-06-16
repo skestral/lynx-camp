@@ -1,0 +1,1282 @@
+import {
+  Bell,
+  CalendarDays,
+  CheckCircle2,
+  Clipboard,
+  Download,
+  ExternalLink,
+  MapPin,
+  Pause,
+  Pencil,
+  Play,
+  Plus,
+  RefreshCw,
+  Save,
+  Search,
+  Settings,
+  TentTree,
+  Timer,
+  Trash2,
+  Upload,
+  Waves,
+  X
+} from "lucide-react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
+import { api } from "./api";
+import type {
+  ConfigBackup,
+  NotificationEvent,
+  NotificationStatus,
+  PresetPack,
+  ReleaseWindowProfileResult,
+  Result,
+  ScanRun,
+  SearchSuggestion,
+  Target,
+  Watch
+} from "./types";
+
+type LoadState = "idle" | "loading" | "error";
+
+const addDays = (days: number) => {
+  const date = new Date();
+  date.setDate(date.getDate() + days);
+  return date.toISOString().slice(0, 10);
+};
+
+const weekdayOptions = [
+  { value: 0, label: "Mon" },
+  { value: 1, label: "Tue" },
+  { value: 2, label: "Wed" },
+  { value: 3, label: "Thu" },
+  { value: 4, label: "Fri" },
+  { value: 5, label: "Sat" },
+  { value: 6, label: "Sun" }
+];
+
+function weekdayLabel(days: number[]) {
+  return [...days]
+    .sort((a, b) => a - b)
+    .map((day) => weekdayOptions.find((option) => option.value === day)?.label || "")
+    .filter(Boolean)
+    .join("/");
+}
+
+function patternKey(days: number[], nights: number) {
+  return `${[...days].sort((a, b) => a - b).join("-")}-${nights}n`;
+}
+
+function formatDate(value: string | null | undefined) {
+  if (!value) return "Not yet";
+  const dateOnly = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  const date = dateOnly
+    ? new Date(Number(dateOnly[1]), Number(dateOnly[2]) - 1, Number(dateOnly[3]))
+    : new Date(value);
+  return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", year: "numeric" }).format(date);
+}
+
+function formatDateTime(value: string | null | undefined) {
+  if (!value) return "Not scheduled";
+  return new Intl.DateTimeFormat(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit"
+  }).format(new Date(value));
+}
+
+function statusTone(status: string) {
+  if (status.startsWith("error")) return "danger";
+  if (status === "available" || status === "booked") return "success";
+  if (status === "clear" || status === "opened") return "calm";
+  return "quiet";
+}
+
+function filterSummary(filters: Watch["site_filters"]) {
+  const parts = [
+    filters.site_type ? `type ${filters.site_type}` : "",
+    filters.loop ? `loop ${filters.loop}` : "",
+    filters.site ? `site ${filters.site}` : "",
+    filters.min_people ? `${filters.min_people}+ people` : ""
+  ].filter(Boolean);
+  return parts.length ? `filters: ${parts.join(", ")}` : "no site filters";
+}
+
+function bookingBrief(result: Result) {
+  return [
+    "Camp Finder booking details",
+    `Campground: ${result.campground_name}`,
+    `Watch: ${result.watch_name}`,
+    `Site: ${result.site}`,
+    result.loop ? `Loop: ${result.loop}` : "",
+    result.campsite_type ? `Type: ${result.campsite_type}` : "",
+    `Arrival: ${formatDate(result.arrival_date)}`,
+    `Departure: ${formatDate(result.departure_date)}`,
+    `Recreation.gov: ${result.booking_url}`,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+async function writeClipboardText(text: string) {
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return;
+    } catch {
+      // Fall back for embedded browsers or local contexts that expose the API but deny writes.
+    }
+  }
+  const textArea = document.createElement("textarea");
+  textArea.value = text;
+  textArea.style.position = "fixed";
+  textArea.style.left = "-9999px";
+  document.body.appendChild(textArea);
+  textArea.focus();
+  textArea.select();
+  const copied = document.execCommand("copy");
+  textArea.remove();
+  if (!copied) {
+    throw new Error("Clipboard copy was not allowed by this browser.");
+  }
+}
+
+export default function App() {
+  const [targets, setTargets] = useState<Target[]>([]);
+  const [presets, setPresets] = useState<PresetPack[]>([]);
+  const [watches, setWatches] = useState<Watch[]>([]);
+  const [results, setResults] = useState<Result[]>([]);
+  const [scanRuns, setScanRuns] = useState<ScanRun[]>([]);
+  const [notifications, setNotifications] = useState<NotificationEvent[]>([]);
+  const [notificationStatus, setNotificationStatus] = useState<NotificationStatus>({ channels: [] });
+  const [loadState, setLoadState] = useState<LoadState>("idle");
+  const [message, setMessage] = useState("");
+  const [query, setQuery] = useState("");
+  const [suggestions, setSuggestions] = useState<SearchSuggestion[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [editingWatchId, setEditingWatchId] = useState<number | null>(null);
+  const [watchName, setWatchName] = useState("");
+  const [watchMode, setWatchMode] = useState<"weekend" | "specific">("weekend");
+  const [watchTarget, setWatchTarget] = useState("");
+  const [selectedWeekdays, setSelectedWeekdays] = useState<number[]>([4]);
+  const [watchNights, setWatchNights] = useState(2);
+  const [windowStart, setWindowStart] = useState(addDays(1));
+  const [windowEnd, setWindowEnd] = useState(addDays(180));
+  const [specificArrival, setSpecificArrival] = useState(addDays(30));
+  const [specificDeparture, setSpecificDeparture] = useState(addDays(32));
+  const [scanBusyId, setScanBusyId] = useState<number | null>(null);
+  const [scanAllBusy, setScanAllBusy] = useState(false);
+  const [testNotifyBusy, setTestNotifyBusy] = useState(false);
+  const [resultBusyId, setResultBusyId] = useState<number | null>(null);
+  const [bookingPreview, setBookingPreview] = useState<{ site: string; text: string } | null>(null);
+  const [importingPackId, setImportingPackId] = useState<string | null>(null);
+  const [configBusy, setConfigBusy] = useState<"export" | "import" | null>(null);
+  const [backupFile, setBackupFile] = useState<File | null>(null);
+  const [targetSettingsId, setTargetSettingsId] = useState("");
+  const [targetName, setTargetName] = useState("");
+  const [targetParkName, setTargetParkName] = useState("");
+  const [targetStateCode, setTargetStateCode] = useState("");
+  const [targetBookingUrl, setTargetBookingUrl] = useState("");
+  const [targetReleaseWindowValue, setTargetReleaseWindowValue] = useState(6);
+  const [targetReleaseWindowUnit, setTargetReleaseWindowUnit] = useState<Target["release_window_unit"]>("Months");
+  const [targetReleaseTime, setTargetReleaseTime] = useState("07:00");
+  const [targetTimezone, setTargetTimezone] = useState("America/Los_Angeles");
+  const [targetPollInterval, setTargetPollInterval] = useState(10);
+  const [detectReleaseBusy, setDetectReleaseBusy] = useState(false);
+  const [profileBusy, setProfileBusy] = useState(false);
+  const [releaseProfiles, setReleaseProfiles] = useState<ReleaseWindowProfileResult | null>(null);
+  const [filterSiteType, setFilterSiteType] = useState("");
+  const [filterLoop, setFilterLoop] = useState("");
+  const [filterSite, setFilterSite] = useState("");
+  const [filterMinPeople, setFilterMinPeople] = useState("");
+
+  const activeTargets = targets.filter((target) => target.active);
+  const activeWatches = watches.filter((watch) => watch.active && watch.target_active);
+  const activeResults = results.filter((result) => result.active && !["booked", "dismissed"].includes(result.status));
+  const watchSummary = `${activeWatches.length} active watch${activeWatches.length === 1 ? "" : "es"}`;
+  const latestRelease = useMemo(
+    () =>
+      activeWatches
+        .flatMap((watch) =>
+          watch.release_hints.map((hint) => ({
+            ...hint,
+            watch: watch.name,
+            target: watch.target_name
+          }))
+        )
+        .sort((a, b) => {
+          if (a.release_status !== b.release_status) {
+            return a.release_status === "upcoming" ? -1 : 1;
+          }
+          return a.release_status === "upcoming"
+            ? a.release_at.localeCompare(b.release_at)
+            : a.arrival_date.localeCompare(b.arrival_date);
+        })
+        .slice(0, 4),
+    [activeWatches]
+  );
+
+  async function refresh() {
+    setLoadState("loading");
+    try {
+      const [targetData, presetData, watchData, resultData, scanRunData, notificationData, notificationStatusData] = await Promise.all([
+        api.targets(),
+        api.presets(),
+        api.watches(),
+        api.results(),
+        api.scanRuns(),
+        api.notifications(),
+        api.notificationStatus()
+      ]);
+      setTargets(targetData);
+      setPresets(presetData);
+      setWatches(watchData);
+      setResults(resultData);
+      setScanRuns(scanRunData);
+      setNotifications(notificationData);
+      setNotificationStatus(notificationStatusData);
+      setLoadState("idle");
+      if (!watchTarget && targetData.length > 0) setWatchTarget(String(targetData[0].id));
+      if (!targetSettingsId && targetData.length > 0) {
+        loadTargetSettings(targetData[0]);
+      }
+    } catch (error) {
+      setLoadState("error");
+      setMessage(error instanceof Error ? error.message : "Unable to load Camp Finder.");
+    }
+  }
+
+  useEffect(() => {
+    refresh();
+  }, []);
+
+  useEffect(() => {
+    if (query.trim().length < 2) {
+      setSuggestions([]);
+      return;
+    }
+    const handle = window.setTimeout(async () => {
+      setSearching(true);
+      try {
+        setSuggestions(await api.search(query.trim()));
+      } catch {
+        setSuggestions([]);
+      } finally {
+        setSearching(false);
+      }
+    }, 300);
+    return () => window.clearTimeout(handle);
+  }, [query]);
+
+  function loadTargetSettings(target: Target) {
+    setTargetSettingsId(String(target.id));
+    setTargetName(target.name);
+    setTargetParkName(target.park_name);
+    setTargetStateCode(target.state_code);
+    setTargetBookingUrl(target.booking_url);
+    setTargetReleaseWindowValue(target.release_window_value || target.release_months);
+    setTargetReleaseWindowUnit(target.release_window_unit || "Months");
+    setTargetReleaseTime(target.release_time);
+    setTargetTimezone(target.timezone);
+    setTargetPollInterval(target.poll_interval_minutes);
+    setReleaseProfiles(null);
+  }
+
+  function generatedWatchName(isSpecific: boolean) {
+    return isSpecific
+      ? `Specific ${specificArrival}`
+      : `${weekdayLabel(selectedWeekdays)} starts, ${watchNights} night${watchNights === 1 ? "" : "s"}`;
+  }
+
+  function resetWatchForm() {
+    setEditingWatchId(null);
+    setWatchName("");
+  }
+
+  function editWatch(watch: Watch) {
+    setEditingWatchId(watch.id);
+    setWatchName(watch.name);
+    setWatchTarget(String(watch.target_id));
+    setWatchMode(watch.mode);
+    setSelectedWeekdays(watch.arrival_weekdays?.length ? watch.arrival_weekdays : [4]);
+    setWatchNights(watch.nights);
+    setWindowStart(watch.window_start);
+    setWindowEnd(watch.window_end);
+    const firstRange = watch.specific_ranges?.[0];
+    setSpecificArrival(firstRange?.arrival_date || watch.window_start);
+    setSpecificDeparture(firstRange?.departure_date || watch.window_end);
+    setFilterSiteType(watch.site_filters?.site_type || "");
+    setFilterLoop(watch.site_filters?.loop || "");
+    setFilterSite(watch.site_filters?.site || "");
+    setFilterMinPeople(watch.site_filters?.min_people ? String(watch.site_filters.min_people) : "");
+    setMessage(`Editing ${watch.name}.`);
+  }
+
+  async function addTarget(suggestion: SearchSuggestion) {
+    setMessage("");
+    await api.createTarget({
+      name: suggestion.name,
+      campground_id: suggestion.campground_id,
+      park_name: suggestion.park_name,
+      state_code: suggestion.state_code,
+      release_months: 6,
+      release_window_value: 6,
+      release_window_unit: "Months",
+      release_time: "07:00",
+      timezone: "America/Los_Angeles",
+      poll_interval_minutes: 10
+    });
+    setQuery("");
+    setSuggestions([]);
+    await refresh();
+  }
+
+  async function importPreset(packId: string) {
+    setImportingPackId(packId);
+    setMessage("");
+    try {
+      const result = await api.importPreset(packId);
+      setMessage(`Imported ${result.imported_count} new target${result.imported_count === 1 ? "" : "s"}; updated ${result.updated_count}.`);
+      await refresh();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Preset import failed.");
+    } finally {
+      setImportingPackId(null);
+    }
+  }
+
+  async function downloadConfigBackup() {
+    setConfigBusy("export");
+    setMessage("");
+    try {
+      const backup = await api.exportConfig();
+      const blob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `campfinder-backup-${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 0);
+      setMessage(`Downloaded backup with ${backup.targets.length} target${backup.targets.length === 1 ? "" : "s"}.`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Backup download failed.");
+    } finally {
+      setConfigBusy(null);
+    }
+  }
+
+  async function restoreConfigBackup() {
+    if (!backupFile) {
+      setMessage("Choose a JSON backup first.");
+      return;
+    }
+    setConfigBusy("import");
+    setMessage("");
+    try {
+      const parsed = JSON.parse(await backupFile.text()) as ConfigBackup;
+      const result = await api.importConfig(parsed);
+      setBackupFile(null);
+      setMessage(
+        `Restored ${result.target_count} target${result.target_count === 1 ? "" : "s"}; ` +
+          `${result.created_watches} new watch${result.created_watches === 1 ? "" : "es"}, ` +
+          `${result.updated_watches} updated.`
+      );
+      await refresh();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Backup restore failed.");
+    } finally {
+      setConfigBusy(null);
+    }
+  }
+
+  async function saveTargetSettings(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!targetSettingsId) {
+      setMessage("Choose a target to edit.");
+      return;
+    }
+    if (!targetName.trim()) {
+      setMessage("Target name is required.");
+      return;
+    }
+    const updated = await api.updateTarget(Number(targetSettingsId), {
+      name: targetName.trim(),
+      park_name: targetParkName.trim(),
+      state_code: targetStateCode.trim(),
+      booking_url: targetBookingUrl.trim(),
+      release_months: targetReleaseWindowUnit === "Months" ? targetReleaseWindowValue : undefined,
+      release_window_value: targetReleaseWindowValue,
+      release_window_unit: targetReleaseWindowUnit,
+      release_time: targetReleaseTime,
+      timezone: targetTimezone,
+      poll_interval_minutes: targetPollInterval
+    });
+    setMessage(`Updated ${updated.name}.`);
+    await refresh();
+  }
+
+  async function detectReleaseWindow() {
+    if (!targetSettingsId) {
+      setMessage("Choose a target first.");
+      return;
+    }
+    setDetectReleaseBusy(true);
+    setMessage("");
+    try {
+      const result = await api.detectTargetReleaseWindow(Number(targetSettingsId));
+      loadTargetSettings(result.target);
+      setMessage(
+        `Detected a ${result.detected.release_window_value} ${result.detected.release_window_unit.toLowerCase()} release window ` +
+          `from ${result.detected.source_campsite_count}/${result.detected.total_campsite_count} sampled campsites.`
+      );
+      await refresh();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Release-window detection failed.");
+    } finally {
+      setDetectReleaseBusy(false);
+    }
+  }
+
+  async function loadReleaseProfiles() {
+    if (!targetSettingsId) {
+      setMessage("Choose a target first.");
+      return;
+    }
+    setProfileBusy(true);
+    setMessage("");
+    try {
+      const profiles = await api.releaseWindowProfiles(Number(targetSettingsId));
+      setReleaseProfiles(profiles);
+      setMessage(
+        `Loaded ${profiles.profiles.length} release profile${profiles.profiles.length === 1 ? "" : "s"} from ${profiles.total_campsite_count} sampled campsites.`
+      );
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Release profiles failed to load.");
+    } finally {
+      setProfileBusy(false);
+    }
+  }
+
+  function toggleWeekday(day: number) {
+    setSelectedWeekdays((current) =>
+      current.includes(day) ? current.filter((item) => item !== day) : [...current, day].sort((a, b) => a - b)
+    );
+  }
+
+  async function submitWatch(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!watchTarget) {
+      setMessage("Add a campground target first.");
+      return;
+    }
+    const isSpecific = watchMode === "specific";
+    if (!isSpecific && selectedWeekdays.length === 0) {
+      setMessage("Choose at least one arrival day.");
+      return;
+    }
+    const payload = {
+      target_id: Number(watchTarget),
+      name: watchName.trim() || generatedWatchName(isSpecific),
+      mode: watchMode,
+      pattern: isSpecific ? "specific" : patternKey(selectedWeekdays, watchNights),
+      arrival_weekdays: isSpecific ? null : selectedWeekdays,
+      nights: isSpecific ? 1 : watchNights,
+      window_start: isSpecific ? specificArrival : windowStart,
+      window_end: isSpecific ? specificDeparture : windowEnd,
+      site_filters: {
+        site_type: filterSiteType.trim(),
+        loop: filterLoop.trim(),
+        site: filterSite.trim(),
+        min_people: filterMinPeople ? Number(filterMinPeople) : null
+      },
+      specific_ranges: isSpecific
+        ? [{ arrival_date: specificArrival, departure_date: specificDeparture }]
+        : []
+    };
+    if (editingWatchId) {
+      const updated = await api.updateWatch(editingWatchId, payload);
+      setMessage(`Updated ${updated.name}.`);
+      resetWatchForm();
+    } else {
+      const created = await api.createWatch(payload);
+      setMessage(`Added ${created.name}.`);
+      setWatchName("");
+    }
+    await refresh();
+  }
+
+  async function runScan(watchId: number) {
+    setScanBusyId(watchId);
+    setMessage("");
+    try {
+      const result = await api.runScan(watchId);
+      setMessage(result.message);
+      await refresh();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Scan failed.");
+    } finally {
+      setScanBusyId(null);
+    }
+  }
+
+  async function runAllScans() {
+    setScanAllBusy(true);
+    setMessage("");
+    try {
+      const result = await api.runAllScans();
+      setMessage(`Scanned ${result.watch_count} watch${result.watch_count === 1 ? "" : "es"}; found ${result.available_count} available match${result.available_count === 1 ? "" : "es"}.`);
+      await refresh();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Scan all failed.");
+    } finally {
+      setScanAllBusy(false);
+    }
+  }
+
+  async function testNotifications() {
+    setTestNotifyBusy(true);
+    setMessage("");
+    try {
+      const result = await api.testNotifications();
+      setMessage(result.results.map((item) => `${item.channel}: ${item.status}`).join("; "));
+      await refresh();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Notification test failed.");
+    } finally {
+      setTestNotifyBusy(false);
+    }
+  }
+
+  async function deleteTarget(targetId: number) {
+    setMessage("");
+    await api.deleteTarget(targetId);
+    await refresh();
+  }
+
+  async function updateTargetActive(target: Target, active: boolean) {
+    setMessage("");
+    const updated = await api.updateTarget(target.id, { active });
+    setMessage(`${active ? "Resumed" : "Paused"} ${updated.name}.`);
+    await refresh();
+  }
+
+  async function deleteWatch(watchId: number) {
+    setMessage("");
+    await api.deleteWatch(watchId);
+    await refresh();
+  }
+
+  async function updateWatchActive(watch: Watch, active: boolean) {
+    setMessage("");
+    const updated = await api.updateWatch(watch.id, { active });
+    setMessage(`${active ? "Resumed" : "Paused"} ${updated.name}.`);
+    await refresh();
+  }
+
+  async function updateResultStatus(resultId: number, status: Result["status"]) {
+    setResultBusyId(resultId);
+    setMessage("");
+    try {
+      const updated = await api.updateResultStatus(resultId, status);
+      setMessage(`Marked ${updated.site} as ${status}.`);
+      await refresh();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Result update failed.");
+    } finally {
+      setResultBusyId(null);
+    }
+  }
+
+  async function copyBookingDetails(result: Result) {
+    setMessage("");
+    const details = bookingBrief(result);
+    try {
+      await writeClipboardText(details);
+      setBookingPreview(null);
+      setMessage(`Copied booking details for ${result.site}.`);
+    } catch (error) {
+      setBookingPreview({ site: result.site, text: details });
+      setMessage(
+        error instanceof Error
+          ? `${error.message} Booking details are shown below.`
+          : "Unable to copy booking details. Booking details are shown below."
+      );
+    }
+  }
+
+  return (
+    <main className="app-shell">
+      <aside className="sidebar">
+        <div className="brand">
+          <span className="brand-mark">
+            <TentTree size={22} />
+          </span>
+          <span>Camp Finder</span>
+        </div>
+        <nav className="nav-list" aria-label="Primary">
+          <a className="nav-item active" href="#targets">
+            <MapPin size={18} /> Targets
+          </a>
+          <a className="nav-item" href="#watches">
+            <CalendarDays size={18} /> Watches
+          </a>
+          <a className="nav-item" href="#results">
+            <Bell size={18} /> Alerts
+          </a>
+          <a className="nav-item" href="#activity">
+            <Timer size={18} /> Activity
+          </a>
+          <a className="nav-item" href="#settings">
+            <Settings size={18} /> Settings
+          </a>
+        </nav>
+        <div className="sidebar-note">
+          <Timer size={18} />
+          <span>Minimum scan interval: 10 min</span>
+        </div>
+      </aside>
+
+      <section className="workspace">
+        <header className="topbar">
+          <div>
+            <h1>Availability Monitor</h1>
+            <p>{activeTargets.length} targets &middot; {watchSummary} &middot; {activeResults.length} active matches</p>
+          </div>
+          <div className="topbar-actions">
+            <button className="icon-button" onClick={runAllScans} disabled={scanAllBusy || activeWatches.length === 0} title="Run every active watch now">
+              <Play size={18} />
+              <span>Scan All</span>
+            </button>
+            <button className="icon-button primary" onClick={refresh} disabled={loadState === "loading"} title="Refresh data">
+              <RefreshCw size={18} />
+              <span>Refresh</span>
+            </button>
+          </div>
+        </header>
+
+        {message && <div className="notice">{message}</div>}
+        {loadState === "error" && <div className="notice danger">The API is not reachable yet.</div>}
+
+        <section className="summary-grid" aria-label="Monitor summary">
+          <SummaryMetric label="Targets" value={activeTargets.length.toString()} icon={<MapPin size={18} />} />
+          <SummaryMetric label="Active watches" value={activeWatches.length.toString()} icon={<CalendarDays size={18} />} />
+          <SummaryMetric label="Active matches" value={activeResults.length.toString()} icon={<CheckCircle2 size={18} />} />
+          <SummaryMetric label="Notifications" value={notifications.length.toString()} icon={<Bell size={18} />} />
+        </section>
+
+        <div className="content-grid">
+          <section className="panel" id="targets">
+            <div className="panel-heading">
+              <div>
+                <h2>Campground Targets</h2>
+                <p>Search Recreation.gov and pin the campgrounds you care about.</p>
+              </div>
+            </div>
+            <label className="search-box">
+              <Search size={18} />
+              <input
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="Search campground, park, or area"
+              />
+            </label>
+            <div className="suggestions">
+              {searching && <span className="muted">Searching...</span>}
+              {suggestions.map((suggestion) => (
+                <button key={suggestion.campground_id} className="suggestion-row" onClick={() => addTarget(suggestion)}>
+                  <span>
+                    <strong>{suggestion.name}</strong>
+                    <small>{suggestion.park_name || "Recreation.gov"} {suggestion.state_code}</small>
+                  </span>
+                  <Plus size={18} />
+                </button>
+              ))}
+            </div>
+            <div className="preset-packs">
+              <div className="subheading">
+                <strong>Preset packs</strong>
+                <small>Import a starting list, then trim it to your actual targets.</small>
+              </div>
+              {presets.map((pack) => (
+                <article className="preset-row" key={pack.id}>
+                  <span>
+                    <strong>{pack.name}</strong>
+                    <small>{pack.imported_count}/{pack.target_count} imported &middot; {pack.description}</small>
+                  </span>
+                  <button
+                    className="icon-only"
+                    onClick={() => importPreset(pack.id)}
+                    disabled={importingPackId === pack.id}
+                    title={`Import ${pack.name}`}
+                  >
+                    <Download size={17} />
+                  </button>
+                </article>
+              ))}
+            </div>
+            <div className="target-list">
+              {targets.length === 0 && <p className="empty">No targets yet. Add a campground to start watching dates.</p>}
+              {targets.map((target) => (
+                <article className={`target-row ${target.active ? "" : "inactive"}`} key={target.id}>
+                  <span className="target-icon"><Waves size={18} /></span>
+                  <span>
+                    <strong>{target.name}</strong>
+                    <small>
+                      {target.park_name || "Campground"} &middot; {target.campground_id} &middot;{" "}
+                      {target.release_window_value || target.release_months} {(target.release_window_unit || "Months").toLowerCase()} @ {target.release_time}
+                    </small>
+                  </span>
+                  <span className="row-actions">
+                    <span className={`status ${statusTone(target.active ? target.last_status : "paused")}`}>
+                      {target.active ? target.last_status : "paused"}
+                    </span>
+                    <button
+                      className="icon-only"
+                      onClick={() => updateTargetActive(target, !target.active)}
+                      title={`${target.active ? "Pause" : "Resume"} ${target.name}`}
+                    >
+                      {target.active ? <Pause size={16} /> : <Play size={16} />}
+                    </button>
+                    <button className="icon-only quiet" onClick={() => deleteTarget(target.id)} title={`Delete ${target.name}`}>
+                      <Trash2 size={16} />
+                    </button>
+                  </span>
+                </article>
+              ))}
+            </div>
+            {targets.length > 0 && (
+              <form className="target-settings-form" onSubmit={saveTargetSettings}>
+                <div className="subheading">
+                  <strong>Target settings</strong>
+                  <small>Edit display details and booking window math for each target.</small>
+                </div>
+                <label>
+                  Target
+                  <select
+                    value={targetSettingsId}
+                    onChange={(event) => {
+                      const target = targets.find((item) => String(item.id) === event.target.value);
+                      if (target) loadTargetSettings(target);
+                    }}
+                  >
+                    {targets.map((target) => (
+                      <option key={target.id} value={target.id}>{target.name}</option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Display name
+                  <input value={targetName} onChange={(event) => setTargetName(event.target.value)} />
+                </label>
+                <label>
+                  Park label
+                  <input value={targetParkName} onChange={(event) => setTargetParkName(event.target.value)} />
+                </label>
+                <label>
+                  State
+                  <input maxLength={8} value={targetStateCode} onChange={(event) => setTargetStateCode(event.target.value)} />
+                </label>
+                <label className="wide-field">
+                  Booking URL
+                  <input value={targetBookingUrl} onChange={(event) => setTargetBookingUrl(event.target.value)} />
+                </label>
+                <label>
+                  Release window
+                  <input
+                    min="0"
+                    max="730"
+                    type="number"
+                    value={targetReleaseWindowValue}
+                    onChange={(event) => setTargetReleaseWindowValue(Number(event.target.value))}
+                  />
+                </label>
+                <label>
+                  Window unit
+                  <select
+                    value={targetReleaseWindowUnit}
+                    onChange={(event) => setTargetReleaseWindowUnit(event.target.value as Target["release_window_unit"])}
+                  >
+                    <option value="Days">Days</option>
+                    <option value="Weeks">Weeks</option>
+                    <option value="Months">Months</option>
+                  </select>
+                </label>
+                <label>
+                  Release time
+                  <input type="time" value={targetReleaseTime} onChange={(event) => setTargetReleaseTime(event.target.value)} />
+                </label>
+                <label>
+                  Timezone
+                  <input value={targetTimezone} onChange={(event) => setTargetTimezone(event.target.value)} />
+                </label>
+                <label>
+                  Scan interval
+                  <input
+                    min="10"
+                    max="1440"
+                    type="number"
+                    value={targetPollInterval}
+                    onChange={(event) => setTargetPollInterval(Number(event.target.value))}
+                  />
+                </label>
+                <button className="icon-button" type="submit">
+                  <Save size={18} />
+                  <span>Save Target</span>
+                </button>
+                <button className="icon-button" type="button" onClick={detectReleaseWindow} disabled={detectReleaseBusy}>
+                  <RefreshCw size={18} />
+                  <span>Detect Window</span>
+                </button>
+                <button className="icon-button" type="button" onClick={loadReleaseProfiles} disabled={profileBusy}>
+                  <Timer size={18} />
+                  <span>View Profiles</span>
+                </button>
+                {releaseProfiles && (
+                  <div className="release-profile-list">
+                    <div className="subheading">
+                      <strong>Detected release profiles</strong>
+                      <small>
+                        {formatDate(releaseProfiles.sampled_month)} sample &middot; {releaseProfiles.total_campsite_count} campsites
+                      </small>
+                    </div>
+                    {releaseProfiles.profiles.slice(0, 8).map((profile, index) => (
+                      <article className="release-profile-row" key={`${profile.loop}-${profile.campsite_type}-${profile.release_window_value}-${profile.release_window_unit}-${index}`}>
+                        <span>
+                          <strong>{[profile.loop ? `Loop ${profile.loop}` : "No loop", profile.campsite_type || "Campsite"].join(" / ")}</strong>
+                          <small>{profile.campsite_count} sampled site{profile.campsite_count === 1 ? "" : "s"}</small>
+                        </span>
+                        <span className={`status ${profile.release_window_value ? "calm" : "quiet"}`}>
+                          {profile.release_window_value
+                            ? `${profile.release_window_value} ${profile.release_window_unit.toLowerCase()}`
+                            : "not exposed"}
+                        </span>
+                      </article>
+                    ))}
+                  </div>
+                )}
+              </form>
+            )}
+          </section>
+
+          <section className="panel" id="watches">
+            <div className="panel-heading">
+              <div>
+                <h2>Watch Rules</h2>
+                <p>Scan weekend patterns or exact stays for each target.</p>
+              </div>
+            </div>
+            <form className="watch-form" onSubmit={submitWatch}>
+              <label>
+                Name
+                <input value={watchName} onChange={(event) => setWatchName(event.target.value)} placeholder={generatedWatchName(watchMode === "specific")} />
+              </label>
+              <label>
+                Target
+                <select value={watchTarget} onChange={(event) => setWatchTarget(event.target.value)}>
+                  {targets.map((target) => (
+                    <option key={target.id} value={target.id}>{target.name}</option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Mode
+                <select value={watchMode} onChange={(event) => setWatchMode(event.target.value as "weekend" | "specific")}>
+                  <option value="weekend">Weekend pattern</option>
+                  <option value="specific">Specific dates</option>
+                </select>
+              </label>
+              {watchMode === "weekend" ? (
+                <>
+                  <label>
+                    Arrival days
+                    <span className="weekday-toggle" aria-label="Arrival days">
+                      {weekdayOptions.map((day) => (
+                        <button
+                          className={selectedWeekdays.includes(day.value) ? "selected" : ""}
+                          key={day.value}
+                          onClick={() => toggleWeekday(day.value)}
+                          type="button"
+                        >
+                          {day.label}
+                        </button>
+                      ))}
+                    </span>
+                  </label>
+                  <label>
+                    Nights
+                    <input
+                      min="1"
+                      max="14"
+                      type="number"
+                      value={watchNights}
+                      onChange={(event) => setWatchNights(Number(event.target.value))}
+                    />
+                  </label>
+                  <label>
+                    Window start
+                    <input type="date" value={windowStart} onChange={(event) => setWindowStart(event.target.value)} />
+                  </label>
+                  <label>
+                    Window end
+                    <input type="date" value={windowEnd} onChange={(event) => setWindowEnd(event.target.value)} />
+                  </label>
+                </>
+              ) : (
+                <>
+                  <label>
+                    Arrival
+                    <input type="date" value={specificArrival} onChange={(event) => setSpecificArrival(event.target.value)} />
+                  </label>
+                  <label>
+                    Departure
+                    <input type="date" value={specificDeparture} onChange={(event) => setSpecificDeparture(event.target.value)} />
+                  </label>
+                </>
+              )}
+              <label>
+                Site type
+                <input value={filterSiteType} onChange={(event) => setFilterSiteType(event.target.value)} placeholder="Tent, RV, group" />
+              </label>
+              <label>
+                Loop
+                <input value={filterLoop} onChange={(event) => setFilterLoop(event.target.value)} placeholder="A, river, meadow" />
+              </label>
+              <label>
+                Site text
+                <input value={filterSite} onChange={(event) => setFilterSite(event.target.value)} placeholder="A12, walk-in" />
+              </label>
+              <label>
+                Min people
+                <input
+                  min="1"
+                  max="99"
+                  type="number"
+                  value={filterMinPeople}
+                  onChange={(event) => setFilterMinPeople(event.target.value)}
+                  placeholder="4"
+                />
+              </label>
+              <button className="icon-button" type="submit">
+                {editingWatchId ? <Save size={18} /> : <Plus size={18} />}
+                <span>{editingWatchId ? "Save Watch" : "Add Watch"}</span>
+              </button>
+              {editingWatchId && (
+                <button className="icon-button" type="button" onClick={resetWatchForm}>
+                  <X size={18} />
+                  <span>Cancel</span>
+                </button>
+              )}
+            </form>
+            <div className="watch-list">
+              {watches.length === 0 && <p className="empty">No watch rules yet.</p>}
+              {watches.map((watch) => {
+                const watchPaused = !watch.active || !watch.target_active;
+                return (
+                <article className={`watch-row ${watchPaused ? "inactive" : ""}`} key={watch.id}>
+                  <span>
+                    <strong>{watch.name}</strong>
+                    <small>
+                      {watch.target_name} &middot; {watch.candidate_count} stays &middot; {filterSummary(watch.site_filters)} &middot;{" "}
+                      {watchPaused ? "paused" : `next ${formatDateTime(watch.next_scan_at)}`}
+                    </small>
+                  </span>
+                  <span className="row-actions">
+                    <span className={`status ${watchPaused ? "quiet" : "success"}`}>{watchPaused ? "paused" : "active"}</span>
+                    <button className="icon-only" onClick={() => editWatch(watch)} title={`Edit ${watch.name}`}>
+                      <Pencil size={16} />
+                    </button>
+                    <button className="icon-only" onClick={() => runScan(watch.id)} disabled={scanBusyId === watch.id || watchPaused} title="Run scan now">
+                      <RefreshCw size={17} />
+                    </button>
+                    <button
+                      className="icon-only"
+                      onClick={() => updateWatchActive(watch, !watch.active)}
+                      disabled={!watch.target_active}
+                      title={
+                        !watch.target_active
+                          ? "Resume the target before resuming this watch"
+                          : `${watch.active ? "Pause" : "Resume"} ${watch.name}`
+                      }
+                    >
+                      {watch.active ? <Pause size={16} /> : <Play size={16} />}
+                    </button>
+                    <button className="icon-only quiet" onClick={() => deleteWatch(watch.id)} title={`Delete ${watch.name}`}>
+                      <Trash2 size={16} />
+                    </button>
+                  </span>
+                </article>
+                );
+              })}
+            </div>
+          </section>
+        </div>
+
+        <div className="content-grid lower">
+          <section className="panel release-panel">
+            <div className="panel-heading">
+              <div>
+                <h2>Release Planner</h2>
+                <p>Calculated from each target's configurable booking window.</p>
+              </div>
+            </div>
+            <div className="release-list">
+              {latestRelease.length === 0 && <p className="empty">No future release windows calculated yet.</p>}
+              {latestRelease.map((hint) => (
+                <article className="release-row" key={`${hint.target}-${hint.arrival_date}-${hint.release_at}`}>
+                  <span>
+                    <strong>{hint.target}</strong>
+                    <small>{hint.watch} &middot; {formatDate(hint.arrival_date)} to {formatDate(hint.departure_date)}</small>
+                  </span>
+                  <time>
+                    {hint.release_status === "upcoming" ? "Opens " : "Open since "}
+                    {formatDateTime(hint.release_at)}
+                  </time>
+                </article>
+              ))}
+            </div>
+          </section>
+
+          <section className="panel scan-panel" id="activity">
+            <div className="panel-heading">
+              <div>
+                <h2>Recent Scan Activity</h2>
+                <p>Latest background and manual scan runs.</p>
+              </div>
+            </div>
+            <div className="status-list">
+              {scanRuns.length === 0 && <p className="empty">No scans have run yet.</p>}
+              {scanRuns.slice(0, 6).map((run) => (
+                <article className="status-row scan-row" key={run.id}>
+                  <span>
+                    <strong>{run.watch_name}</strong>
+                    <small>
+                      {run.target_name} &middot; {run.candidate_count} stays &middot; {run.available_count} matches
+                    </small>
+                    <small>{run.message}</small>
+                  </span>
+                  <span>
+                    <span className={`status ${statusTone(run.status === "success" && run.available_count > 0 ? "available" : run.status)}`}>
+                      {run.status}
+                    </span>
+                    <small>{formatDateTime(run.finished_at || run.started_at)}</small>
+                  </span>
+                </article>
+              ))}
+            </div>
+          </section>
+
+          <section className="panel notification-panel" id="settings">
+            <div className="panel-heading">
+              <div>
+                <h2>Notification Status</h2>
+                <p>Configured from Docker or local environment variables.</p>
+              </div>
+              <button className="icon-button" onClick={testNotifications} disabled={testNotifyBusy} title="Send a test notification">
+                <Bell size={17} />
+                <span>Test</span>
+              </button>
+            </div>
+            <div className="status-list">
+              {notificationStatus.channels.map((channel) => (
+                <article className="status-row" key={channel.channel}>
+                  <span>
+                    <strong>{channel.channel}</strong>
+                    <small>{channel.detail}</small>
+                  </span>
+                  <span className={`status ${channel.configured ? "success" : "quiet"}`}>
+                    {channel.configured ? "configured" : "missing"}
+                  </span>
+                </article>
+              ))}
+            </div>
+            <div className="backup-tools">
+              <div className="subheading">
+                <strong>Configuration Backup</strong>
+                <small>Targets, release settings, and watch rules.</small>
+              </div>
+              <div className="backup-actions">
+                <button
+                  className="icon-button"
+                  onClick={downloadConfigBackup}
+                  disabled={configBusy !== null}
+                  title="Download configuration backup"
+                  type="button"
+                >
+                  <Download size={17} />
+                  <span>Download</span>
+                </button>
+                <label className={`file-picker ${configBusy !== null ? "disabled" : ""}`}>
+                  <input
+                    accept="application/json,.json"
+                    disabled={configBusy !== null}
+                    onChange={(event) => setBackupFile(event.target.files?.[0] || null)}
+                    type="file"
+                  />
+                  <Upload size={17} />
+                  <span>{backupFile ? backupFile.name : "Choose JSON"}</span>
+                </label>
+                <button
+                  className="icon-button"
+                  onClick={restoreConfigBackup}
+                  disabled={configBusy !== null || !backupFile}
+                  title="Restore configuration backup"
+                  type="button"
+                >
+                  <Upload size={17} />
+                  <span>Restore</span>
+                </button>
+              </div>
+            </div>
+            <div className="notification-log">
+              <div className="subheading">
+                <strong>Recent notifications</strong>
+                <small>{notifications.length ? "Latest delivery attempts from availability matches." : "No notification attempts yet."}</small>
+              </div>
+              {notifications.slice(0, 4).map((event) => (
+                <article className="status-row" key={event.id}>
+                  <span>
+                    <strong>{event.channel}</strong>
+                    <small>{event.message}</small>
+                  </span>
+                  <span className={`status ${event.status === "sent" ? "success" : event.status === "error" ? "danger" : "quiet"}`}>
+                    {event.status}
+                  </span>
+                </article>
+              ))}
+            </div>
+          </section>
+
+          <section className="panel results-panel" id="results">
+            <div className="panel-heading">
+              <div>
+                <h2>Availability Results</h2>
+                <p>New matches are stored once and linked directly to Recreation.gov.</p>
+              </div>
+            </div>
+            {bookingPreview && (
+              <div className="booking-preview">
+                <div className="subheading">
+                  <strong>Booking details for {bookingPreview.site}</strong>
+                  <small>Select the text below if clipboard access is blocked.</small>
+                </div>
+                <textarea readOnly value={bookingPreview.text} />
+                <button className="icon-button" type="button" onClick={() => setBookingPreview(null)}>
+                  <X size={18} />
+                  <span>Close</span>
+                </button>
+              </div>
+            )}
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Campground</th>
+                    <th>Site</th>
+                    <th>Stay</th>
+                    <th>Status</th>
+                    <th>Found</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {results.length === 0 && (
+                    <tr>
+                      <td colSpan={6} className="empty-cell">No availability saved yet.</td>
+                    </tr>
+                  )}
+                  {results.map((result) => (
+                    <tr key={result.id}>
+                      <td>
+                        <strong>{result.campground_name}</strong>
+                        <small>{result.watch_name}</small>
+                      </td>
+                      <td>
+                        <strong>{result.site}</strong>
+                        <small>{[result.loop, result.campsite_type].filter(Boolean).join(" / ") || "Campsite"}</small>
+                      </td>
+                      <td>{formatDate(result.arrival_date)} - {formatDate(result.departure_date)}</td>
+                      <td>
+                        <span className={`status ${statusTone(result.status)}`}>{result.status}</span>
+                      </td>
+                      <td>{formatDateTime(result.discovered_at)}</td>
+                      <td>
+                        <div className="result-actions">
+                        <a
+                          className="link-button"
+                          href={result.booking_url}
+                          target="_blank"
+                          rel="noreferrer"
+                          onClick={() => {
+                            if (result.status === "available") void updateResultStatus(result.id, "opened");
+                          }}
+                        >
+                          <ExternalLink size={16} /> Open
+                        </a>
+                        <button
+                          className="icon-button"
+                          type="button"
+                          onClick={() => void copyBookingDetails(result)}
+                          title="Copy campground, site, dates, and booking link"
+                        >
+                          <Clipboard size={16} /> Copy
+                        </button>
+                        {(result.status === "available" || result.status === "opened") && (
+                          <button
+                            className="icon-button"
+                            type="button"
+                            disabled={resultBusyId === result.id}
+                            onClick={() => void updateResultStatus(result.id, "booked")}
+                            title="Mark this availability as booked"
+                          >
+                            <CheckCircle2 size={16} /> Booked
+                          </button>
+                        )}
+                        {(result.status === "available" || result.status === "opened") && (
+                          <button
+                            className="icon-button"
+                            type="button"
+                            disabled={resultBusyId === result.id}
+                            onClick={() => void updateResultStatus(result.id, "dismissed")}
+                            title="Dismiss this availability"
+                          >
+                            <Trash2 size={16} /> Dismiss
+                          </button>
+                        )}
+                        {(result.status === "booked" || result.status === "dismissed") && (
+                          <button
+                            className="icon-button"
+                            type="button"
+                            disabled={resultBusyId === result.id}
+                            onClick={() => void updateResultStatus(result.id, "available")}
+                            title="Move this result back to active availability"
+                          >
+                            <RefreshCw size={16} /> Reopen
+                          </button>
+                        )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+      </section>
+    </main>
+  );
+}
+
+function SummaryMetric({ label, value, icon }: { label: string; value: string; icon: React.ReactNode }) {
+  return (
+    <article className="metric">
+      <span>{icon}</span>
+      <div>
+        <strong>{value}</strong>
+        <small>{label}</small>
+      </div>
+    </article>
+  );
+}

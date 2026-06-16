@@ -1,0 +1,16 @@
+__pycache__/
+.pytest_cache/
+.venv/
+venv/
+node_modules/
+dist/
+frontend/dist/
+data/
+artifacts/
+appdata/*
+!appdata/config/
+appdata/config/*
+!appdata/config/.env.example
+.env
+.DS_Store
+*.log

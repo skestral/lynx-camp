@@ -1,0 +1,13 @@
+services:
+  campfinder:
+    image: ghcr.io/skestral/lynx-camp:main
+    container_name: campfinder
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    env_file:
+      - ./appdata/config/.env
+    environment:
+      CAMPFINDER_DB: /data/campfinder.db
+    volumes:
+      - ./appdata:/data

@@ -1,0 +1,256 @@
+from __future__ import annotations
+
+import asyncio
+from contextlib import asynccontextmanager
+from datetime import date
+
+from fastapi import FastAPI, HTTPException, Query
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
+
+from .db import Store
+from .notifications import Notifier
+from .presets import import_preset_pack, list_preset_packs
+from .recreation import RecreationClient
+from .scanner import Scanner, generate_trip_windows, release_hints
+from .schemas import ConfigBackup, ResultStatusUpdate, TargetCreate, TargetUpdate, WatchCreate, WatchUpdate
+from .settings import settings
+
+
+store = Store(settings.database_path)
+client = RecreationClient()
+notifier = Notifier(settings)
+scanner = Scanner(
+    store,
+    client,
+    notifier,
+    settings.min_poll_interval_minutes,
+    settings.release_scan_before_minutes,
+    settings.release_scan_after_minutes,
+    settings.release_scan_interval_minutes,
+)
+
+
+async def scan_loop() -> None:
+    while True:
+        await scanner.scan_due_watches()
+        await asyncio.sleep(settings.scan_loop_seconds)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    store.init()
+    task = asyncio.create_task(scan_loop())
+    try:
+        yield
+    finally:
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+
+app = FastAPI(title="Camp Finder", lifespan=lifespan)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+@app.get("/api/health")
+def health() -> dict:
+    return {"ok": True, "database": str(settings.database_path)}
+
+
+@app.get("/api/search")
+async def search_campgrounds(q: str = Query(min_length=2)) -> list[dict]:
+    return await client.suggest_campgrounds(q)
+
+
+@app.get("/api/targets")
+def list_targets() -> list[dict]:
+    return store.list_targets()
+
+
+@app.post("/api/targets")
+def create_target(payload: TargetCreate) -> dict:
+    return store.create_target(payload.model_dump(), settings.min_poll_interval_minutes)
+
+
+@app.patch("/api/targets/{target_id}")
+def update_target(target_id: int, payload: TargetUpdate) -> dict:
+    target = store.update_target(target_id, payload.model_dump(exclude_unset=True), settings.min_poll_interval_minutes)
+    if target is None:
+        raise HTTPException(status_code=404, detail=f"target {target_id} not found")
+    return target
+
+
+@app.post("/api/targets/{target_id}/detect-release-window")
+async def detect_target_release_window(target_id: int) -> dict:
+    target = store.get_target(target_id)
+    if target is None:
+        raise HTTPException(status_code=404, detail=f"target {target_id} not found")
+    detected = await client.detect_release_window(target["campground_id"])
+    if detected is None:
+        raise HTTPException(status_code=404, detail="No reservation window data found for this target")
+    updated = store.update_target(
+        target_id,
+        {
+            "release_window_value": detected["release_window_value"],
+            "release_window_unit": detected["release_window_unit"],
+        },
+        settings.min_poll_interval_minutes,
+    )
+    return {"target": updated, "detected": detected}
+
+
+@app.get("/api/targets/{target_id}/release-window-profiles")
+async def target_release_window_profiles(target_id: int) -> dict:
+    target = store.get_target(target_id)
+    if target is None:
+        raise HTTPException(status_code=404, detail=f"target {target_id} not found")
+    return await client.release_window_profiles(target["campground_id"])
+
+
+@app.delete("/api/targets/{target_id}")
+def delete_target(target_id: int) -> dict:
+    deleted = store.delete_target(target_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail=f"target {target_id} not found")
+    return {"deleted": True}
+
+
+@app.get("/api/presets")
+def list_presets() -> list[dict]:
+    return list_preset_packs(store)
+
+
+@app.post("/api/presets/{pack_id}/import")
+def import_preset(pack_id: str) -> dict:
+    try:
+        return import_preset_pack(store, pack_id, settings.min_poll_interval_minutes)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.get("/api/config/export")
+def export_config() -> dict:
+    return store.export_config()
+
+
+@app.post("/api/config/import")
+def import_config(payload: ConfigBackup) -> dict:
+    try:
+        return store.import_config(payload.model_dump(mode="json"), settings.min_poll_interval_minutes)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/watches")
+def list_watches() -> list[dict]:
+    watches = store.list_watches()
+    for watch in watches:
+        trips = generate_trip_windows(watch)
+        watch["candidate_count"] = len([trip for trip in trips if trip.arrival_date >= date.today()])
+        watch["release_hints"] = release_hints(watch)
+    return watches
+
+
+@app.post("/api/watches")
+def create_watch(payload: WatchCreate) -> dict:
+    watch = store.create_watch(payload.model_dump(mode="json"))
+    watch["candidate_count"] = len(generate_trip_windows(watch))
+    watch["release_hints"] = release_hints(watch)
+    return watch
+
+
+@app.post("/api/watches/{watch_id}/scan")
+async def run_scan(watch_id: int) -> dict:
+    try:
+        return await scanner.scan_watch(watch_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.patch("/api/watches/{watch_id}")
+def update_watch(watch_id: int, payload: WatchUpdate) -> dict:
+    try:
+        watch = store.update_watch(watch_id, payload.model_dump(exclude_unset=True, mode="json"))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if watch is None:
+        raise HTTPException(status_code=404, detail=f"watch {watch_id} not found")
+    trips = generate_trip_windows(watch)
+    watch["candidate_count"] = len([trip for trip in trips if trip.arrival_date >= date.today()])
+    watch["release_hints"] = release_hints(watch)
+    return watch
+
+
+@app.post("/api/scans/run-all")
+async def run_all_scans() -> dict:
+    return await scanner.scan_all_watches()
+
+
+@app.get("/api/scans")
+def list_scan_runs(limit: int = Query(default=25, ge=1, le=100)) -> list[dict]:
+    return store.list_scan_runs(limit)
+
+
+@app.delete("/api/watches/{watch_id}")
+def delete_watch(watch_id: int) -> dict:
+    deleted = store.delete_watch(watch_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail=f"watch {watch_id} not found")
+    return {"deleted": True}
+
+
+@app.get("/api/results")
+def list_results(limit: int = Query(default=50, ge=1, le=200)) -> list[dict]:
+    return store.list_results(limit)
+
+
+@app.patch("/api/results/{result_id}")
+def update_result_status(result_id: int, payload: ResultStatusUpdate) -> dict:
+    result = store.update_result_status(result_id, payload.status)
+    if result is None:
+        raise HTTPException(status_code=404, detail=f"result {result_id} not found")
+    return result
+
+
+@app.get("/api/notifications")
+def list_notifications(limit: int = Query(default=25, ge=1, le=100)) -> list[dict]:
+    return store.list_notifications(limit)
+
+
+@app.get("/api/notifications/status")
+def notification_status() -> dict:
+    return notifier.status()
+
+
+@app.post("/api/notifications/test")
+async def test_notifications() -> dict:
+    return await notifier.send_test()
+
+
+if settings.static_dir.exists():
+    app.mount("/assets", StaticFiles(directory=settings.static_dir / "assets"), name="assets")
+
+
+@app.get("/{path:path}")
+def serve_frontend(path: str):
+    index = settings.static_dir / "index.html"
+    requested = settings.static_dir / path
+    if requested.exists() and requested.is_file():
+        return FileResponse(requested)
+    if index.exists():
+        return FileResponse(index)
+    return JSONResponse(
+        {
+            "message": "Camp Finder API is running. Build the frontend with `npm run build` in frontend/ to serve the UI."
+        }
+    )
