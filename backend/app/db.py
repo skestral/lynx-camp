@@ -8,6 +8,8 @@ from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+from .coordinates import CAMPGROUND_COORDINATES
+
 
 def utc_now() -> str:
     return datetime.now(UTC).replace(microsecond=0).isoformat()
@@ -26,6 +28,25 @@ def _normalize_release_window_unit(value: Any) -> str:
     if normalized in {"week", "weeks"}:
         return "Weeks"
     return "Months"
+
+
+def _optional_float(value: Any) -> float | None:
+    try:
+        if value is None or value == "":
+            return None
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _target_with_coordinates(target: dict[str, Any] | None) -> dict[str, Any] | None:
+    if target is None:
+        return None
+    if _optional_float(target.get("latitude")) is None or _optional_float(target.get("longitude")) is None:
+        coordinates = CAMPGROUND_COORDINATES.get(str(target.get("campground_id") or ""))
+        if coordinates:
+            target = {**target, "latitude": coordinates[0], "longitude": coordinates[1]}
+    return target
 
 
 class Store:
@@ -54,6 +75,8 @@ class Store:
                     campground_id TEXT NOT NULL UNIQUE,
                     park_name TEXT NOT NULL DEFAULT '',
                     state_code TEXT NOT NULL DEFAULT '',
+                    latitude REAL,
+                    longitude REAL,
                     booking_url TEXT NOT NULL,
                     release_months INTEGER NOT NULL DEFAULT 6,
                     release_window_value INTEGER NOT NULL DEFAULT 6,
@@ -135,6 +158,8 @@ class Store:
             self._ensure_column(conn, "watches", "site_filters_json", "TEXT")
             self._ensure_column(conn, "targets", "release_window_value", "INTEGER NOT NULL DEFAULT 6")
             self._ensure_column(conn, "targets", "release_window_unit", "TEXT NOT NULL DEFAULT 'Months'")
+            self._ensure_column(conn, "targets", "latitude", "REAL")
+            self._ensure_column(conn, "targets", "longitude", "REAL")
             self._ensure_column(conn, "results", "opened_at", "TEXT")
             self._ensure_column(conn, "results", "booked_at", "TEXT")
             self._ensure_column(conn, "results", "dismissed_at", "TEXT")
@@ -148,7 +173,11 @@ class Store:
     def list_targets(self) -> list[dict[str, Any]]:
         with self.connect() as conn:
             rows = conn.execute("SELECT * FROM targets ORDER BY active DESC, name").fetchall()
-            return [_row_to_dict(row) for row in rows if row is not None]
+            return [
+                target
+                for row in rows
+                if row is not None and (target := _target_with_coordinates(_row_to_dict(row)))
+            ]
 
     def delete_target(self, target_id: int) -> bool:
         with self.connect() as conn:
@@ -169,12 +198,17 @@ class Store:
         if merged["release_window_unit"] == "Months":
             merged["release_months"] = int(merged.get("release_window_value") or 6)
         merged["poll_interval_minutes"] = max(int(merged.get("poll_interval_minutes") or 10), min_poll_interval_minutes)
+        coordinates = CAMPGROUND_COORDINATES.get(str(merged.get("campground_id") or ""))
+        latitude = _optional_float(merged.get("latitude"))
+        longitude = _optional_float(merged.get("longitude"))
+        if (latitude is None or longitude is None) and coordinates:
+            latitude, longitude = coordinates
         now = utc_now()
         with self.connect() as conn:
             conn.execute(
                 """
                 UPDATE targets
-                SET name = ?, park_name = ?, state_code = ?, booking_url = ?, release_months = ?,
+                SET name = ?, park_name = ?, state_code = ?, latitude = ?, longitude = ?, booking_url = ?, release_months = ?,
                     release_window_value = ?, release_window_unit = ?,
                     release_time = ?, timezone = ?, poll_interval_minutes = ?, active = ?, updated_at = ?
                 WHERE id = ?
@@ -183,6 +217,8 @@ class Store:
                     merged["name"],
                     merged.get("park_name") or "",
                     merged.get("state_code") or "",
+                    latitude,
+                    longitude,
                     merged.get("booking_url") or f"https://www.recreation.gov/camping/campgrounds/{merged['campground_id']}",
                     int(merged.get("release_months") or 6),
                     int(merged.get("release_window_value") or 6),
@@ -200,12 +236,12 @@ class Store:
     def get_target(self, target_id: int) -> dict[str, Any] | None:
         with self.connect() as conn:
             row = conn.execute("SELECT * FROM targets WHERE id = ?", (target_id,)).fetchone()
-            return _row_to_dict(row)
+            return _target_with_coordinates(_row_to_dict(row))
 
     def get_target_by_campground_id(self, campground_id: str) -> dict[str, Any] | None:
         with self.connect() as conn:
             row = conn.execute("SELECT * FROM targets WHERE campground_id = ?", (campground_id,)).fetchone()
-            return _row_to_dict(row)
+            return _target_with_coordinates(_row_to_dict(row))
 
     def create_target(self, data: dict[str, Any], min_poll_interval_minutes: int = 10) -> dict[str, Any]:
         now = utc_now()
@@ -214,18 +250,25 @@ class Store:
         release_window_value = int(data.get("release_window_value") or data.get("release_months") or 6)
         release_window_unit = _normalize_release_window_unit(data.get("release_window_unit") or "Months")
         release_months = release_window_value if release_window_unit == "Months" else int(data.get("release_months") or 6)
+        coordinates = CAMPGROUND_COORDINATES.get(str(data.get("campground_id") or ""))
+        latitude = _optional_float(data.get("latitude"))
+        longitude = _optional_float(data.get("longitude"))
+        if (latitude is None or longitude is None) and coordinates:
+            latitude, longitude = coordinates
         with self.connect() as conn:
             conn.execute(
                 """
                 INSERT INTO targets (
-                    name, campground_id, park_name, state_code, booking_url, release_months,
+                    name, campground_id, park_name, state_code, latitude, longitude, booking_url, release_months,
                     release_window_value, release_window_unit, release_time, timezone, poll_interval_minutes,
                     active, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(campground_id) DO UPDATE SET
                     name = excluded.name,
                     park_name = excluded.park_name,
                     state_code = excluded.state_code,
+                    latitude = excluded.latitude,
+                    longitude = excluded.longitude,
                     booking_url = excluded.booking_url,
                     release_months = excluded.release_months,
                     release_window_value = excluded.release_window_value,
@@ -241,6 +284,8 @@ class Store:
                     data["campground_id"],
                     data.get("park_name") or "",
                     data.get("state_code") or "",
+                    latitude,
+                    longitude,
                     booking_url,
                     release_months,
                     release_window_value,
@@ -363,6 +408,8 @@ class Store:
             "campground_id",
             "park_name",
             "state_code",
+            "latitude",
+            "longitude",
             "booking_url",
             "release_months",
             "release_window_value",
@@ -429,6 +476,8 @@ class Store:
                 "campground_id": campground_id,
                 "park_name": target_config.get("park_name") or "",
                 "state_code": target_config.get("state_code") or "",
+                "latitude": target_config.get("latitude"),
+                "longitude": target_config.get("longitude"),
                 "booking_url": target_config.get("booking_url")
                 or f"https://www.recreation.gov/camping/campgrounds/{campground_id}",
                 "release_months": target_config.get("release_months", 6),
@@ -707,6 +756,43 @@ class Store:
                 WHERE active = 1
                 """,
                 (now,),
+            )
+            return cursor.rowcount
+
+    def mark_missing_results_booked(
+        self,
+        watch_id: int,
+        trip_windows: list[tuple[str, str]],
+        seen_dedupe_keys: set[str],
+    ) -> int:
+        if not trip_windows:
+            return 0
+
+        date_filters = " OR ".join(["(arrival_date = ? AND departure_date = ?)"] * len(trip_windows))
+        values: list[Any] = [utc_now(), int(watch_id)]
+        for arrival_date, departure_date in trip_windows:
+            values.extend([arrival_date, departure_date])
+
+        unseen_filter = ""
+        if seen_dedupe_keys:
+            placeholders = ", ".join(["?"] * len(seen_dedupe_keys))
+            unseen_filter = f"AND dedupe_key NOT IN ({placeholders})"
+            values.extend(sorted(seen_dedupe_keys))
+
+        with self.connect() as conn:
+            cursor = conn.execute(
+                f"""
+                UPDATE results
+                SET status = 'booked',
+                    active = 0,
+                    booked_at = COALESCE(booked_at, ?)
+                WHERE watch_id = ?
+                  AND active = 1
+                  AND status IN ('available', 'opened')
+                  AND ({date_filters})
+                  {unseen_filter}
+                """,
+                values,
             )
             return cursor.rowcount
 

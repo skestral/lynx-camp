@@ -332,62 +332,13 @@ small {
   overflow: hidden;
   border: 1px solid #cbd9d5;
   border-radius: 8px;
-  background:
-    linear-gradient(90deg, rgba(45, 136, 178, 0.24) 0 16%, transparent 16%),
-    linear-gradient(135deg, rgba(15, 94, 70, 0.08), rgba(39, 134, 200, 0.13)),
-    #edf4f0;
+  background: #dfe8e4;
 }
 
-.map-canvas::before,
-.map-canvas::after {
-  content: "";
+.leaflet-map {
   position: absolute;
   inset: 0;
-  pointer-events: none;
-}
-
-.map-canvas::before {
-  background-image:
-    linear-gradient(rgba(15, 94, 70, 0.08) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(15, 94, 70, 0.08) 1px, transparent 1px);
-  background-size: 56px 56px;
-}
-
-.map-canvas::after {
-  border: 1px solid rgba(255, 255, 255, 0.55);
-  inset: 12px;
-  border-radius: 8px;
-}
-
-.map-water,
-.map-range {
-  position: absolute;
-  pointer-events: none;
-}
-
-.map-water {
-  inset: 0 auto 0 0;
-  width: 16%;
-  background: rgba(39, 134, 200, 0.18);
-  border-right: 1px solid rgba(39, 134, 200, 0.25);
-}
-
-.map-range {
-  width: 34%;
-  height: 22%;
-  border: 1px solid rgba(15, 94, 70, 0.16);
-  background: rgba(15, 94, 70, 0.08);
-  transform: rotate(-12deg);
-}
-
-.map-range.north {
-  left: 47%;
-  top: 18%;
-}
-
-.map-range.south {
-  left: 22%;
-  top: 62%;
+  z-index: 1;
 }
 
 .map-empty {
@@ -406,54 +357,81 @@ small {
   max-width: 260px;
 }
 
-.map-marker {
-  position: absolute;
-  z-index: 3;
-  transform: translate(-18px, -18px);
+.park-map-marker {
   display: grid;
-  grid-template-columns: 28px minmax(0, 1fr);
-  align-items: center;
-  min-width: 148px;
-  max-width: 210px;
-  min-height: 42px;
-  border: 1px solid rgba(15, 94, 70, 0.22);
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.92);
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border: 2px solid #ffffff;
+  border-radius: 999px;
+  background: rgba(15, 94, 70, 0.88);
   color: #17332c;
-  padding: 6px 9px 6px 6px;
-  box-shadow: 0 12px 30px rgba(13, 44, 37, 0.12);
-  text-align: left;
+  box-shadow: 0 10px 26px rgba(13, 44, 37, 0.14);
+  text-align: center;
 }
 
-.map-marker > svg {
-  color: var(--forest);
-}
-
-.map-marker strong,
-.map-marker small {
+.park-map-marker strong,
+.park-map-marker small {
   display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
-.map-marker strong {
-  color: #14231f;
+.park-map-marker strong {
+  color: #ffffff;
   font-size: 13px;
+  line-height: 1;
 }
 
-.map-marker small {
-  margin-top: 2px;
-  font-size: 11px;
+.park-map-marker small {
+  color: #dff2e9;
+  font-size: 10px;
+  line-height: 1;
 }
 
-.map-marker.has-results {
+.park-map-marker.has-results {
   border-color: #0f5e46;
-  background: #e8f7f0;
+  background: #c88a1b;
 }
 
-.map-marker.selected {
+.park-map-marker.selected {
   outline: 3px solid rgba(39, 134, 200, 0.28);
+}
+
+.campground-map-marker {
+  width: 22px;
+  height: 22px;
+  border: 2px solid #ffffff;
+  border-radius: 999px;
+  background: var(--forest);
+  box-shadow: 0 6px 18px rgba(13, 44, 37, 0.22);
+}
+
+.campground-map-marker::after {
+  content: "";
+  position: absolute;
+  inset: 5px;
+  border-radius: inherit;
+  background: #ffffff;
+}
+
+.campground-map-marker.has-results {
+  background: #c88a1b;
+}
+
+.campground-map-marker.selected {
+  outline: 3px solid rgba(39, 134, 200, 0.35);
+}
+
+.campground-map-marker span {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+}
+
+.leaflet-popup-content {
+  color: #17332c;
+  font: 13px/1.35 Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
 .map-list {
@@ -570,11 +548,6 @@ small {
 
 .content-grid.lower .map-canvas {
   min-height: 260px;
-}
-
-.content-grid.lower .map-marker {
-  min-width: 118px;
-  max-width: 158px;
 }
 
 .content-grid.lower .release-panel,
@@ -1451,11 +1424,6 @@ th {
 
   .map-canvas {
     min-height: 360px;
-  }
-
-  .map-marker {
-    min-width: 126px;
-    max-width: 164px;
   }
 
   .brand {

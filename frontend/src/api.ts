@@ -69,7 +69,7 @@ export const api = {
     request<Watch>(`/api/watches/${watchId}`, { method: "PATCH", body: JSON.stringify(payload) }),
   deleteWatch: (watchId: number) => request<{ deleted: boolean }>(`/api/watches/${watchId}`, { method: "DELETE" }),
   runScan: (watchId: number) =>
-    request<{ status: string; message: string; candidate_count: number; available_count: number }>(
+    request<{ status: string; message: string; candidate_count: number; available_count: number; missing_count?: number }>(
       `/api/watches/${watchId}/scan`,
       { method: "POST" }
     ),

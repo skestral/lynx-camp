@@ -505,3 +505,71 @@ def test_result_status_updates_and_preserves_dismissal_on_rescan(tmp_path) -> No
     cleared = store.list_results()
     assert all(result["active"] == 0 for result in cleared)
     assert {result["status"] for result in cleared} == {"dismissed"}
+
+
+def test_missing_active_results_are_marked_booked_after_successful_rescan(tmp_path) -> None:
+    store = Store(tmp_path / "campfinder.db")
+    store.init()
+    target = store.create_target(
+        {
+            "name": "Kalaloch",
+            "campground_id": "232464",
+            "park_name": "Olympic National Park",
+            "state_code": "WA",
+            "release_months": 6,
+            "release_time": "07:00",
+            "timezone": "America/Los_Angeles",
+            "poll_interval_minutes": 10,
+        }
+    )
+    watch = store.create_watch(
+        {
+            "target_id": target["id"],
+            "name": "Fri starts, 2 nights",
+            "mode": "weekend",
+            "pattern": "4-2n",
+            "arrival_weekdays": [4],
+            "nights": 2,
+            "window_start": "2026-07-01",
+            "window_end": "2026-08-31",
+            "specific_ranges": [],
+        }
+    )
+    base_payload = {
+        "watch_id": watch["id"],
+        "target_id": target["id"],
+        "campground_id": "232464",
+        "campground_name": "Kalaloch",
+        "loop": "A",
+        "campsite_type": "Tent",
+        "arrival_date": "2026-07-03",
+        "departure_date": "2026-07-05",
+        "booking_url": "https://www.recreation.gov/camping/campsites/101",
+    }
+    still_available, _ = store.upsert_result({**base_payload, "campsite_id": "101", "site": "A01"})
+    no_longer_available, _ = store.upsert_result({**base_payload, "campsite_id": "102", "site": "A02"})
+    future_result, _ = store.upsert_result(
+        {
+            **base_payload,
+            "campsite_id": "103",
+            "site": "A03",
+            "arrival_date": "2026-07-10",
+            "departure_date": "2026-07-12",
+        }
+    )
+
+    marked = store.mark_missing_results_booked(
+        watch["id"],
+        [("2026-07-03", "2026-07-05")],
+        {still_available["dedupe_key"]},
+    )
+
+    assert marked == 1
+    results = {result["site"]: result for result in store.list_results(limit=10)}
+    assert results["A01"]["status"] == "available"
+    assert results["A01"]["active"] == 1
+    assert results["A02"]["status"] == "booked"
+    assert results["A02"]["active"] == 0
+    assert results["A02"]["booked_at"] is not None
+    assert results["A03"]["id"] == future_result["id"]
+    assert results["A03"]["active"] == 1

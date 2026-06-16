@@ -102,6 +102,8 @@ class RecreationClient:
             "campground_id": str(item.get("entity_id") or campground_id),
             "park_name": _title_name(item.get("parent_name")),
             "state_code": item.get("state_code") or "",
+            "latitude": item.get("latitude") or item.get("lat"),
+            "longitude": item.get("longitude") or item.get("lng"),
             "booking_url": f"https://www.recreation.gov/camping/campgrounds/{campground_id}",
         }
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any
 
+from .coordinates import CAMPGROUND_COORDINATES
 from .db import Store
 
 
@@ -13,7 +14,7 @@ def _target(
     state_code: str,
     timezone: str,
 ) -> dict[str, Any]:
-    return {
+    target = {
         "name": name,
         "campground_id": campground_id,
         "park_name": park_name,
@@ -25,6 +26,10 @@ def _target(
         "timezone": timezone,
         "poll_interval_minutes": 10,
     }
+    coordinates = CAMPGROUND_COORDINATES.get(campground_id)
+    if coordinates:
+        target["latitude"], target["longitude"] = coordinates
+    return target
 
 
 OLYMPIC_TARGETS = [
@@ -163,66 +168,18 @@ PRESET_PACKS: list[dict[str, Any]] = [
         "description": "Yosemite, Sequoia/Kings Canyon, and Joshua Tree starter targets for high-demand trips.",
         "region": "CA",
         "targets": [
-            {
-                "name": "Upper Pines Campground",
-                "campground_id": "232447",
-                "park_name": "Yosemite National Park",
-                "state_code": "CA",
-                "release_months": 6,
-                "release_time": "07:00",
-                "timezone": "America/Los_Angeles",
-                "poll_interval_minutes": 10,
-            },
-            {
-                "name": "North Pines Campground",
-                "campground_id": "232449",
-                "park_name": "Yosemite National Park",
-                "state_code": "CA",
-                "release_months": 6,
-                "release_time": "07:00",
-                "timezone": "America/Los_Angeles",
-                "poll_interval_minutes": 10,
-            },
-            {
-                "name": "Lower Pines Campground",
-                "campground_id": "232450",
-                "park_name": "Yosemite National Park",
-                "state_code": "CA",
-                "release_months": 6,
-                "release_time": "07:00",
-                "timezone": "America/Los_Angeles",
-                "poll_interval_minutes": 10,
-            },
-            {
-                "name": "Tuolumne Meadows Campground",
-                "campground_id": "232448",
-                "park_name": "Yosemite National Park",
-                "state_code": "CA",
-                "release_months": 6,
-                "release_time": "07:00",
-                "timezone": "America/Los_Angeles",
-                "poll_interval_minutes": 10,
-            },
-            {
-                "name": "Lodgepole Campground",
-                "campground_id": "232461",
-                "park_name": "Sequoia & Kings Canyon National Parks",
-                "state_code": "CA",
-                "release_months": 6,
-                "release_time": "07:00",
-                "timezone": "America/Los_Angeles",
-                "poll_interval_minutes": 10,
-            },
-            {
-                "name": "Jumbo Rocks Campground",
-                "campground_id": "272300",
-                "park_name": "Joshua Tree National Park",
-                "state_code": "CA",
-                "release_months": 6,
-                "release_time": "07:00",
-                "timezone": "America/Los_Angeles",
-                "poll_interval_minutes": 10,
-            },
+            _target("Upper Pines Campground", "232447", "Yosemite National Park", "CA", "America/Los_Angeles"),
+            _target("North Pines Campground", "232449", "Yosemite National Park", "CA", "America/Los_Angeles"),
+            _target("Lower Pines Campground", "232450", "Yosemite National Park", "CA", "America/Los_Angeles"),
+            _target("Tuolumne Meadows Campground", "232448", "Yosemite National Park", "CA", "America/Los_Angeles"),
+            _target(
+                "Lodgepole Campground",
+                "232461",
+                "Sequoia & Kings Canyon National Parks",
+                "CA",
+                "America/Los_Angeles",
+            ),
+            _target("Jumbo Rocks Campground", "272300", "Joshua Tree National Park", "CA", "America/Los_Angeles"),
         ],
     },
 ]

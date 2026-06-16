@@ -24,6 +24,8 @@ class TargetCreate(BaseModel):
     campground_id: str = Field(min_length=1, max_length=40)
     park_name: str = ""
     state_code: str = ""
+    latitude: float | None = None
+    longitude: float | None = None
     booking_url: str | None = None
     release_months: int = Field(default=6, ge=0, le=24)
     release_window_value: int = Field(default=6, ge=0, le=730)
@@ -38,6 +40,8 @@ class TargetUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=120)
     park_name: str | None = None
     state_code: str | None = None
+    latitude: float | None = None
+    longitude: float | None = None
     booking_url: str | None = None
     release_months: int | None = Field(default=None, ge=0, le=24)
     release_window_value: int | None = Field(default=None, ge=0, le=730)

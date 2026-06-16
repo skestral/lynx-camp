@@ -20,6 +20,7 @@ The first version is intentionally notification-first. It opens Recreation.gov b
 - Temporarily increase scan cadence around calculated release times.
 - Run every active watch on demand with the Scan All control.
 - See the latest scan state at the top of the dashboard, including manual scans and background scans that are still running.
+- Revalidate previously available matches on each successful scan and remove matches that Recreation.gov no longer returns.
 - Review recent scan activity, including candidate counts, matches, status, and messages.
 - Calculate likely release windows from a target-specific booking window, release time, and timezone.
 - Store availability matches once so notifications are deduped.
@@ -36,7 +37,7 @@ The first version is intentionally notification-first. It opens Recreation.gov b
 The dashboard is organized around the work that usually matters first:
 
 1. Scan state and summary counts show whether Camp Finder is idle, scanning, or showing the last completed scan.
-2. The map shows tracked park groups. Selecting a marker filters the results list to that park.
+2. The map uses Leaflet with OpenStreetMap tiles to show saved targets plus preset park/campground options. Selecting a marker filters the results list.
 3. Availability Results stay in the main working area so new matches are not buried below target and watch configuration.
 4. Target and watch setup live in the slide-out drawer. Use the Targets and Watches buttons in the header or sidebar to open it.
 5. Result filters let you switch between active, all, available, opened, booked, and dismissed results.
@@ -151,7 +152,20 @@ The scan status strip at the top of the dashboard changes as soon as a manual sc
 
 Availability results include the Recreation.gov booking link plus status actions. Open marks a fresh match as opened, Copy puts a booking brief on your clipboard with the campground, watch, site, loop, type, stay dates, and Recreation.gov link. If the browser blocks clipboard access, the same brief appears above the results for manual selection. Booked records that you successfully reserved it, Dismiss removes it from active attention, and Reopen moves a handled result back to active availability. Future scans preserve booked and dismissed decisions for the same campsite/date result instead of notifying you about the same handled match again.
 
-Results are grouped by national park, campground, and stay dates. Use the status filter and search field to narrow the dashboard before selecting results. Bulk actions apply to selected results only; Clear All dismisses every active availability result, which is useful when a scan finds many sites that you do not want to pursue.
+Each successful scan also revalidates active results for the same watch and date ranges. If a previously active site/date match is not returned again, Camp Finder marks it booked and removes it from the active list. Scan errors and Recreation.gov rate limits do not clear old results, because those runs did not prove the match disappeared.
+
+Results are grouped by national park, campground, and stay dates. Campground and stay sections start collapsed so the list is easier to scan after large result bursts. Use the status filter and search field to narrow the dashboard before selecting results. Bulk actions apply to selected results only; Clear All dismisses every active availability result, which is useful when a scan finds many sites that you do not want to pursue.
+
+## Map Provider
+
+The dashboard map uses Leaflet with OpenStreetMap's public raster tile endpoint by default. The map keeps OpenStreetMap attribution visible. For heavier use, private deployments, or stricter tile-policy control, point the frontend at a different compatible tile service before building:
+
+```text
+VITE_CAMPFINDER_TILE_URL=https://tile.openstreetmap.org/{z}/{x}/{y}.png
+VITE_CAMPFINDER_TILE_ATTRIBUTION=&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors
+```
+
+If you use the default OpenStreetMap tile service, keep the attribution visible and avoid prefetching or bulk tile downloads.
 
 When a scan discovers several new site/date matches at once, Camp Finder sends one bulk alert instead of one notification per campsite. `CAMPFINDER_MAX_NOTIFICATION_RESULTS` controls how many examples appear in that notification and defaults to `5`; the rest remain visible in the results dashboard.
 

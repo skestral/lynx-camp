@@ -4,6 +4,8 @@ export type Target = {
   campground_id: string;
   park_name: string;
   state_code: string;
+  latitude: number | null;
+  longitude: number | null;
   booking_url: string;
   release_months: number;
   release_window_value: number;
@@ -144,6 +146,7 @@ export type NotificationTestResult = {
 export type ScanAllResult = {
   watch_count: number;
   available_count: number;
+  missing_count?: number;
   summaries: Array<{
     watch_id: number;
     watch_name: string;
@@ -151,6 +154,7 @@ export type ScanAllResult = {
     message: string;
     candidate_count: number;
     available_count: number;
+    missing_count?: number;
   }>;
 };
 
@@ -162,6 +166,8 @@ export type ConfigBackup = {
     campground_id: string;
     park_name: string;
     state_code: string;
+    latitude?: number | null;
+    longitude?: number | null;
     booking_url?: string | null;
     release_months: number;
     release_window_value: number;
@@ -212,6 +218,8 @@ export type PresetTarget = {
   campground_id: string;
   park_name: string;
   state_code: string;
+  latitude?: number | null;
+  longitude?: number | null;
   release_months: number;
   release_window_value: number;
   release_window_unit: "Days" | "Weeks" | "Months";

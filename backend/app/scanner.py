@@ -245,6 +245,7 @@ class Scanner:
             return {
                 "watch_count": len(summaries),
                 "available_count": sum(item.get("available_count", 0) for item in summaries),
+                "missing_count": sum(item.get("missing_count", 0) for item in summaries),
                 "summaries": summaries,
             }
 
@@ -273,7 +274,9 @@ class Scanner:
         run_id = self.store.start_scan_run(watch)
         trips = [trip for trip in generate_trip_windows(watch) if trip.arrival_date >= date.today()]
         available_count = 0
+        missing_count = 0
         new_results: list[dict] = []
+        seen_dedupe_keys: set[str] = set()
         monthly_cache: dict[date, dict[str, Campsite]] = {}
 
         backoff_minutes = self._rate_limit_remaining_minutes()
@@ -318,9 +321,16 @@ class Scanner:
                             "booking_url": f"https://www.recreation.gov/camping/campsites/{site.campsite_id}",
                         }
                     )
+                    seen_dedupe_keys.add(result["dedupe_key"])
                     available_count += 1
                     if is_new:
                         new_results.append({**result, "watch_name": watch["name"]})
+
+            missing_count = self.store.mark_missing_results_booked(
+                watch["id"],
+                [(trip.arrival_date.isoformat(), trip.departure_date.isoformat()) for trip in trips],
+                seen_dedupe_keys,
+            )
 
             if new_results:
                 await self.notifier.notify_results(new_results, self.store, self.max_notification_results)
@@ -330,6 +340,8 @@ class Scanner:
                 message = f"Found {available_count} available site/date match(es), including {len(new_results)} new match(es)."
             else:
                 message = "No matching availability found."
+            if missing_count:
+                message += f" Marked {missing_count} previous match(es) as booked because they were not returned again."
             self.store.finish_scan_run(run_id, "success", message, len(trips), available_count)
             self.store.update_target_scan_status(watch["target_id"], status)
             self._schedule_next_scan(watch)
@@ -338,6 +350,7 @@ class Scanner:
                 "message": message,
                 "candidate_count": len(trips),
                 "available_count": available_count,
+                "missing_count": missing_count,
             }
         except RateLimitError as exc:
             self._start_rate_limit_backoff(exc)

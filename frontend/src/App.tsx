@@ -26,7 +26,9 @@ import {
   Waves,
   X
 } from "lucide-react";
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import L from "leaflet";
+import "leaflet/dist/leaflet.css";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "./api";
 import type {
   ConfigBackup,
@@ -58,8 +60,22 @@ type ParkSummary = {
   activeTargetCount: number;
   resultCount: number;
   activeResultCount: number;
-  x: number;
-  y: number;
+  latitude: number;
+  longitude: number;
+  campgrounds: CampgroundMapPoint[];
+};
+
+type CampgroundMapPoint = {
+  id: string;
+  campgroundId: string;
+  name: string;
+  parkName: string;
+  stateCode: string;
+  latitude: number;
+  longitude: number;
+  active: number;
+  imported: boolean;
+  activeResultCount: number;
 };
 
 type ResultStayGroup = {
@@ -117,27 +133,10 @@ const resultSortOptions: Array<{ value: ResultSort; label: string }> = [
   { value: "park", label: "Park" }
 ];
 
-const parkMarkerPositions: Record<string, { x: number; y: number }> = {
-  "Olympic National Park": { x: 17, y: 41 },
-  "Mount Rainier National Park": { x: 27, y: 52 },
-  "North Cascades National Park": { x: 31, y: 28 },
-  "Crater Lake National Park": { x: 30, y: 78 },
-  "Glacier National Park": { x: 66, y: 26 },
-  "Yellowstone National Park": { x: 73, y: 62 },
-  "Grand Teton National Park": { x: 72, y: 73 },
-  "Yosemite National Park": { x: 23, y: 86 },
-  "Sequoia & Kings Canyon National Parks": { x: 30, y: 91 },
-  "Joshua Tree National Park": { x: 42, y: 95 }
-};
-
-const fallbackMarkerPositions = [
-  { x: 20, y: 35 },
-  { x: 38, y: 42 },
-  { x: 56, y: 34 },
-  { x: 70, y: 52 },
-  { x: 45, y: 70 },
-  { x: 25, y: 66 }
-];
+const mapTileUrl = import.meta.env.VITE_CAMPFINDER_TILE_URL || "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
+const mapTileAttribution =
+  import.meta.env.VITE_CAMPFINDER_TILE_ATTRIBUTION ||
+  '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
 
 function weekdayLabel(days: number[]) {
   return [...days]
@@ -205,6 +204,19 @@ function bookingBrief(result: Result) {
   ]
     .filter(Boolean)
     .join("\n");
+}
+
+function escapeHtml(value: string) {
+  return value.replace(/[&<>"']/g, (character) => {
+    const entities: Record<string, string> = {
+      "&": "&amp;",
+      "<": "&lt;",
+      ">": "&gt;",
+      '"': "&quot;",
+      "'": "&#39;"
+    };
+    return entities[character] || character;
+  });
 }
 
 async function writeClipboardText(text: string) {
@@ -288,6 +300,9 @@ export default function App() {
   const [filterMinPeople, setFilterMinPeople] = useState("");
   const [setupDrawerOpen, setSetupDrawerOpen] = useState(false);
   const [setupDrawerMode, setSetupDrawerMode] = useState<SetupDrawerMode>("targets");
+  const mapElementRef = useRef<HTMLDivElement | null>(null);
+  const leafletMapRef = useRef<L.Map | null>(null);
+  const markerLayerRef = useRef<L.LayerGroup | null>(null);
 
   const activeTargets = targets.filter((target) => target.active);
   const activeWatches = watches.filter((watch) => watch.active && watch.target_active);
@@ -370,11 +385,36 @@ export default function App() {
   const parkSummaries = useMemo<ParkSummary[]>(() => {
     const summaries = new Map<
       string,
-      Omit<ParkSummary, "stateCodes" | "x" | "y"> & { stateCodeSet: Set<string> }
+      Omit<ParkSummary, "stateCodes" | "latitude" | "longitude"> & { stateCodeSet: Set<string> }
     >();
+    const resultCountsByCampground = new Map<string, { resultCount: number; activeResultCount: number }>();
 
+    for (const result of results) {
+      const current = resultCountsByCampground.get(result.campground_id) || {
+        resultCount: 0,
+        activeResultCount: 0
+      };
+      current.resultCount += 1;
+      if (isActiveAvailability(result)) current.activeResultCount += 1;
+      resultCountsByCampground.set(result.campground_id, current);
+    }
+
+    const savedTargetsByCampground = new Map(targets.map((target) => [target.campground_id, target]));
+    const mapTargets = new Map<string, Target | PresetPack["targets"][number]>();
+    for (const pack of presets) {
+      for (const target of pack.targets) {
+        if (!mapTargets.has(target.campground_id)) {
+          mapTargets.set(target.campground_id, target);
+        }
+      }
+    }
     for (const target of targets) {
-      const parkName = target.park_name || "Unassigned park";
+      mapTargets.set(target.campground_id, target);
+    }
+
+    for (const sourceTarget of mapTargets.values()) {
+      const savedTarget = savedTargetsByCampground.get(sourceTarget.campground_id);
+      const parkName = savedTarget?.park_name || sourceTarget.park_name || "Unassigned park";
       const summary =
         summaries.get(parkName) ||
         {
@@ -383,11 +423,33 @@ export default function App() {
           targetCount: 0,
           activeTargetCount: 0,
           resultCount: 0,
-          activeResultCount: 0
+          activeResultCount: 0,
+          campgrounds: []
         };
       summary.targetCount += 1;
-      if (target.active) summary.activeTargetCount += 1;
-      if (target.state_code) summary.stateCodeSet.add(target.state_code);
+      if (savedTarget?.active) summary.activeTargetCount += 1;
+      const stateCode = savedTarget?.state_code || sourceTarget.state_code || "";
+      if (stateCode) summary.stateCodeSet.add(stateCode);
+      const latitude = Number(savedTarget?.latitude ?? sourceTarget.latitude);
+      const longitude = Number(savedTarget?.longitude ?? sourceTarget.longitude);
+      const resultCounts = resultCountsByCampground.get(sourceTarget.campground_id) || {
+        resultCount: 0,
+        activeResultCount: 0
+      };
+      if (Number.isFinite(latitude) && Number.isFinite(longitude)) {
+        summary.campgrounds.push({
+          id: sourceTarget.campground_id,
+          campgroundId: sourceTarget.campground_id,
+          name: savedTarget?.name || sourceTarget.name,
+          parkName,
+          stateCode,
+          latitude,
+          longitude,
+          active: savedTarget?.active || 0,
+          imported: Boolean(savedTarget),
+          activeResultCount: resultCounts.activeResultCount
+        });
+      }
       summaries.set(parkName, summary);
     }
 
@@ -401,7 +463,8 @@ export default function App() {
           targetCount: 0,
           activeTargetCount: 0,
           resultCount: 0,
-          activeResultCount: 0
+          activeResultCount: 0,
+          campgrounds: []
         };
       summary.resultCount += 1;
       if (isActiveAvailability(result)) summary.activeResultCount += 1;
@@ -414,9 +477,13 @@ export default function App() {
         if (activeSort !== 0) return activeSort;
         return a.parkName.localeCompare(b.parkName);
       })
-      .map((summary, index) => {
-        const fallback = fallbackMarkerPositions[index % fallbackMarkerPositions.length];
-        const position = parkMarkerPositions[summary.parkName] || fallback;
+      .map((summary) => {
+        const latitude =
+          summary.campgrounds.reduce((total, campground) => total + campground.latitude, 0) /
+          Math.max(summary.campgrounds.length, 1);
+        const longitude =
+          summary.campgrounds.reduce((total, campground) => total + campground.longitude, 0) /
+          Math.max(summary.campgrounds.length, 1);
         return {
           parkName: summary.parkName,
           stateCodes: Array.from(summary.stateCodeSet).sort().join("/") || "US",
@@ -424,11 +491,12 @@ export default function App() {
           activeTargetCount: summary.activeTargetCount,
           resultCount: summary.resultCount,
           activeResultCount: summary.activeResultCount,
-          x: position.x,
-          y: position.y
+          latitude: Number.isFinite(latitude) ? latitude : 44.5,
+          longitude: Number.isFinite(longitude) ? longitude : -118,
+          campgrounds: summary.campgrounds.sort((a, b) => a.name.localeCompare(b.name))
         };
       });
-  }, [results, targets]);
+  }, [presets, results, targets]);
   const resultGroups = useMemo<ResultParkGroup[]>(() => {
     const parkMap = new Map<string, ResultParkGroup>();
 
@@ -487,6 +555,100 @@ export default function App() {
     }
     return groups;
   }, [filteredResults]);
+
+  useEffect(() => {
+    if (!mapElementRef.current || leafletMapRef.current) return;
+
+    const map = L.map(mapElementRef.current, {
+      scrollWheelZoom: false,
+      zoomControl: true
+    }).setView([46.5, -118.5], 5);
+    L.tileLayer(mapTileUrl, {
+      attribution: mapTileAttribution,
+      maxZoom: 18
+    }).addTo(map);
+    const markerLayer = L.layerGroup().addTo(map);
+    leafletMapRef.current = map;
+    markerLayerRef.current = markerLayer;
+
+    return () => {
+      map.remove();
+      leafletMapRef.current = null;
+      markerLayerRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    const map = leafletMapRef.current;
+    const markerLayer = markerLayerRef.current;
+    if (!map || !markerLayer) return;
+
+    markerLayer.clearLayers();
+    const bounds = L.latLngBounds([]);
+
+    for (const summary of parkSummaries) {
+      const selectedPark = resultQuery === summary.parkName;
+      const parkIcon = L.divIcon({
+        className: `park-map-marker ${summary.activeResultCount ? "has-results" : ""} ${selectedPark ? "selected" : ""}`,
+        html: `<strong>${summary.targetCount}</strong><small>${summary.activeResultCount}</small>`,
+        iconSize: [42, 42],
+        iconAnchor: [21, 21]
+      });
+      L.marker([summary.latitude, summary.longitude], { icon: parkIcon, zIndexOffset: -250 })
+        .addTo(markerLayer)
+        .bindPopup(
+          `<strong>${escapeHtml(summary.parkName)}</strong><br>` +
+            `${summary.targetCount} campground target${summary.targetCount === 1 ? "" : "s"}<br>` +
+            `${summary.activeResultCount} active result${summary.activeResultCount === 1 ? "" : "s"}`
+        )
+        .on("click", () => {
+          setResultQuery(summary.parkName);
+          setResultSort("park");
+          setResultView(summary.activeResultCount > 0 ? "active" : "all");
+          setResultGroupOpen((current) => ({ ...current, [`park:${summary.parkName}`]: true }));
+        });
+      bounds.extend([summary.latitude, summary.longitude]);
+
+      for (const campground of summary.campgrounds) {
+        const selectedCampground = resultQuery === campground.name;
+        const campgroundIcon = L.divIcon({
+          className: `campground-map-marker ${campground.activeResultCount ? "has-results" : ""} ${
+            selectedCampground ? "selected" : ""
+          }`,
+          html: `<span>${escapeHtml(campground.name)}</span>`,
+          iconSize: [22, 22],
+          iconAnchor: [11, 11]
+        });
+        L.marker([campground.latitude, campground.longitude], {
+          icon: campgroundIcon,
+          zIndexOffset: campground.activeResultCount ? 700 : 500
+        })
+          .addTo(markerLayer)
+          .bindPopup(
+            `<strong>${escapeHtml(campground.name)}</strong><br>` +
+              `${escapeHtml(campground.parkName)}<br>` +
+              `${campground.activeResultCount} active result${campground.activeResultCount === 1 ? "" : "s"}`
+          )
+          .on("click", () => {
+            setResultQuery(campground.name);
+            setResultSort("park");
+            setResultView(campground.activeResultCount > 0 ? "active" : "all");
+            setResultGroupOpen((current) => ({
+              ...current,
+              [`park:${campground.parkName}`]: true,
+              [`campground:${campground.parkName}:${campground.name}`]: true
+            }));
+          });
+        bounds.extend([campground.latitude, campground.longitude]);
+      }
+    }
+
+    if (bounds.isValid()) {
+      map.fitBounds(bounds.pad(0.16), { maxZoom: 8 });
+    } else {
+      map.setView([46.5, -118.5], 5);
+    }
+  }, [parkSummaries, resultQuery]);
 
   async function refresh(options?: { silent?: boolean }) {
     if (!options?.silent) setLoadState("loading");
@@ -606,6 +768,8 @@ export default function App() {
       campground_id: suggestion.campground_id,
       park_name: suggestion.park_name,
       state_code: suggestion.state_code,
+      latitude: suggestion.latitude ? Number(suggestion.latitude) : null,
+      longitude: suggestion.longitude ? Number(suggestion.longitude) : null,
       release_months: 6,
       release_window_value: 6,
       release_window_unit: "Months",
@@ -874,7 +1038,7 @@ export default function App() {
   }
 
   function isResultGroupOpen(groupId: string) {
-    return resultGroupOpen[groupId] ?? true;
+    return resultGroupOpen[groupId] ?? groupId.startsWith("park:");
   }
 
   function toggleResultGroup(groupId: string) {
@@ -1546,10 +1710,8 @@ export default function App() {
                   </button>
                 </div>
               </div>
-              <div className="map-canvas">
-                <div className="map-water" />
-                <div className="map-range north" />
-                <div className="map-range south" />
+              <div className="map-canvas proper-map">
+                <div className="leaflet-map" ref={mapElementRef} />
                 {parkSummaries.length === 0 && (
                   <div className="map-empty">
                     <MapPin size={28} />
@@ -1557,25 +1719,6 @@ export default function App() {
                     <small>Open Targets to import a preset pack or search Recreation.gov.</small>
                   </div>
                 )}
-                {parkSummaries.map((summary) => (
-                  <button
-                    className={`map-marker ${summary.activeResultCount > 0 ? "has-results" : ""} ${
-                      resultQuery === summary.parkName ? "selected" : ""
-                    }`}
-                    key={summary.parkName}
-                    onClick={() => focusPark(summary)}
-                    style={{ left: `${summary.x}%`, top: `${summary.y}%` }}
-                    type="button"
-                  >
-                    <MapPin size={15} />
-                    <span>
-                      <strong>{summary.parkName.replace(" National Park", "")}</strong>
-                      <small>
-                        {summary.stateCodes} &middot; {summary.activeResultCount} active
-                      </small>
-                    </span>
-                  </button>
-                ))}
               </div>
             </div>
             <aside className="map-list">
@@ -1583,7 +1726,7 @@ export default function App() {
                 <strong>Park Queue</strong>
                 <small>{parkSummaries.length} park group{parkSummaries.length === 1 ? "" : "s"} tracked</small>
               </div>
-              {parkSummaries.slice(0, 7).map((summary) => (
+              {parkSummaries.map((summary) => (
                 <button
                   className={`park-chip ${resultQuery === summary.parkName ? "selected" : ""}`}
                   key={summary.parkName}
