@@ -78,6 +78,8 @@ export type Result = {
   target_id: number;
   watch_name: string;
   target_name: string;
+  park_name: string;
+  state_code: string;
   campground_id: string;
   campground_name: string;
   campsite_id: string;

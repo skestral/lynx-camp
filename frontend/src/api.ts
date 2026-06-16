@@ -74,6 +74,7 @@ export const api = {
       { method: "POST" }
     ),
   runAllScans: () => request<ScanAllResult>("/api/scans/run-all", { method: "POST" }),
+  clearResults: () => request<{ cleared_count: number }>("/api/results/clear", { method: "POST" }),
   updateResultStatus: (resultId: number, status: Result["status"]) =>
     request<Result>(`/api/results/${resultId}`, { method: "PATCH", body: JSON.stringify({ status }) })
 };

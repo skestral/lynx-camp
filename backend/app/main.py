@@ -218,6 +218,11 @@ def list_results(limit: int = Query(default=50, ge=1, le=200)) -> list[dict]:
     return store.list_results(limit)
 
 
+@app.post("/api/results/clear")
+def clear_results() -> dict:
+    return {"cleared_count": store.clear_active_results()}
+
+
 @app.patch("/api/results/{result_id}")
 def update_result_status(result_id: int, payload: ResultStatusUpdate) -> dict:
     result = store.update_result_status(result_id, payload.status)

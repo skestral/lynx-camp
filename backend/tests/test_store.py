@@ -476,6 +476,9 @@ def test_result_status_updates_and_preserves_dismissal_on_rescan(tmp_path) -> No
     result, created = store.upsert_result(result_payload)
     assert created is True
     assert result["status"] == "available"
+    listed = store.list_results()
+    assert listed[0]["park_name"] == "Olympic National Park"
+    assert listed[0]["state_code"] == "WA"
 
     opened = store.update_result_status(result["id"], "opened")
     assert opened is not None
@@ -493,3 +496,12 @@ def test_result_status_updates_and_preserves_dismissal_on_rescan(tmp_path) -> No
     assert created is False
     assert rescanned["status"] == "dismissed"
     assert rescanned["active"] == 0
+
+    second_result, created = store.upsert_result({**result_payload, "campsite_id": "102", "site": "A02"})
+    assert created is True
+    assert second_result["active"] == 1
+
+    assert store.clear_active_results() == 1
+    cleared = store.list_results()
+    assert all(result["active"] == 0 for result in cleared)
+    assert {result["status"] for result in cleared} == {"dismissed"}

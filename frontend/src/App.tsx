@@ -2,6 +2,8 @@ import {
   Bell,
   CalendarDays,
   CheckCircle2,
+  ChevronDown,
+  ChevronRight,
   Clipboard,
   Download,
   ExternalLink,
@@ -37,6 +39,30 @@ import type {
 } from "./types";
 
 type LoadState = "idle" | "loading" | "error";
+
+type ResultStayGroup = {
+  id: string;
+  label: string;
+  count: number;
+  activeCount: number;
+  results: Result[];
+};
+
+type ResultCampgroundGroup = {
+  id: string;
+  name: string;
+  count: number;
+  activeCount: number;
+  stays: ResultStayGroup[];
+};
+
+type ResultParkGroup = {
+  id: string;
+  name: string;
+  count: number;
+  activeCount: number;
+  campgrounds: ResultCampgroundGroup[];
+};
 
 const addDays = (days: number) => {
   const date = new Date();
@@ -83,6 +109,10 @@ function formatDateTime(value: string | null | undefined) {
     hour: "numeric",
     minute: "2-digit"
   }).format(new Date(value));
+}
+
+function isActiveAvailability(result: Result) {
+  return Boolean(result.active) && !["booked", "dismissed"].includes(result.status);
 }
 
 function statusTone(status: string) {
@@ -168,6 +198,8 @@ export default function App() {
   const [scanAllBusy, setScanAllBusy] = useState(false);
   const [testNotifyBusy, setTestNotifyBusy] = useState(false);
   const [resultBusyId, setResultBusyId] = useState<number | null>(null);
+  const [resultGroupOpen, setResultGroupOpen] = useState<Record<string, boolean>>({});
+  const [clearResultsBusy, setClearResultsBusy] = useState(false);
   const [bookingPreview, setBookingPreview] = useState<{ site: string; text: string } | null>(null);
   const [importingPackId, setImportingPackId] = useState<string | null>(null);
   const [configBusy, setConfigBusy] = useState<"export" | "import" | null>(null);
@@ -192,7 +224,7 @@ export default function App() {
 
   const activeTargets = targets.filter((target) => target.active);
   const activeWatches = watches.filter((watch) => watch.active && watch.target_active);
-  const activeResults = results.filter((result) => result.active && !["booked", "dismissed"].includes(result.status));
+  const activeResults = results.filter(isActiveAvailability);
   const watchSummary = `${activeWatches.length} active watch${activeWatches.length === 1 ? "" : "es"}`;
   const latestRelease = useMemo(
     () =>
@@ -215,6 +247,64 @@ export default function App() {
         .slice(0, 4),
     [activeWatches]
   );
+  const resultGroups = useMemo<ResultParkGroup[]>(() => {
+    const parkMap = new Map<string, ResultParkGroup>();
+
+    for (const result of results) {
+      const active = isActiveAvailability(result);
+      const parkName = result.park_name || result.target_name || "Unknown national park";
+      const campgroundName = result.campground_name || "Unknown campground";
+      const stayLabel = `${formatDate(result.arrival_date)} - ${formatDate(result.departure_date)}`;
+      const parkId = `park:${parkName}`;
+      const campgroundId = `campground:${parkName}:${campgroundName}`;
+      const stayId = `stay:${parkName}:${campgroundName}:${result.arrival_date}:${result.departure_date}`;
+
+      let park = parkMap.get(parkId);
+      if (!park) {
+        park = { id: parkId, name: parkName, count: 0, activeCount: 0, campgrounds: [] };
+        parkMap.set(parkId, park);
+      }
+      park.count += 1;
+      if (active) park.activeCount += 1;
+
+      let campground = park.campgrounds.find((item) => item.id === campgroundId);
+      if (!campground) {
+        campground = { id: campgroundId, name: campgroundName, count: 0, activeCount: 0, stays: [] };
+        park.campgrounds.push(campground);
+      }
+      campground.count += 1;
+      if (active) campground.activeCount += 1;
+
+      let stay = campground.stays.find((item) => item.id === stayId);
+      if (!stay) {
+        stay = { id: stayId, label: stayLabel, count: 0, activeCount: 0, results: [] };
+        campground.stays.push(stay);
+      }
+      stay.count += 1;
+      if (active) stay.activeCount += 1;
+      stay.results.push(result);
+    }
+
+    const groups = Array.from(parkMap.values()).sort((a, b) => a.name.localeCompare(b.name));
+    for (const park of groups) {
+      park.campgrounds.sort((a, b) => a.name.localeCompare(b.name));
+      for (const campground of park.campgrounds) {
+        campground.stays.sort((a, b) => {
+          const firstDate = a.results[0]?.arrival_date || "";
+          const secondDate = b.results[0]?.arrival_date || "";
+          return firstDate.localeCompare(secondDate);
+        });
+        for (const stay of campground.stays) {
+          stay.results.sort((a, b) => {
+            const activeSort = Number(isActiveAvailability(b)) - Number(isActiveAvailability(a));
+            if (activeSort !== 0) return activeSort;
+            return a.site.localeCompare(b.site);
+          });
+        }
+      }
+    }
+    return groups;
+  }, [results]);
 
   async function refresh() {
     setLoadState("loading");
@@ -575,6 +665,14 @@ export default function App() {
     await refresh();
   }
 
+  function isResultGroupOpen(groupId: string) {
+    return resultGroupOpen[groupId] ?? true;
+  }
+
+  function toggleResultGroup(groupId: string) {
+    setResultGroupOpen((current) => ({ ...current, [groupId]: !(current[groupId] ?? true) }));
+  }
+
   async function updateResultStatus(resultId: number, status: Result["status"]) {
     setResultBusyId(resultId);
     setMessage("");
@@ -586,6 +684,24 @@ export default function App() {
       setMessage(error instanceof Error ? error.message : "Result update failed.");
     } finally {
       setResultBusyId(null);
+    }
+  }
+
+  async function clearAllResults() {
+    if (activeResults.length === 0) return;
+    const confirmed = window.confirm("Dismiss all active availability results?");
+    if (!confirmed) return;
+
+    setClearResultsBusy(true);
+    setMessage("");
+    try {
+      const cleared = await api.clearResults();
+      setMessage(`Cleared ${cleared.cleared_count} active availability result${cleared.cleared_count === 1 ? "" : "s"}.`);
+      await refresh();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unable to clear availability results.");
+    } finally {
+      setClearResultsBusy(false);
     }
   }
 
@@ -604,6 +720,80 @@ export default function App() {
           : "Unable to copy booking details. Booking details are shown below."
       );
     }
+  }
+
+  function resultRow(result: Result) {
+    return (
+      <tr key={result.id}>
+        <td>
+          <strong>{result.site}</strong>
+          <small>{[result.loop, result.campsite_type].filter(Boolean).join(" / ") || "Campsite"}</small>
+        </td>
+        <td>
+          <span className={`status ${statusTone(result.status)}`}>{result.status}</span>
+        </td>
+        <td>
+          <strong>{result.watch_name}</strong>
+          <small>{formatDateTime(result.discovered_at)}</small>
+        </td>
+        <td>
+          <div className="result-actions">
+            <a
+              className="link-button"
+              href={result.booking_url}
+              target="_blank"
+              rel="noreferrer"
+              onClick={() => {
+                if (result.status === "available") void updateResultStatus(result.id, "opened");
+              }}
+            >
+              <ExternalLink size={16} /> Open
+            </a>
+            <button
+              className="icon-button"
+              type="button"
+              onClick={() => void copyBookingDetails(result)}
+              title="Copy campground, site, dates, and booking link"
+            >
+              <Clipboard size={16} /> Copy
+            </button>
+            {(result.status === "available" || result.status === "opened") && (
+              <button
+                className="icon-button"
+                type="button"
+                disabled={resultBusyId === result.id}
+                onClick={() => void updateResultStatus(result.id, "booked")}
+                title="Mark this availability as booked"
+              >
+                <CheckCircle2 size={16} /> Booked
+              </button>
+            )}
+            {(result.status === "available" || result.status === "opened") && (
+              <button
+                className="icon-button"
+                type="button"
+                disabled={resultBusyId === result.id}
+                onClick={() => void updateResultStatus(result.id, "dismissed")}
+                title="Dismiss this availability"
+              >
+                <Trash2 size={16} /> Dismiss
+              </button>
+            )}
+            {(result.status === "booked" || result.status === "dismissed") && (
+              <button
+                className="icon-button"
+                type="button"
+                disabled={resultBusyId === result.id}
+                onClick={() => void updateResultStatus(result.id, "available")}
+                title="Move this result back to active availability"
+              >
+                <RefreshCw size={16} /> Reopen
+              </button>
+            )}
+          </div>
+        </td>
+      </tr>
+    );
   }
 
   return (
@@ -1154,6 +1344,16 @@ export default function App() {
                 <h2>Availability Results</h2>
                 <p>New matches are stored once and linked directly to Recreation.gov.</p>
               </div>
+              <button
+                className="icon-button"
+                disabled={clearResultsBusy || activeResults.length === 0}
+                onClick={() => void clearAllResults()}
+                title="Dismiss all active availability results"
+                type="button"
+              >
+                <Trash2 size={17} />
+                <span>{clearResultsBusy ? "Clearing" : "Clear All"}</span>
+              </button>
             </div>
             {bookingPreview && (
               <div className="booking-preview">
@@ -1168,99 +1368,95 @@ export default function App() {
                 </button>
               </div>
             )}
-            <div className="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Campground</th>
-                    <th>Site</th>
-                    <th>Stay</th>
-                    <th>Status</th>
-                    <th>Found</th>
-                    <th>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {results.length === 0 && (
-                    <tr>
-                      <td colSpan={6} className="empty-cell">No availability saved yet.</td>
-                    </tr>
-                  )}
-                  {results.map((result) => (
-                    <tr key={result.id}>
-                      <td>
-                        <strong>{result.campground_name}</strong>
-                        <small>{result.watch_name}</small>
-                      </td>
-                      <td>
-                        <strong>{result.site}</strong>
-                        <small>{[result.loop, result.campsite_type].filter(Boolean).join(" / ") || "Campsite"}</small>
-                      </td>
-                      <td>{formatDate(result.arrival_date)} - {formatDate(result.departure_date)}</td>
-                      <td>
-                        <span className={`status ${statusTone(result.status)}`}>{result.status}</span>
-                      </td>
-                      <td>{formatDateTime(result.discovered_at)}</td>
-                      <td>
-                        <div className="result-actions">
-                        <a
-                          className="link-button"
-                          href={result.booking_url}
-                          target="_blank"
-                          rel="noreferrer"
-                          onClick={() => {
-                            if (result.status === "available") void updateResultStatus(result.id, "opened");
-                          }}
-                        >
-                          <ExternalLink size={16} /> Open
-                        </a>
-                        <button
-                          className="icon-button"
-                          type="button"
-                          onClick={() => void copyBookingDetails(result)}
-                          title="Copy campground, site, dates, and booking link"
-                        >
-                          <Clipboard size={16} /> Copy
-                        </button>
-                        {(result.status === "available" || result.status === "opened") && (
-                          <button
-                            className="icon-button"
-                            type="button"
-                            disabled={resultBusyId === result.id}
-                            onClick={() => void updateResultStatus(result.id, "booked")}
-                            title="Mark this availability as booked"
-                          >
-                            <CheckCircle2 size={16} /> Booked
-                          </button>
-                        )}
-                        {(result.status === "available" || result.status === "opened") && (
-                          <button
-                            className="icon-button"
-                            type="button"
-                            disabled={resultBusyId === result.id}
-                            onClick={() => void updateResultStatus(result.id, "dismissed")}
-                            title="Dismiss this availability"
-                          >
-                            <Trash2 size={16} /> Dismiss
-                          </button>
-                        )}
-                        {(result.status === "booked" || result.status === "dismissed") && (
-                          <button
-                            className="icon-button"
-                            type="button"
-                            disabled={resultBusyId === result.id}
-                            onClick={() => void updateResultStatus(result.id, "available")}
-                            title="Move this result back to active availability"
-                          >
-                            <RefreshCw size={16} /> Reopen
-                          </button>
-                        )}
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div className="result-groups">
+              {resultGroups.length === 0 && <p className="empty">No availability saved yet.</p>}
+              {resultGroups.map((park) => {
+                const parkOpen = isResultGroupOpen(park.id);
+                return (
+                  <section className="result-group" key={park.id}>
+                    <button
+                      aria-expanded={parkOpen}
+                      className="result-group-header park"
+                      onClick={() => toggleResultGroup(park.id)}
+                      type="button"
+                    >
+                      {parkOpen ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
+                      <span className="result-group-title">
+                        <strong>{park.name}</strong>
+                        <small>
+                          {park.count} result{park.count === 1 ? "" : "s"} &middot; {park.activeCount} active
+                        </small>
+                      </span>
+                    </button>
+                    {parkOpen && (
+                      <div className="result-group-body">
+                        {park.campgrounds.map((campground) => {
+                          const campgroundOpen = isResultGroupOpen(campground.id);
+                          return (
+                            <section className="result-group nested" key={campground.id}>
+                              <button
+                                aria-expanded={campgroundOpen}
+                                className="result-group-header campground"
+                                onClick={() => toggleResultGroup(campground.id)}
+                                type="button"
+                              >
+                                {campgroundOpen ? <ChevronDown size={17} /> : <ChevronRight size={17} />}
+                                <span className="result-group-title">
+                                  <strong>{campground.name}</strong>
+                                  <small>
+                                    {campground.count} result{campground.count === 1 ? "" : "s"} &middot;{" "}
+                                    {campground.activeCount} active
+                                  </small>
+                                </span>
+                              </button>
+                              {campgroundOpen && (
+                                <div className="result-group-body nested">
+                                  {campground.stays.map((stay) => {
+                                    const stayOpen = isResultGroupOpen(stay.id);
+                                    return (
+                                      <section className="result-stay" key={stay.id}>
+                                        <button
+                                          aria-expanded={stayOpen}
+                                          className="result-group-header stay"
+                                          onClick={() => toggleResultGroup(stay.id)}
+                                          type="button"
+                                        >
+                                          {stayOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                                          <span className="result-group-title">
+                                            <strong>{stay.label}</strong>
+                                            <small>
+                                              {stay.count} site{stay.count === 1 ? "" : "s"} &middot; {stay.activeCount} active
+                                            </small>
+                                          </span>
+                                        </button>
+                                        {stayOpen && (
+                                          <div className="table-wrap result-table-wrap">
+                                            <table className="result-table">
+                                              <thead>
+                                                <tr>
+                                                  <th>Site</th>
+                                                  <th>Status</th>
+                                                  <th>Watch / Found</th>
+                                                  <th>Actions</th>
+                                                </tr>
+                                              </thead>
+                                              <tbody>{stay.results.map(resultRow)}</tbody>
+                                            </table>
+                                          </div>
+                                        )}
+                                      </section>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                            </section>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </section>
+                );
+              })}
             </div>
           </section>
         </div>

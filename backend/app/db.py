@@ -678,17 +678,37 @@ class Store:
     def list_results(self, limit: int = 50) -> list[dict[str, Any]]:
         with self.connect() as conn:
             rows = conn.execute(
-                    """
-                    SELECT results.*, watches.name AS watch_name, targets.name AS target_name
-                    FROM results
-                    JOIN watches ON watches.id = results.watch_id
-                    JOIN targets ON targets.id = results.target_id
-                    ORDER BY results.active DESC, results.discovered_at DESC
-                    LIMIT ?
-                    """,
+                """
+                SELECT
+                    results.*,
+                    watches.name AS watch_name,
+                    targets.name AS target_name,
+                    targets.park_name AS park_name,
+                    targets.state_code AS state_code
+                FROM results
+                JOIN watches ON watches.id = results.watch_id
+                JOIN targets ON targets.id = results.target_id
+                ORDER BY results.active DESC, results.discovered_at DESC
+                LIMIT ?
+                """,
                 (limit,),
             ).fetchall()
             return [_row_to_dict(row) for row in rows if row is not None]
+
+    def clear_active_results(self) -> int:
+        now = utc_now()
+        with self.connect() as conn:
+            cursor = conn.execute(
+                """
+                UPDATE results
+                SET status = 'dismissed',
+                    active = 0,
+                    dismissed_at = COALESCE(dismissed_at, ?)
+                WHERE active = 1
+                """,
+                (now,),
+            )
+            return cursor.rowcount
 
     def update_result_status(self, result_id: int, status: str) -> dict[str, Any] | None:
         timestamp_column = {
