@@ -16,11 +16,13 @@ The first version is intentionally notification-first. It opens Recreation.gov b
 - Edit watch names, targets, dates, day patterns, stay length, and site filters after creation.
 - Filter watch matches by campsite type, loop text, site text, and minimum people capacity.
 - Poll availability on a configurable interval, with a default minimum of 10 minutes.
+- Reuse fresh Recreation.gov month responses across watches and back off automatically after HTTP 429 rate limits.
 - Temporarily increase scan cadence around calculated release times.
 - Run every active watch on demand with the Scan All control.
 - Review recent scan activity, including candidate counts, matches, status, and messages.
 - Calculate likely release windows from a target-specific booking window, release time, and timezone.
 - Store availability matches once so notifications are deduped.
+- Send one bulk notification per scan when multiple new site/date matches appear.
 - Triage availability results as opened, booked, dismissed, or active again.
 - Show notification channel status and send a test notification.
 - Notify by webhook, ntfy mobile push, and/or SMTP email when configured.
@@ -114,6 +116,12 @@ Camp Finder scans active watches in the background and respects the minimum poll
 
 Release-aware scanning is enabled by default. Targets can use release windows in days, weeks, or months. If a watched stay has a calculated release time coming up, Camp Finder wakes up before that release and temporarily uses `CAMPFINDER_RELEASE_SCAN_INTERVAL_MINUTES` during the window configured by `CAMPFINDER_RELEASE_SCAN_BEFORE_MINUTES` and `CAMPFINDER_RELEASE_SCAN_AFTER_MINUTES`. Defaults are 15 minutes before, 60 minutes after, and a 10-minute release-window interval. Lower intervals should be an explicit choice after considering Recreation.gov's bot mitigation and shared API impact.
 
+Camp Finder also has guardrails for off-season scans and rate limits:
+
+- `CAMPFINDER_AVAILABILITY_CACHE_MINUTES` defaults to `5`. Fresh monthly availability responses are reused across watches for the same campground/month, which keeps multiple weekend rules from making duplicate API calls.
+- `CAMPFINDER_API_REQUEST_DELAY_SECONDS` defaults to `1`. The scanner waits between uncached Recreation.gov month requests.
+- `CAMPFINDER_RATE_LIMIT_BACKOFF_MINUTES` defaults to `60`. If Recreation.gov returns HTTP 429, the scanner records the scan as `rate_limited`, schedules the affected watches after the backoff, and skips additional API calls while the backoff is active.
+
 The Target Settings form includes a Detect Window action. It samples Recreation.gov campsite reservation-window metadata for the selected campground and applies the most common window it finds, such as a 14-day rolling window when a facility exposes that rule.
 
 For campgrounds with staggered releases, use View Profiles in Target Settings. It groups sampled Recreation.gov campsite metadata by loop, site type, and reservation window, which helps you decide whether a watch should filter to a specific loop and use a different day/week/month release window.
@@ -123,6 +131,8 @@ The Recent Scan Activity panel shows the latest background and manual scan runs 
 ## Booking Assist
 
 Availability results include the Recreation.gov booking link plus status actions. Open marks a fresh match as opened, Copy puts a booking brief on your clipboard with the campground, watch, site, loop, type, stay dates, and Recreation.gov link. If the browser blocks clipboard access, the same brief appears above the results table for manual selection. Booked records that you successfully reserved it, Dismiss removes it from active attention, and Reopen moves a handled result back to active availability. Future scans preserve booked and dismissed decisions for the same campsite/date result instead of notifying you about the same handled match again.
+
+When a scan discovers several new site/date matches at once, Camp Finder sends one bulk alert instead of one notification per campsite. `CAMPFINDER_MAX_NOTIFICATION_RESULTS` controls how many examples appear in that notification and defaults to `5`; the rest remain visible in the results table.
 
 ## Notification Setup
 

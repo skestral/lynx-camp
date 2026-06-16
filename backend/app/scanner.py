@@ -10,7 +10,7 @@ from dateutil.relativedelta import relativedelta
 
 from .db import Store
 from .notifications import Notifier
-from .recreation import Campsite, RecreationClient
+from .recreation import Campsite, RateLimitError, RecreationClient
 
 
 PATTERNS: dict[str, tuple[set[int], int]] = {
@@ -195,6 +195,10 @@ class Scanner:
         release_scan_before_minutes: int = 15,
         release_scan_after_minutes: int = 60,
         release_scan_interval_minutes: int = 2,
+        availability_cache_minutes: int = 5,
+        api_request_delay_seconds: float = 1,
+        rate_limit_backoff_minutes: int = 60,
+        max_notification_results: int = 5,
     ):
         self.store = store
         self.client = client
@@ -203,6 +207,13 @@ class Scanner:
         self.release_scan_before_minutes = release_scan_before_minutes
         self.release_scan_after_minutes = release_scan_after_minutes
         self.release_scan_interval_minutes = release_scan_interval_minutes
+        self.availability_cache_minutes = max(0, int(availability_cache_minutes))
+        self.api_request_delay_seconds = max(0.0, float(api_request_delay_seconds))
+        self.rate_limit_backoff_minutes = max(1, int(rate_limit_backoff_minutes))
+        self.max_notification_results = max(1, int(max_notification_results))
+        self._availability_cache: dict[tuple[str, date], tuple[datetime, dict[str, Campsite]]] = {}
+        self._api_backoff_until: datetime | None = None
+        self._last_api_request_at: datetime | None = None
         self._lock = asyncio.Lock()
 
     async def scan_watch(self, watch_id: int) -> dict:
@@ -238,12 +249,13 @@ class Scanner:
             }
 
     async def scan_due_watches(self) -> None:
-        for watch in self.store.due_watches():
-            try:
-                await self._scan_watch(watch)
-            except Exception as exc:
-                self.store.update_target_scan_status(watch["target_id"], f"error: {exc}")
-                self._schedule_next_scan(watch)
+        async with self._lock:
+            for watch in self.store.due_watches():
+                try:
+                    await self._scan_watch(watch)
+                except Exception as exc:
+                    self.store.update_target_scan_status(watch["target_id"], f"error: {exc}")
+                    self._schedule_next_scan(watch)
 
     def _schedule_next_scan(self, watch: dict) -> int:
         interval = release_scan_delay_minutes(
@@ -261,14 +273,28 @@ class Scanner:
         run_id = self.store.start_scan_run(watch)
         trips = [trip for trip in generate_trip_windows(watch) if trip.arrival_date >= date.today()]
         available_count = 0
+        new_results: list[dict] = []
         monthly_cache: dict[date, dict[str, Campsite]] = {}
+
+        backoff_minutes = self._rate_limit_remaining_minutes()
+        if backoff_minutes is not None:
+            message = f"Recreation.gov rate limit active; retrying in about {backoff_minutes} minute(s)."
+            self.store.finish_scan_run(run_id, "rate_limited", message, 0, 0)
+            self.store.update_target_scan_status(watch["target_id"], "rate_limited")
+            self.store.schedule_next_scan(watch["id"], backoff_minutes)
+            return {
+                "status": "rate_limited",
+                "message": message,
+                "candidate_count": 0,
+                "available_count": 0,
+            }
 
         try:
             for trip in trips:
                 month_maps = []
                 for month in months_for_trip(trip.arrival_date, trip.departure_date):
                     if month not in monthly_cache:
-                        monthly_cache[month] = await self.client.monthly_availability(watch["campground_id"], month)
+                        monthly_cache[month] = await self._monthly_availability(watch["campground_id"], month)
                     month_maps.append(monthly_cache[month])
 
                 sites = [
@@ -294,10 +320,16 @@ class Scanner:
                     )
                     available_count += 1
                     if is_new:
-                        await self.notifier.notify_result(result, self.store)
+                        new_results.append({**result, "watch_name": watch["name"]})
+
+            if new_results:
+                await self.notifier.notify_results(new_results, self.store, self.max_notification_results)
 
             status = "available" if available_count else "clear"
-            message = f"Found {available_count} available site/date match(es)." if available_count else "No matching availability found."
+            if available_count:
+                message = f"Found {available_count} available site/date match(es), including {len(new_results)} new match(es)."
+            else:
+                message = "No matching availability found."
             self.store.finish_scan_run(run_id, "success", message, len(trips), available_count)
             self.store.update_target_scan_status(watch["target_id"], status)
             self._schedule_next_scan(watch)
@@ -307,8 +339,59 @@ class Scanner:
                 "candidate_count": len(trips),
                 "available_count": available_count,
             }
+        except RateLimitError as exc:
+            self._start_rate_limit_backoff(exc)
+            backoff_minutes = self._rate_limit_remaining_minutes() or self.rate_limit_backoff_minutes
+            message = f"Recreation.gov returned HTTP 429; pausing scans for about {backoff_minutes} minute(s)."
+            self.store.finish_scan_run(run_id, "rate_limited", message, len(trips), available_count)
+            self.store.update_target_scan_status(watch["target_id"], "rate_limited")
+            self.store.schedule_next_scan(watch["id"], backoff_minutes)
+            return {
+                "status": "rate_limited",
+                "message": message,
+                "candidate_count": len(trips),
+                "available_count": available_count,
+            }
         except Exception as exc:
             self.store.finish_scan_run(run_id, "error", str(exc), len(trips), available_count)
             self.store.update_target_scan_status(watch["target_id"], f"error: {exc}")
             self._schedule_next_scan(watch)
             raise
+
+    async def _monthly_availability(self, campground_id: str, month: date) -> dict[str, Campsite]:
+        key = (campground_id, month)
+        cached = self._availability_cache.get(key)
+        if cached is not None:
+            fetched_at, campsites = cached
+            if self.availability_cache_minutes > 0 and datetime.now(UTC) - fetched_at <= timedelta(
+                minutes=self.availability_cache_minutes
+            ):
+                return campsites
+
+        await self._wait_for_api_slot()
+        campsites = await self.client.monthly_availability(campground_id, month)
+        self._availability_cache[key] = (datetime.now(UTC), campsites)
+        return campsites
+
+    async def _wait_for_api_slot(self) -> None:
+        if self.api_request_delay_seconds <= 0:
+            return
+        now = datetime.now(UTC)
+        if self._last_api_request_at is not None:
+            elapsed = (now - self._last_api_request_at).total_seconds()
+            if elapsed < self.api_request_delay_seconds:
+                await asyncio.sleep(self.api_request_delay_seconds - elapsed)
+        self._last_api_request_at = datetime.now(UTC)
+
+    def _start_rate_limit_backoff(self, exc: RateLimitError) -> None:
+        seconds = exc.retry_after_seconds or self.rate_limit_backoff_minutes * 60
+        self._api_backoff_until = datetime.now(UTC) + timedelta(seconds=seconds)
+
+    def _rate_limit_remaining_minutes(self) -> int | None:
+        if self._api_backoff_until is None:
+            return None
+        remaining = self._api_backoff_until - datetime.now(UTC)
+        if remaining.total_seconds() <= 0:
+            self._api_backoff_until = None
+            return None
+        return max(1, math.ceil(remaining.total_seconds() / 60))

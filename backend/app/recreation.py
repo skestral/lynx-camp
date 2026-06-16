@@ -16,6 +16,15 @@ USER_AGENT = (
 )
 
 
+class RateLimitError(RuntimeError):
+    def __init__(self, retry_after_seconds: int | None = None):
+        self.retry_after_seconds = retry_after_seconds
+        message = "Recreation.gov returned HTTP 429 Too Many Requests"
+        if retry_after_seconds is not None:
+            message = f"{message}; retry after {retry_after_seconds} seconds"
+        super().__init__(message)
+
+
 @dataclass(frozen=True)
 class Campsite:
     campsite_id: str
@@ -52,6 +61,8 @@ class RecreationClient:
             headers={"User-Agent": USER_AGENT},
         ) as client:
             response = await client.get(path, params=params)
+            if response.status_code == 429:
+                raise RateLimitError(_retry_after_seconds(response.headers.get("Retry-After")))
             response.raise_for_status()
             return response.json()
 
@@ -172,6 +183,15 @@ def _optional_int(value: Any) -> int | None:
         if value is None or value == "":
             return None
         return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _retry_after_seconds(value: Any) -> int | None:
+    try:
+        if value is None or value == "":
+            return None
+        return max(1, int(float(str(value).strip())))
     except (TypeError, ValueError):
         return None
 

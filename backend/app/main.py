@@ -29,6 +29,10 @@ scanner = Scanner(
     settings.release_scan_before_minutes,
     settings.release_scan_after_minutes,
     settings.release_scan_interval_minutes,
+    settings.availability_cache_minutes,
+    settings.api_request_delay_seconds,
+    settings.rate_limit_backoff_minutes,
+    settings.max_notification_results,
 )
 
 

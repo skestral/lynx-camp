@@ -52,13 +52,19 @@ class Notifier:
         }
 
     async def notify_result(self, result: dict, store: "Store") -> None:
-        message = self._format_message(result)
+        await self.notify_results([result], store)
+
+    async def notify_results(self, results: list[dict], store: "Store", max_items: int = 5) -> None:
+        if not results:
+            return
+        message = self._format_results_message(results, max_items)
+        click_url = results[0]["booking_url"] if len(results) == 1 else self.settings.app_base_url
         if self.settings.webhook_url:
-            await self._send_webhook(result["id"], message, store)
+            await self._send_webhook(results, message, store)
         if self._smtp_enabled:
-            await asyncio.to_thread(self._send_email, result["id"], message, store)
+            await asyncio.to_thread(self._send_email, results, message, store)
         if self._ntfy_enabled:
-            await self._send_ntfy(result["id"], message, result["booking_url"], store)
+            await self._send_ntfy(results, message, click_url, store)
 
     async def send_test(self) -> dict:
         message = (
@@ -103,32 +109,31 @@ class Notifier:
         topic = (self.settings.ntfy_topic or "").strip().lstrip("/")
         return f"{self.settings.ntfy_server.rstrip('/')}/{topic}"
 
-    async def _send_webhook(self, result_id: int, message: str, store: "Store") -> None:
+    async def _send_webhook(self, results: list[dict], message: str, store: "Store") -> None:
         result = await self._post_webhook(message)
-        store.record_notification(
-            result_id,
-            "webhook",
-            "sent" if result["status"] == "sent" else "error",
-            result["message"],
-        )
+        self._record_batch_notifications(results, "webhook", "sent" if result["status"] == "sent" else "error", result["message"], store)
 
-    def _send_email(self, result_id: int, message: str, store: "Store") -> None:
+    def _send_email(self, results: list[dict], message: str, store: "Store") -> None:
         result = self._post_email(message)
-        store.record_notification(
-            result_id,
-            "email",
-            "sent" if result["status"] == "sent" else "error",
-            result["message"],
-        )
+        self._record_batch_notifications(results, "email", "sent" if result["status"] == "sent" else "error", result["message"], store)
 
-    async def _send_ntfy(self, result_id: int, message: str, click_url: str, store: "Store") -> None:
+    async def _send_ntfy(self, results: list[dict], message: str, click_url: str, store: "Store") -> None:
         result = await self._post_ntfy(message, click_url)
-        store.record_notification(
-            result_id,
-            "ntfy",
-            "sent" if result["status"] == "sent" else "error",
-            result["message"],
-        )
+        self._record_batch_notifications(results, "ntfy", "sent" if result["status"] == "sent" else "error", result["message"], store)
+
+    @staticmethod
+    def _record_batch_notifications(
+        results: list[dict],
+        channel: str,
+        first_status: str,
+        message: str,
+        store: "Store",
+    ) -> None:
+        if not results:
+            return
+        store.record_notification(results[0]["id"], channel, first_status, message)
+        for result in results[1:]:
+            store.record_notification(result["id"], channel, "batched", "Included in bulk availability alert.")
 
     async def _post_webhook(self, message: str) -> dict:
         try:
@@ -170,6 +175,33 @@ class Notifier:
             return {"channel": "ntfy", "status": "sent", "message": "ntfy notification sent."}
         except Exception as exc:
             return {"channel": "ntfy", "status": "error", "message": str(exc)}
+
+    def _format_results_message(self, results: list[dict], max_items: int = 5) -> str:
+        if len(results) == 1:
+            return self._format_message(results[0])
+
+        ordered = sorted(results, key=lambda item: (item["arrival_date"], item["site"]))
+        first = ordered[0]
+        lines = [
+            f"Camp Finder found {len(results)} new availability matches:",
+            f"{first['campground_name']} - {first.get('watch_name') or 'watch'}",
+            "",
+        ]
+        for result in ordered[:max_items]:
+            details = [f"site {result['site']}"]
+            if result.get("loop"):
+                details.append(result["loop"])
+            if result.get("campsite_type"):
+                details.append(result["campsite_type"])
+            lines.append(
+                f"- {result['arrival_date']} to {result['departure_date']}: "
+                f"{' / '.join(details)}"
+            )
+        remaining = len(results) - max_items
+        if remaining > 0:
+            lines.append(f"...and {remaining} more match(es).")
+        lines.extend(["", f"Review results: {self.settings.app_base_url}"])
+        return "\n".join(lines)
 
     @staticmethod
     def _format_message(result: dict) -> str:

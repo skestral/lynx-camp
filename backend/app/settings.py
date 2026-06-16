@@ -16,6 +16,10 @@ def _optional_env(name: str) -> str | None:
     return value or None
 
 
+def _float_env(name: str, default: str) -> float:
+    return float(os.getenv(name, default))
+
+
 @dataclass(frozen=True)
 class Settings:
     database_path: Path = Path(os.getenv("CAMPFINDER_DB", ROOT_DIR / "data" / "campfinder.db"))
@@ -26,6 +30,10 @@ class Settings:
     release_scan_before_minutes: int = int(os.getenv("CAMPFINDER_RELEASE_SCAN_BEFORE_MINUTES", "15"))
     release_scan_after_minutes: int = int(os.getenv("CAMPFINDER_RELEASE_SCAN_AFTER_MINUTES", "60"))
     release_scan_interval_minutes: int = int(os.getenv("CAMPFINDER_RELEASE_SCAN_INTERVAL_MINUTES", "10"))
+    availability_cache_minutes: int = int(os.getenv("CAMPFINDER_AVAILABILITY_CACHE_MINUTES", "5"))
+    api_request_delay_seconds: float = _float_env("CAMPFINDER_API_REQUEST_DELAY_SECONDS", "1")
+    rate_limit_backoff_minutes: int = int(os.getenv("CAMPFINDER_RATE_LIMIT_BACKOFF_MINUTES", "60"))
+    max_notification_results: int = int(os.getenv("CAMPFINDER_MAX_NOTIFICATION_RESULTS", "5"))
     webhook_url: str | None = _optional_env("CAMPFINDER_WEBHOOK_URL")
     ntfy_server: str = os.getenv("CAMPFINDER_NTFY_SERVER", "https://ntfy.sh").rstrip("/")
     ntfy_topic: str | None = _optional_env("CAMPFINDER_NTFY_TOPIC")
