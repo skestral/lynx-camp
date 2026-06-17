@@ -182,11 +182,14 @@ class Notifier:
 
         ordered = sorted(results, key=lambda item: (item["arrival_date"], item["site"]))
         first = ordered[0]
+        cart_assist_message = next((result.get("cart_assist_message") for result in ordered if result.get("cart_assist_message")), None)
         lines = [
             f"Camp Finder found {len(results)} new availability matches:",
             f"{first['campground_name']} - {first.get('watch_name') or 'watch'}",
             "",
         ]
+        if cart_assist_message:
+            lines.extend([f"Cart Assist: {cart_assist_message}", f"Open queue: {self.settings.app_base_url}", ""])
         for result in ordered[:max_items]:
             details = [f"site {result['site']}"]
             if result.get("loop"):
@@ -203,11 +206,13 @@ class Notifier:
         lines.extend(["", f"Review results: {self.settings.app_base_url}"])
         return "\n".join(lines)
 
-    @staticmethod
-    def _format_message(result: dict) -> str:
-        return (
-            "Camp Finder found availability:\n"
-            f"{result['campground_name']} site {result['site']}\n"
-            f"{result['arrival_date']} to {result['departure_date']}\n"
-            f"Book: {result['booking_url']}"
-        )
+    def _format_message(self, result: dict) -> str:
+        lines = [
+            "Camp Finder found availability:",
+            f"{result['campground_name']} site {result['site']}",
+            f"{result['arrival_date']} to {result['departure_date']}",
+        ]
+        if result.get("cart_assist_message"):
+            lines.extend([f"Cart Assist: {result['cart_assist_message']}", f"Queue: {self.settings.app_base_url}"])
+        lines.append(f"Book: {result['booking_url']}")
+        return "\n".join(lines)

@@ -196,6 +196,9 @@ def test_scan_records_cart_attempts_for_high_priority_watches(tmp_path) -> None:
 
     assert result["available_count"] == 2
     assert "Cart Assist recorded 2 guarded attempt(s)." in result["summaries"][0]["message"]
+    assert len(notifier.batches) == 1
+    batch, _max_items = notifier.batches[0]
+    assert {item["cart_assist_message"] for item in batch} == {"Cart Assist recorded 2 attempts for this scan."}
     attempts = store.list_cart_attempts()
     assert [attempt["status"] for attempt in attempts] == ["skipped", "manual_required"]
     assert attempts[0]["message"].startswith("Skipped because this scan is limited")

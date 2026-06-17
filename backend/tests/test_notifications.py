@@ -89,3 +89,61 @@ def test_bulk_notification_records_one_delivery_attempt_and_batched_followups(tm
             "message": "Included in bulk availability alert.",
         },
     ]
+
+
+def test_single_notification_includes_cart_assist_queue_handoff(tmp_path) -> None:
+    notifier = Notifier(Settings(database_path=tmp_path / "db.sqlite", app_base_url="http://campfinder.local"))
+
+    message = notifier._format_results_message(
+        [
+            {
+                "id": 1,
+                "campground_name": "Kalaloch",
+                "site": "A01",
+                "arrival_date": "2026-07-03",
+                "departure_date": "2026-07-05",
+                "booking_url": "https://www.recreation.gov/camping/campsites/101?startDate=2026-07-03",
+                "cart_assist_message": "Cart Assist recorded 1 attempt for this scan.",
+            }
+        ]
+    )
+
+    assert "Cart Assist: Cart Assist recorded 1 attempt for this scan." in message
+    assert "Queue: http://campfinder.local" in message
+
+
+def test_bulk_notification_includes_cart_assist_queue_handoff(tmp_path) -> None:
+    notifier = Notifier(Settings(database_path=tmp_path / "db.sqlite", app_base_url="http://campfinder.local"))
+
+    message = notifier._format_results_message(
+        [
+            {
+                "id": 1,
+                "campground_name": "Kalaloch",
+                "watch_name": "Weekend",
+                "site": "A01",
+                "loop": "A",
+                "campsite_type": "Tent",
+                "arrival_date": "2026-07-03",
+                "departure_date": "2026-07-05",
+                "booking_url": "https://www.recreation.gov/camping/campsites/101?startDate=2026-07-03",
+                "cart_assist_message": "Cart Assist recorded 2 attempts for this scan.",
+            },
+            {
+                "id": 2,
+                "campground_name": "Kalaloch",
+                "watch_name": "Weekend",
+                "site": "A02",
+                "loop": "A",
+                "campsite_type": "Tent",
+                "arrival_date": "2026-07-03",
+                "departure_date": "2026-07-05",
+                "booking_url": "https://www.recreation.gov/camping/campsites/102?startDate=2026-07-03",
+                "cart_assist_message": "Cart Assist recorded 2 attempts for this scan.",
+            },
+        ],
+        max_items=1,
+    )
+
+    assert "Cart Assist: Cart Assist recorded 2 attempts for this scan." in message
+    assert "Open queue: http://campfinder.local" in message
