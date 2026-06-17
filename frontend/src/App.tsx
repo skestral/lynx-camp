@@ -2090,22 +2090,24 @@ export default function App() {
                 <strong>Park Queue</strong>
                 <small>{parkSummaries.length} park group{parkSummaries.length === 1 ? "" : "s"} tracked</small>
               </div>
-              {parkSummaries.map((summary) => (
-                <button
-                  className={`park-chip ${resultQuery === summary.parkName ? "selected" : ""}`}
-                  key={summary.parkName}
-                  onClick={() => focusPark(summary)}
-                  type="button"
-                >
-                  <span>
-                    <strong>{summary.parkName}</strong>
-                    <small>{summary.activeTargetCount}/{summary.targetCount} targets active</small>
-                  </span>
-                  <span className={`status ${summary.activeResultCount ? "success" : "quiet"}`}>
-                    {summary.activeResultCount || summary.resultCount}
-                  </span>
-                </button>
-              ))}
+              <div className="park-chip-strip">
+                {parkSummaries.map((summary) => (
+                  <button
+                    className={`park-chip ${resultQuery === summary.parkName ? "selected" : ""}`}
+                    key={summary.parkName}
+                    onClick={() => focusPark(summary)}
+                    type="button"
+                  >
+                    <span>
+                      <strong>{summary.parkName}</strong>
+                      <small>{summary.activeTargetCount}/{summary.targetCount} targets active</small>
+                    </span>
+                    <span className={`status ${summary.activeResultCount ? "success" : "quiet"}`}>
+                      {summary.activeResultCount || summary.resultCount}
+                    </span>
+                  </button>
+                ))}
+              </div>
             </aside>
           </section>
 
@@ -2135,7 +2137,7 @@ export default function App() {
             </div>
           </details>
 
-          <details className="panel utility-panel scan-panel" id="activity" open>
+          <details className="panel utility-panel scan-panel" id="activity">
             <summary className="utility-summary">
               <span>
                 <h2>Recent Scan Activity</h2>

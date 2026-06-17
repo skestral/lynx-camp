@@ -41,7 +41,7 @@ The app is still notification-first. It opens Recreation.gov booking links when 
 The dashboard is organized around the work that usually matters first:
 
 1. Scan state and summary counts show whether Camp Finder is idle, scanning, or showing the last completed scan.
-2. The map uses Leaflet with OpenStreetMap tiles to show saved targets plus preset park/campground options. It spans the main dashboard workspace, and selecting a marker filters the results list.
+2. The map uses Leaflet with OpenStreetMap tiles to show saved targets plus preset park/campground options. It now takes the main dashboard width, with the park queue in a compact strip below the map. Selecting a marker or park chip filters the results list.
 3. Availability Results stay in the main working area so new matches are not buried below target and watch configuration.
 4. Target and watch setup live in the slide-out drawer. Use the Targets and Watches buttons in the header or sidebar to open it.
 5. Result filters let you switch between active, all, available, opened, booked, and dismissed results.
@@ -49,7 +49,7 @@ The dashboard is organized around the work that usually matters first:
 7. Sort controls support newest first, arrival date, and park/campground grouping.
 8. Select Visible lets you bulk dismiss, mark booked, or reopen the results currently in view.
 
-In normal use, you add or import targets, create watch rules, then spend most of your time in the map, scan status, and results sections. Release hints, recent scan activity, notifications, and server settings live in a collapsible utility rail beside the results on desktop and stack underneath on smaller screens.
+In normal use, you add or import targets, create watch rules, then spend most of your time in the map, scan status, and results sections. Release hints, recent scan activity, notifications, and server settings live in a collapsible utility rail beside the results on desktop and stack underneath on smaller screens. Release Planner starts open; scan history and server settings stay collapsed until you need the detail.
 
 ## Preset Packs
 
