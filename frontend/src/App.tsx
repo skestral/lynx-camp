@@ -414,6 +414,10 @@ export default function App() {
       }),
     [cartAttempts]
   );
+  const nextCheckoutAttempt = useMemo(
+    () => prioritizedCartAttempts.find((attempt) => attempt.status === "manual_required" || attempt.status === "opened") || null,
+    [prioritizedCartAttempts]
+  );
   const filteredResults = useMemo(() => {
     const query = resultQuery.trim().toLowerCase();
     const filtered = results.filter((result) => {
@@ -1364,6 +1368,12 @@ export default function App() {
     }
   }
 
+  function openCartAttemptBooking(attempt: CartAttempt) {
+    if (attempt.status === "manual_required") {
+      void updateCartAttemptStatus(attempt, "opened");
+    }
+  }
+
   async function clearAllResults() {
     if (activeResultCount === 0) return;
     const confirmed = window.confirm("Dismiss all active availability results?");
@@ -2170,8 +2180,21 @@ export default function App() {
                   <strong>Checkout queue</strong>
                   <small>{cartAssistQueueSummary(cartAssistStatus)}</small>
                 </span>
-                <span className={`status ${cartAssistStatus ? (cartAssistStatus.active_attempt_count ? "warning" : "success") : "quiet"}`}>
-                  {cartAssistStatus ? `${cartAssistStatus.active_attempt_count} active` : "loading"}
+                <span className="cart-queue-actions">
+                  <span className={`status ${cartAssistStatus ? (cartAssistStatus.active_attempt_count ? "warning" : "success") : "quiet"}`}>
+                    {cartAssistStatus ? `${cartAssistStatus.active_attempt_count} active` : "loading"}
+                  </span>
+                  {nextCheckoutAttempt && (
+                    <a
+                      className="link-button compact"
+                      href={nextCheckoutAttempt.booking_url}
+                      onClick={() => openCartAttemptBooking(nextCheckoutAttempt)}
+                      rel="noreferrer"
+                      target="_blank"
+                    >
+                      <ExternalLink size={15} /> Open Next
+                    </a>
+                  )}
                 </span>
               </article>
               <form className="cart-assist-form" onSubmit={saveCartAssistConfig}>

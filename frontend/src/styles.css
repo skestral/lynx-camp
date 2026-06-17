@@ -883,6 +883,13 @@ td small {
   gap: 9px;
 }
 
+.cart-queue-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .cart-attempt-row {
   align-items: start;
 }
