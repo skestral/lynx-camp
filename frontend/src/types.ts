@@ -351,3 +351,48 @@ export type PresetSourceImportResult = {
   discovery: PresetDiscoveryResult;
   targets: Target[];
 };
+
+export type SourceDefinition = {
+  id: string;
+  name: string;
+  provider: string;
+  category: string;
+  region: string;
+  status: "ready" | "research" | "directory" | string;
+  source_type: string;
+  description: string;
+  official_url: string;
+  query_count: number;
+  discover_supported: boolean;
+  import_supported: boolean;
+  imported_count: number;
+};
+
+export type SourceDiscoveryResult = {
+  source_id: string;
+  source_name: string;
+  provider: string;
+  category: string;
+  region: string;
+  status: string;
+  source: string;
+  checked_at: string;
+  source_queries: string[];
+  discovered_count: number;
+  imported_count: number;
+  new_count: number;
+  targets: PresetTarget[];
+};
+
+export type SourceImportResult = {
+  source_id: string;
+  source_name: string;
+  source: string;
+  checked_at: string;
+  imported_count: number;
+  updated_count: number;
+  target_count: number;
+  new_count: number;
+  discovery: SourceDiscoveryResult;
+  targets: Target[];
+};

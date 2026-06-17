@@ -19,6 +19,9 @@ import type {
   ScanEvent,
   ScanRun,
   SearchSuggestion,
+  SourceDefinition,
+  SourceDiscoveryResult,
+  SourceImportResult,
   Target,
   Watch
 } from "./types";
@@ -40,6 +43,7 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 export const api = {
   targets: () => request<Target[]>("/api/targets"),
   presets: () => request<PresetPack[]>("/api/presets"),
+  sources: () => request<SourceDefinition[]>("/api/sources"),
   watches: () => request<Watch[]>("/api/watches"),
   results: (limit = RESULTS_LIMIT) => request<Result[]>(`/api/results?limit=${limit}`),
   resultSummary: () => request<ResultSummary>("/api/results/summary"),
@@ -92,6 +96,10 @@ export const api = {
     request<PresetDiscoveryResult>(`/api/presets/${packId}/discover`, { method: "POST" }),
   importDiscoveredPreset: (packId: string) =>
     request<PresetSourceImportResult>(`/api/presets/${packId}/import-discovered`, { method: "POST" }),
+  discoverSource: (sourceId: string) =>
+    request<SourceDiscoveryResult>(`/api/sources/${sourceId}/discover`, { method: "POST" }),
+  importSource: (sourceId: string) =>
+    request<SourceImportResult>(`/api/sources/${sourceId}/import`, { method: "POST" }),
   createWatch: (payload: Record<string, unknown>) =>
     request<Watch>("/api/watches", { method: "POST", body: JSON.stringify(payload) }),
   updateWatch: (watchId: number, payload: Record<string, unknown>) =>

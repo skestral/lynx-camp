@@ -26,6 +26,7 @@ from .schemas import (
     WatchUpdate,
 )
 from .settings import settings
+from .sources import discover_source, import_source, list_source_definitions
 
 
 store = Store(settings.database_path)
@@ -169,6 +170,27 @@ async def import_discovered_preset(pack_id: str) -> dict:
         return await import_discovered_preset_pack(store, client, pack_id, settings.min_poll_interval_minutes)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.get("/api/sources")
+def list_sources() -> list[dict]:
+    return list_source_definitions(store)
+
+
+@app.post("/api/sources/{source_id}/discover")
+async def discover_source_definition(source_id: str) -> dict:
+    try:
+        return await discover_source(store, client, source_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/sources/{source_id}/import")
+async def import_source_definition(source_id: str) -> dict:
+    try:
+        return await import_source(store, client, source_id, settings.min_poll_interval_minutes)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @app.get("/api/config/export")

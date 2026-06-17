@@ -328,6 +328,10 @@ small {
   display: block;
 }
 
+.focus-signal span {
+  min-width: 0;
+}
+
 .focus-signal strong {
   color: #14231f;
   font-size: 13px;
@@ -466,6 +470,10 @@ small {
   overflow-wrap: anywhere;
 }
 
+.scan-status-card > span:last-child {
+  min-width: 0;
+}
+
 .scan-status-card strong {
   color: #14231f;
   font-size: 15px;
@@ -475,6 +483,15 @@ small {
   margin-top: 3px;
   font-size: 13px;
   line-height: 1.35;
+}
+
+.scan-status-card small span {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.scan-status-card small span + span {
+  margin-top: 2px;
 }
 
 .live-scan-list {
@@ -1240,6 +1257,7 @@ small {
 }
 
 .suggestions,
+.source-catalog,
 .preset-packs,
 .target-list,
 .watch-list,
@@ -1253,6 +1271,7 @@ small {
 }
 
 .suggestion-row,
+.source-row,
 .preset-row,
 .target-row,
 .watch-row,
@@ -1280,6 +1299,7 @@ small {
 }
 
 .target-row strong,
+.source-row strong,
 .preset-row strong,
 .watch-row strong,
 .status-row strong,
@@ -1293,6 +1313,7 @@ td strong {
 }
 
 .target-row small,
+.source-row small,
 .preset-row small,
 .watch-row small,
 .status-row small,
@@ -1321,6 +1342,41 @@ td small {
 
 .preset-row {
   background: #f7fbfa;
+}
+
+.source-group {
+  display: grid;
+  gap: 8px;
+}
+
+.source-group + .source-group {
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+}
+
+.source-group-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.source-group-heading strong {
+  color: #14231f;
+  font-size: 13px;
+}
+
+.source-row {
+  background: #fbfdfc;
+}
+
+.source-row > span:first-child {
+  display: grid;
+  gap: 4px;
+}
+
+.source-row .status {
+  justify-self: start;
 }
 
 .preset-source-summary {
@@ -2250,6 +2306,7 @@ th {
   }
 
   .target-row,
+  .source-row,
   .preset-row,
   .watch-row,
   .status-row,

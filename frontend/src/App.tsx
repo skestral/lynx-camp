@@ -45,6 +45,8 @@ import type {
   ScanEvent,
   ScanRun,
   SearchSuggestion,
+  SourceDefinition,
+  SourceDiscoveryResult,
   Target,
   Watch
 } from "./types";
@@ -196,8 +198,8 @@ function statusTone(status: string) {
     status === "rate_limited"
   )
     return "warning";
-  if (status === "available" || status === "booked") return "success";
-  if (status === "clear" || status === "opened" || status === "running") return "calm";
+  if (status === "available" || status === "booked" || status === "ready") return "success";
+  if (status === "clear" || status === "opened" || status === "running" || status === "directory" || status === "research") return "calm";
   return "quiet";
 }
 
@@ -349,6 +351,7 @@ async function writeClipboardText(text: string) {
 export default function App() {
   const [targets, setTargets] = useState<Target[]>([]);
   const [presets, setPresets] = useState<PresetPack[]>([]);
+  const [sources, setSources] = useState<SourceDefinition[]>([]);
   const [watches, setWatches] = useState<Watch[]>([]);
   const [results, setResults] = useState<Result[]>([]);
   const [resultSummary, setResultSummary] = useState<ResultSummary>({ total_count: 0, active_count: 0 });
@@ -400,6 +403,9 @@ export default function App() {
   const [discoveringPackId, setDiscoveringPackId] = useState<string | null>(null);
   const [sourceImportingPackId, setSourceImportingPackId] = useState<string | null>(null);
   const [presetDiscovery, setPresetDiscovery] = useState<Record<string, PresetDiscoveryResult>>({});
+  const [discoveringSourceId, setDiscoveringSourceId] = useState<string | null>(null);
+  const [importingSourceId, setImportingSourceId] = useState<string | null>(null);
+  const [sourceDiscovery, setSourceDiscovery] = useState<Record<string, SourceDiscoveryResult>>({});
   const [configBusy, setConfigBusy] = useState<"export" | "import" | null>(null);
   const [backupFile, setBackupFile] = useState<File | null>(null);
   const [targetSettingsId, setTargetSettingsId] = useState("");
@@ -512,14 +518,18 @@ export default function App() {
     : scanProgress?.title || (latestScan ? `Last scan: ${latestScan.watch_name}` : "No scans yet");
   const activeScanDetail = runningScan ? (
     <>
-      {runningScan.target_name} &middot; started {formatDateTime(runningScan.started_at)}
+      <span>{runningScan.target_name}</span>
+      <span>started {formatDateTime(runningScan.started_at)}</span>
     </>
   ) : scanProgress?.detail ? (
     scanProgress.detail
   ) : latestScan ? (
     <>
-      {latestScan.target_name} &middot; {latestScan.candidate_count} stays &middot; {latestScan.available_count} matches &middot;{" "}
-      {formatDateTime(latestScan.finished_at || latestScan.started_at)}
+      <span>{latestScan.target_name}</span>
+      <span>
+        {latestScan.candidate_count} stays &middot; {latestScan.available_count} matches &middot;{" "}
+        {formatDateTime(latestScan.finished_at || latestScan.started_at)}
+      </span>
     </>
   ) : (
     "Ready when watches are added."
@@ -553,6 +563,8 @@ export default function App() {
     let checkedPacks = 0;
     let sourceNewCount = 0;
     let sourceMissingCount = 0;
+    let checkedSourceDefinitions = 0;
+    let sourceDefinitionNewCount = 0;
 
     for (const pack of presets) {
       const discovery = presetDiscovery[pack.id];
@@ -567,17 +579,28 @@ export default function App() {
         if (target.park_name) parkNames.add(target.park_name);
       }
     }
+    for (const source of sources) {
+      const discovery = sourceDiscovery[source.id];
+      if (discovery) {
+        checkedSourceDefinitions += 1;
+        sourceDefinitionNewCount += discovery.new_count;
+      }
+    }
 
     return {
       packCount: presets.length,
       parkCount: parkNames.size,
       bundledTargetCount: bundledIds.size,
       importedBundledCount: importedBundledIds.size,
+      sourceDefinitionCount: sources.length,
+      readySourceDefinitionCount: sources.filter((source) => source.discover_supported).length,
       checkedPacks,
       sourceNewCount,
-      sourceMissingCount
+      sourceMissingCount,
+      checkedSourceDefinitions,
+      sourceDefinitionNewCount
     };
-  }, [presetDiscovery, presets]);
+  }, [presetDiscovery, presets, sourceDiscovery, sources]);
   const nextReleaseHint = latestRelease[0] || null;
   const focusSummary = scanInProgress
     ? `${runningScanRuns.length || 1} scan${(runningScanRuns.length || 1) === 1 ? "" : "s"} running now.`
@@ -589,9 +612,22 @@ export default function App() {
           ? `${targets.length} campground target${targets.length === 1 ? "" : "s"} saved.`
           : "No campground targets saved yet.";
   const sourceSummary =
-    sourceCoverage.checkedPacks > 0
+    sourceCoverage.checkedSourceDefinitions > 0
+      ? `${sourceCoverage.checkedSourceDefinitions} source catalog check${sourceCoverage.checkedSourceDefinitions === 1 ? "" : "s"} run, ${sourceCoverage.sourceDefinitionNewCount} new target${sourceCoverage.sourceDefinitionNewCount === 1 ? "" : "s"} found.`
+      : sourceCoverage.checkedPacks > 0
       ? `${sourceCoverage.checkedPacks} live source check${sourceCoverage.checkedPacks === 1 ? "" : "s"} run, ${sourceCoverage.sourceNewCount} new target${sourceCoverage.sourceNewCount === 1 ? "" : "s"} found.`
-      : `${sourceCoverage.packCount} preset pack${sourceCoverage.packCount === 1 ? "" : "s"} cover ${sourceCoverage.parkCount} park group${sourceCoverage.parkCount === 1 ? "" : "s"}.`;
+      : `${sourceCoverage.readySourceDefinitionCount} ready source${sourceCoverage.readySourceDefinitionCount === 1 ? "" : "s"} across ${sourceCoverage.packCount} preset pack${sourceCoverage.packCount === 1 ? "" : "s"}.`;
+  const sourceGroups = useMemo(() => {
+    const grouped = new Map<string, SourceDefinition[]>();
+    for (const source of sources) {
+      const category = source.category || "Other sources";
+      grouped.set(category, [...(grouped.get(category) || []), source]);
+    }
+    return Array.from(grouped.entries()).map(([category, items]) => ({
+      category,
+      items: items.sort((a, b) => a.name.localeCompare(b.name))
+    }));
+  }, [sources]);
   const parkSummaries = useMemo<ParkSummary[]>(() => {
     const summaries = new Map<
       string,
@@ -882,6 +918,7 @@ export default function App() {
       const [
         targetData,
         presetData,
+        sourceData,
         watchData,
         resultData,
         resultSummaryData,
@@ -894,6 +931,7 @@ export default function App() {
       ] = await Promise.all([
         api.targets(),
         api.presets(),
+        api.sources(),
         api.watches(),
         api.results(),
         api.resultSummary(),
@@ -906,6 +944,7 @@ export default function App() {
       ]);
       setTargets(targetData);
       setPresets(presetData);
+      setSources(sourceData);
       setWatches(watchData);
       setResults(resultData);
       setResultSummary(resultSummaryData);
@@ -1118,6 +1157,39 @@ export default function App() {
       setMessage(error instanceof Error ? error.message : "Source import failed.");
     } finally {
       setSourceImportingPackId(null);
+    }
+  }
+
+  async function discoverSource(sourceId: string) {
+    setDiscoveringSourceId(sourceId);
+    setMessage("");
+    try {
+      const result = await api.discoverSource(sourceId);
+      setSourceDiscovery((current) => ({ ...current, [sourceId]: result }));
+      setMessage(
+        `${result.source_name}: source returned ${result.discovered_count} campground${result.discovered_count === 1 ? "" : "s"}; ${result.new_count} not imported yet.`
+      );
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Source catalog check failed.");
+    } finally {
+      setDiscoveringSourceId(null);
+    }
+  }
+
+  async function importSource(sourceId: string) {
+    setImportingSourceId(sourceId);
+    setMessage("");
+    try {
+      const result = await api.importSource(sourceId);
+      setSourceDiscovery((current) => ({ ...current, [sourceId]: result.discovery }));
+      setMessage(
+        `Imported ${result.imported_count} source target${result.imported_count === 1 ? "" : "s"} from ${result.source_name}; updated ${result.updated_count}.`
+      );
+      await refresh();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Source catalog import failed.");
+    } finally {
+      setImportingSourceId(null);
     }
   }
 
@@ -2069,6 +2141,66 @@ export default function App() {
                   </span>
                   <Plus size={18} />
                 </button>
+              ))}
+            </div>
+            <div className="source-catalog">
+              <div className="subheading">
+                <strong>Source catalog</strong>
+                <small>Refreshable v2 sources grouped by park, forest, region, and Washington state research.</small>
+              </div>
+              {sourceGroups.map((group) => (
+                <div className="source-group" key={group.category}>
+                  <div className="source-group-heading">
+                    <strong>{group.category}</strong>
+                    <small>{group.items.length} source{group.items.length === 1 ? "" : "s"}</small>
+                  </div>
+                  {group.items.map((source) => {
+                    const discovery = sourceDiscovery[source.id];
+                    return (
+                      <article className="source-row" key={source.id}>
+                        <span>
+                          <span className={`status ${statusTone(source.status)}`}>{source.status}</span>
+                          <strong>{source.name}</strong>
+                          <small>
+                            {source.provider} &middot; {source.region} &middot; {source.query_count || 0} quer{source.query_count === 1 ? "y" : "ies"} &middot; {source.description}
+                          </small>
+                          {discovery && (
+                            <small className="preset-source-summary">
+                              Source {discovery.discovered_count} &middot; {discovery.new_count} new &middot; {discovery.imported_count} already saved
+                            </small>
+                          )}
+                        </span>
+                        <span className="row-actions">
+                          {source.discover_supported && (
+                            <button
+                              className="icon-only"
+                              onClick={() => discoverSource(source.id)}
+                              disabled={discoveringSourceId === source.id}
+                              title={`Check ${source.name}`}
+                              type="button"
+                            >
+                              <RefreshCw size={17} />
+                            </button>
+                          )}
+                          {source.import_supported && (
+                            <button
+                              className="icon-only"
+                              onClick={() => importSource(source.id)}
+                              disabled={importingSourceId === source.id}
+                              title={`Import ${source.name}`}
+                              type="button"
+                            >
+                              <Download size={17} />
+                            </button>
+                          )}
+                          <a className="icon-only quiet" href={source.official_url} target="_blank" rel="noreferrer" title={`Open ${source.provider} source`}>
+                            <ExternalLink size={16} />
+                          </a>
+                        </span>
+                      </article>
+                    );
+                  })}
+                </div>
               ))}
             </div>
             <div className="preset-packs">

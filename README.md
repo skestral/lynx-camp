@@ -49,7 +49,7 @@ The dashboard is organized around the work that usually matters first:
 5. Availability Results stay in the main working area so new matches are not buried below target and watch configuration.
 6. The Alerts drawer gives quick access to active matches, recent notification delivery, View Results, and Clear All.
 7. The Activity drawer shows the active scanner state, recent scan runs, recent checkpoint events, a Logs link, refresh, and Stop Scan.
-8. Target and watch setup live in the same slide-out drawer system. Use the Targets and Watches buttons in the header or sidebar to open them.
+8. Target and watch setup live in the same slide-out drawer system. Use the Targets and Watches buttons in the header or sidebar to open them. The Targets drawer starts with campground search, then the source catalog, then static preset fallbacks.
 9. Result filters let you switch between active, all, available, opened, booked, and dismissed results.
 10. Result search matches park name, campground, site, loop, campsite type, watch name, and stay dates.
 11. Sort controls support newest first, arrival date, and park/campground grouping.
@@ -77,11 +77,22 @@ The source check is intentionally visible instead of automatic. It pages through
 
 Paused targets are skipped by background scans and Scan All. Paused watch rules are kept in the dashboard but are also skipped until resumed.
 
+## Source Catalog
+
+The Targets drawer also includes a source catalog. This is the v2 path for dynamic campground discovery. Source entries are grouped by what they represent rather than by a hand-maintained import list:
+
+- National parks: live Recreation.gov discovery for the requested Olympic, Rainier, Crater Lake, North Cascades, Glacier, Yellowstone, and Grand Teton set.
+- National forests: live Recreation.gov discovery for Washington national forests such as Olympic, Mount Baker-Snoqualmie, Okanogan-Wenatchee, Gifford Pinchot, and Colville.
+- Regions: a Washington Recreation.gov state starter for federal campgrounds that are not covered by a named park or forest source yet.
+- Washington state: official Washington State Parks and WA DNR entries. These are research/directory sources for now, with official links, not availability scanners.
+
+Ready sources have Check and Import actions. Check runs the live Recreation.gov search and reports how many campgrounds came back and how many are not imported yet. Import creates or updates campground targets from that live source response. Research and directory sources only link to the official source because the app does not yet have a safe availability connector for those systems.
+
 ## Source Roadmap
 
 Camp Finder should keep treating Recreation.gov as the first-class source for federal campground targets. Recreation.gov publishes RIDB/API data for federal recreation areas, facilities, campsites, tours, and permits, and its own "Use Our Data" page encourages apps to consume those records and credit Recreation.gov. The current source-check buttons are the first version of that idea: they query Recreation.gov live, compare the response with bundled fallback targets, and can import the discovered campground list.
 
-For v2, the target source model should move from hand-maintained park packs to saved source definitions. A source definition should say what it covers, how it is grouped, and how it refreshes. Good first groupings are:
+For v2, the target source model is moving from hand-maintained park packs to saved source definitions. A source definition says what it covers, how it is grouped, and how it refreshes. The first groupings are:
 
 - National parks by parent park name.
 - National forests and other federal lands by managing agency, recreation area, state, and region.
@@ -293,7 +304,8 @@ This project uses the same Recreation.gov availability pattern that makes OpenCa
 ## Next Useful Phases
 
 1. Add filters for equipment, max vehicle length, accessible sites, and electric/water hookups when the API exposes them consistently.
-2. Replace one-off preset packs with refreshable source definitions for Recreation.gov national parks, national forests, regions, and custom searches.
-3. Add a Washington source directory beginning with Washington State Parks reservation links and WA DNR campground GIS data.
-4. Add notification channels such as Pushover, Telegram, or richer email templates.
-5. Add the guarded browser worker for Cart Assist, using one persistent Recreation.gov session and stopping on login challenges, CAPTCHA, unexpected pages, or any payment step.
+2. Persist source definitions and last source-check results in SQLite instead of keeping the catalog code-defined.
+3. Add custom source creation for a Recreation.gov parent area, state, region, or keyword.
+4. Add a Washington State Parks directory importer once park metadata and reservation links can be normalized safely.
+5. Add notification channels such as Pushover, Telegram, or richer email templates.
+6. Add the guarded browser worker for Cart Assist, using one persistent Recreation.gov session and stopping on login challenges, CAPTCHA, unexpected pages, or any payment step.
