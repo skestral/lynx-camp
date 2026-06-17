@@ -9,6 +9,7 @@ import {
   Download,
   ExternalLink,
   Filter,
+  House,
   ListChecks,
   MapPin,
   MapPinned,
@@ -2206,6 +2207,15 @@ export default function App() {
     setDrawerOpen(true);
   }
 
+  function navigateHome() {
+    setDrawerOpen(false);
+    setPageView("monitor");
+    window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}`);
+    window.setTimeout(() => {
+      window.scrollTo({ top: 0, behavior: "auto" });
+    }, 0);
+  }
+
   function scrollToResults() {
     setDrawerOpen(false);
     setPageView("monitor");
@@ -2733,6 +2743,9 @@ export default function App() {
           <span>Camp Finder</span>
         </div>
         <nav className="nav-list" aria-label="Primary">
+          <button className={`nav-item ${!isLogsPage && !drawerOpen ? "active" : ""}`} onClick={navigateHome} type="button">
+            <House size={18} /> Dashboard
+          </button>
           <button className={`nav-item ${drawerOpen && drawerMode === "alerts" ? "active" : ""}`} onClick={() => openDrawer("alerts")} type="button">
             <Bell size={18} /> Alerts
           </button>
@@ -2778,10 +2791,10 @@ export default function App() {
           </div>
           <div className="topbar-actions">
             {isLogsPage && (
-              <a className="icon-button" href="#results" onClick={scrollToResults} title="Back to availability monitor">
-                <ListChecks size={18} />
-                <span>Monitor</span>
-              </a>
+              <button className="icon-button" onClick={navigateHome} title="Back to dashboard" type="button">
+                <House size={18} />
+                <span>Dashboard</span>
+              </button>
             )}
             <button className="icon-button" onClick={() => openDrawer("targets")} type="button" title="Open campground targets">
               <MapPin size={18} />
