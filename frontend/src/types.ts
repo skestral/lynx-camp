@@ -281,3 +281,33 @@ export type PresetPack = {
   imported_count: number;
   targets: PresetTarget[];
 };
+
+export type PresetDiscoveryResult = {
+  pack_id: string;
+  pack_name: string;
+  checked_at: string;
+  source: string;
+  source_queries: string[];
+  static_count: number;
+  discovered_count: number;
+  imported_count: number;
+  new_count: number;
+  missing_count: number;
+  unchanged_count: number;
+  new_targets: PresetTarget[];
+  missing_static_targets: PresetTarget[];
+  targets: PresetTarget[];
+};
+
+export type PresetSourceImportResult = {
+  pack_id: string;
+  source: string;
+  checked_at: string;
+  imported_count: number;
+  updated_count: number;
+  target_count: number;
+  new_count: number;
+  missing_count: number;
+  discovery: PresetDiscoveryResult;
+  targets: Target[];
+};

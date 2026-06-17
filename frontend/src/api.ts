@@ -7,7 +7,9 @@ import type {
   NotificationEvent,
   NotificationStatus,
   NotificationTestResult,
+  PresetDiscoveryResult,
   PresetPack,
+  PresetSourceImportResult,
   ReleaseWindowProfileResult,
   Result,
   ScanAllResult,
@@ -72,6 +74,10 @@ export const api = {
       `/api/presets/${packId}/import`,
       { method: "POST" }
     ),
+  discoverPreset: (packId: string) =>
+    request<PresetDiscoveryResult>(`/api/presets/${packId}/discover`, { method: "POST" }),
+  importDiscoveredPreset: (packId: string) =>
+    request<PresetSourceImportResult>(`/api/presets/${packId}/import-discovered`, { method: "POST" }),
   createWatch: (payload: Record<string, unknown>) =>
     request<Watch>("/api/watches", { method: "POST", body: JSON.stringify(payload) }),
   updateWatch: (watchId: number, payload: Record<string, unknown>) =>

@@ -8,6 +8,7 @@ The app is still notification-first. It opens Recreation.gov booking links when 
 
 - Add campground targets from Recreation.gov search.
 - Import preset target packs for Pacific Northwest, Northern Rockies, Greater Yellowstone, or California national parks, then trim targets you do not want.
+- Check preset packs against live Recreation.gov campground search and optionally import the discovered source list.
 - Edit target display names, park/state labels, booking links, and day/week/month release-window settings.
 - Detect a likely release window from Recreation.gov campsite reservation-window data when available.
 - Pause and resume targets or individual watch rules without deleting them.
@@ -60,7 +61,13 @@ The app currently ships with static park packs that were built from Recreation.g
 
 Preset targets use campground IDs verified through Recreation.gov search results and include facilities whose Recreation.gov parent is the named park. Some parks also have concession-run or non-reservable campgrounds outside Recreation.gov, so those cannot be scanned by this Recreation.gov-backed app yet. The release settings still remain editable at the target level in the database model, because Recreation.gov booking windows can vary by facility.
 
-These packs can be made dynamic. The safest design is to keep the static packs as a fallback and add a refresh action that re-runs Recreation.gov campground search for the configured park names, compares the current facility IDs against the saved pack, and shows when the source list was last refreshed. That keeps the app useful when the network or upstream API is unavailable, while still letting the campground lists drift with Recreation.gov over time.
+The target drawer has three ways to use each preset:
+
+- Import bundled list: imports the static fallback list that ships with the app.
+- Check source: queries Recreation.gov search for each park in the pack and compares the live campground IDs against the bundled list.
+- Import source list: imports the campgrounds returned by the live source check.
+
+The source check is intentionally visible instead of automatic. It pages through Recreation.gov campground search for each park, keeps only exact parent-park matches, and verifies bundled campground IDs that the broad search misses. It shows how many campgrounds Recreation.gov returned, how many are new compared with the bundled list, and how many bundled targets were not returned by the current source search. That keeps the app useful when the network or upstream API is unavailable while still letting the campground lists drift with Recreation.gov over time.
 
 Paused targets are skipped by background scans and Scan All. Paused watch rules are kept in the dashboard but are also skipped until resumed.
 

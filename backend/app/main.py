@@ -12,7 +12,7 @@ from fastapi.staticfiles import StaticFiles
 from .cart_assist import CartAssistant
 from .db import Store
 from .notifications import Notifier
-from .presets import import_preset_pack, list_preset_packs
+from .presets import discover_preset_pack, import_discovered_preset_pack, import_preset_pack, list_preset_packs
 from .recreation import RecreationClient
 from .scanner import Scanner, generate_trip_windows, release_hints
 from .schemas import (
@@ -149,6 +149,22 @@ def list_presets() -> list[dict]:
 def import_preset(pack_id: str) -> dict:
     try:
         return import_preset_pack(store, pack_id, settings.min_poll_interval_minutes)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.post("/api/presets/{pack_id}/discover")
+async def discover_preset(pack_id: str) -> dict:
+    try:
+        return await discover_preset_pack(store, client, pack_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.post("/api/presets/{pack_id}/import-discovered")
+async def import_discovered_preset(pack_id: str) -> dict:
+    try:
+        return await import_discovered_preset_pack(store, client, pack_id, settings.min_poll_interval_minutes)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 

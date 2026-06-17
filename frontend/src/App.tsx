@@ -36,6 +36,7 @@ import type {
   ConfigBackup,
   NotificationEvent,
   NotificationStatus,
+  PresetDiscoveryResult,
   PresetPack,
   ReleaseWindowProfileResult,
   Result,
@@ -298,6 +299,9 @@ export default function App() {
   const [scanProgress, setScanProgress] = useState<ScanProgress | null>(null);
   const [bookingPreview, setBookingPreview] = useState<{ site: string; text: string } | null>(null);
   const [importingPackId, setImportingPackId] = useState<string | null>(null);
+  const [discoveringPackId, setDiscoveringPackId] = useState<string | null>(null);
+  const [sourceImportingPackId, setSourceImportingPackId] = useState<string | null>(null);
+  const [presetDiscovery, setPresetDiscovery] = useState<Record<string, PresetDiscoveryResult>>({});
   const [configBusy, setConfigBusy] = useState<"export" | "import" | null>(null);
   const [backupFile, setBackupFile] = useState<File | null>(null);
   const [targetSettingsId, setTargetSettingsId] = useState("");
@@ -835,6 +839,39 @@ export default function App() {
       setMessage(error instanceof Error ? error.message : "Preset import failed.");
     } finally {
       setImportingPackId(null);
+    }
+  }
+
+  async function discoverPreset(packId: string) {
+    setDiscoveringPackId(packId);
+    setMessage("");
+    try {
+      const result = await api.discoverPreset(packId);
+      setPresetDiscovery((current) => ({ ...current, [packId]: result }));
+      setMessage(
+        `${result.pack_name}: Recreation.gov source returned ${result.discovered_count} campground${result.discovered_count === 1 ? "" : "s"}; ${result.new_count} new, ${result.missing_count} not in source.`
+      );
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Source check failed.");
+    } finally {
+      setDiscoveringPackId(null);
+    }
+  }
+
+  async function importDiscoveredPreset(packId: string) {
+    setSourceImportingPackId(packId);
+    setMessage("");
+    try {
+      const result = await api.importDiscoveredPreset(packId);
+      setPresetDiscovery((current) => ({ ...current, [packId]: result.discovery }));
+      setMessage(
+        `Imported ${result.imported_count} source target${result.imported_count === 1 ? "" : "s"}; updated ${result.updated_count}.`
+      );
+      await refresh();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Source import failed.");
+    } finally {
+      setSourceImportingPackId(null);
     }
   }
 
@@ -1411,7 +1448,7 @@ export default function App() {
         </section>
 
         <div className={`drawer-backdrop ${setupDrawerOpen ? "show" : ""}`} onClick={() => setSetupDrawerOpen(false)} />
-        <div className={`content-grid setup-drawer ${setupDrawerOpen ? "open" : ""}`}>
+        <div className={`setup-drawer ${setupDrawerOpen ? "open" : ""}`}>
           <div className="drawer-heading">
             <div>
               <h2>{setupDrawerMode === "targets" ? "Target Setup" : "Watch Builder"}</h2>
@@ -1469,22 +1506,48 @@ export default function App() {
                 <strong>Preset packs</strong>
                 <small>Import a starting list, then trim it to your actual targets.</small>
               </div>
-              {presets.map((pack) => (
-                <article className="preset-row" key={pack.id}>
-                  <span>
-                    <strong>{pack.name}</strong>
-                    <small>{pack.imported_count}/{pack.target_count} imported &middot; {pack.description}</small>
-                  </span>
-                  <button
-                    className="icon-only"
-                    onClick={() => importPreset(pack.id)}
-                    disabled={importingPackId === pack.id}
-                    title={`Import ${pack.name}`}
-                  >
-                    <Download size={17} />
-                  </button>
-                </article>
-              ))}
+              {presets.map((pack) => {
+                const discovery = presetDiscovery[pack.id];
+                return (
+                  <article className="preset-row" key={pack.id}>
+                    <span>
+                      <strong>{pack.name}</strong>
+                      <small>{pack.imported_count}/{pack.target_count} imported &middot; {pack.description}</small>
+                      {discovery && (
+                        <small className="preset-source-summary">
+                          Source {discovery.discovered_count} &middot; {discovery.new_count} new &middot; {discovery.missing_count} static not returned
+                        </small>
+                      )}
+                    </span>
+                    <span className="row-actions">
+                      <button
+                        className="icon-only"
+                        onClick={() => discoverPreset(pack.id)}
+                        disabled={discoveringPackId === pack.id}
+                        title={`Check Recreation.gov source for ${pack.name}`}
+                      >
+                        <RefreshCw size={17} />
+                      </button>
+                      <button
+                        className="icon-only"
+                        onClick={() => importDiscoveredPreset(pack.id)}
+                        disabled={sourceImportingPackId === pack.id}
+                        title={`Import Recreation.gov source list for ${pack.name}`}
+                      >
+                        <Search size={17} />
+                      </button>
+                      <button
+                        className="icon-only"
+                        onClick={() => importPreset(pack.id)}
+                        disabled={importingPackId === pack.id}
+                        title={`Import bundled ${pack.name}`}
+                      >
+                        <Download size={17} />
+                      </button>
+                    </span>
+                  </article>
+                );
+              })}
             </div>
             <div className="target-list">
               {targets.length === 0 && <p className="empty">No targets yet. Add a campground to start watching dates.</p>}

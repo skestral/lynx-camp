@@ -28,6 +28,59 @@ def test_campsite_from_api_extracts_reservation_window() -> None:
     assert campsite.reservation_window_unit == "Days"
 
 
+def test_search_campgrounds_parses_recreation_search_results() -> None:
+    class FakeClient(RecreationClient):
+        def __init__(self):
+            super().__init__()
+            self.calls = []
+
+        async def _get(self, path, params):
+            self.calls.append((path, params))
+            return {
+                "results": [
+                    {
+                        "entity_type": "campground",
+                        "entity_id": "247592",
+                        "name": "HOH RAINFOREST CAMPGROUND",
+                        "parent_name": "Olympic National Park",
+                        "state_code": "Washington",
+                        "latitude": "47.85835250000000",
+                        "longitude": "-123.93554010000000",
+                    },
+                    {
+                        "entity_type": "recarea",
+                        "entity_id": "2881",
+                        "name": "Olympic National Park",
+                    },
+                ]
+            }
+
+    client = FakeClient()
+    results = asyncio.run(client.search_campgrounds("Olympic National Park", size=100, start=200))
+
+    assert client.calls == [
+        (
+            "/search",
+            {
+                "fq": ["entity_type:campground"],
+                "q": "Olympic National Park",
+                "size": "100",
+                "start": "200",
+            },
+        )
+    ]
+    assert results == [
+        {
+            "name": "Hoh Rainforest Campground",
+            "campground_id": "247592",
+            "park_name": "Olympic National Park",
+            "state_code": "WA",
+            "latitude": "47.85835250000000",
+            "longitude": "-123.93554010000000",
+        }
+    ]
+
+
 def test_detect_release_window_uses_most_common_window() -> None:
     class FakeClient(RecreationClient):
         async def monthly_availability(self, campground_id: str, month: date) -> dict[str, Campsite]:

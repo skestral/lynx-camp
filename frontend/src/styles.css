@@ -576,8 +576,10 @@ small {
   inset: 0 0 0 auto;
   z-index: 30;
   width: min(760px, 100vw);
+  display: grid;
   grid-template-columns: 1fr;
   align-content: start;
+  gap: 18px;
   overflow-y: auto;
   padding: 18px;
   background: #f6faf8;
@@ -772,6 +774,11 @@ td small {
 
 .preset-row {
   background: #f7fbfa;
+}
+
+.preset-source-summary {
+  color: #1a657a;
+  font-weight: 750;
 }
 
 .notification-log,

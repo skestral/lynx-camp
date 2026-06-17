@@ -81,12 +81,31 @@ class RecreationClient:
                     "name": _title_name(item.get("name")),
                     "campground_id": str(item.get("entity_id") or item.get("id") or ""),
                     "park_name": _title_name(item.get("parent_name")),
-                    "state_code": item.get("state_code") or "",
+                    "state_code": _state_code(item.get("state_code")),
                     "latitude": item.get("lat") or item.get("latitude"),
                     "longitude": item.get("lng") or item.get("longitude"),
                 }
             )
         return [campground for campground in campgrounds if campground["campground_id"]]
+
+    async def search_campgrounds(self, query: str, size: int = 100, start: int = 0) -> list[dict[str, Any]]:
+        payload = await self._get(
+            "/search",
+            {
+                "fq": ["entity_type:campground"],
+                "q": query,
+                "size": str(size),
+                "start": str(start),
+            },
+        )
+        campgrounds = []
+        for item in payload.get("results") or []:
+            if str(item.get("entity_type", "")).lower() != "campground":
+                continue
+            campground = _campground_from_search_result(item)
+            if campground["campground_id"]:
+                campgrounds.append(campground)
+        return campgrounds
 
     async def campground_by_id(self, campground_id: str) -> dict[str, Any] | None:
         payload = await self._get(
@@ -96,16 +115,9 @@ class RecreationClient:
         results = payload.get("results") or []
         if not results:
             return None
-        item = results[0]
-        return {
-            "name": _title_name(item.get("name")),
-            "campground_id": str(item.get("entity_id") or campground_id),
-            "park_name": _title_name(item.get("parent_name")),
-            "state_code": item.get("state_code") or "",
-            "latitude": item.get("latitude") or item.get("lat"),
-            "longitude": item.get("longitude") or item.get("lng"),
-            "booking_url": f"https://www.recreation.gov/camping/campgrounds/{campground_id}",
-        }
+        campground = _campground_from_search_result(results[0], fallback_id=campground_id)
+        campground["booking_url"] = f"https://www.recreation.gov/camping/campgrounds/{campground_id}"
+        return campground
 
     async def monthly_availability(self, campground_id: str, month: date) -> dict[str, Campsite]:
         start_date = f"{month.year:04d}-{month.month:02d}-01T00:00:00.000Z"
@@ -178,6 +190,80 @@ class RecreationClient:
 def _title_name(value: Any) -> str:
     text = str(value or "").strip()
     return " ".join(part.capitalize() for part in text.split())
+
+
+def _campground_from_search_result(item: dict[str, Any], fallback_id: str = "") -> dict[str, Any]:
+    campground_id = str(item.get("entity_id") or item.get("id") or fallback_id or "")
+    return {
+        "name": _title_name(item.get("name")),
+        "campground_id": campground_id,
+        "park_name": _title_name(item.get("parent_name")),
+        "state_code": _state_code(item.get("state_code")),
+        "latitude": item.get("latitude") or item.get("lat"),
+        "longitude": item.get("longitude") or item.get("lng"),
+    }
+
+
+STATE_ABBREVIATIONS = {
+    "alabama": "AL",
+    "alaska": "AK",
+    "arizona": "AZ",
+    "arkansas": "AR",
+    "california": "CA",
+    "colorado": "CO",
+    "connecticut": "CT",
+    "delaware": "DE",
+    "district of columbia": "DC",
+    "florida": "FL",
+    "georgia": "GA",
+    "hawaii": "HI",
+    "idaho": "ID",
+    "illinois": "IL",
+    "indiana": "IN",
+    "iowa": "IA",
+    "kansas": "KS",
+    "kentucky": "KY",
+    "louisiana": "LA",
+    "maine": "ME",
+    "maryland": "MD",
+    "massachusetts": "MA",
+    "michigan": "MI",
+    "minnesota": "MN",
+    "mississippi": "MS",
+    "missouri": "MO",
+    "montana": "MT",
+    "nebraska": "NE",
+    "nevada": "NV",
+    "new hampshire": "NH",
+    "new jersey": "NJ",
+    "new mexico": "NM",
+    "new york": "NY",
+    "north carolina": "NC",
+    "north dakota": "ND",
+    "ohio": "OH",
+    "oklahoma": "OK",
+    "oregon": "OR",
+    "pennsylvania": "PA",
+    "rhode island": "RI",
+    "south carolina": "SC",
+    "south dakota": "SD",
+    "tennessee": "TN",
+    "texas": "TX",
+    "utah": "UT",
+    "vermont": "VT",
+    "virginia": "VA",
+    "washington": "WA",
+    "west virginia": "WV",
+    "wisconsin": "WI",
+    "wyoming": "WY",
+}
+
+
+def _state_code(value: Any) -> str:
+    text = str(value or "").strip()
+    if len(text) == 2:
+        return text.upper()
+    return STATE_ABBREVIATIONS.get(text.lower(), text)
 
 
 def _optional_int(value: Any) -> int | None:
