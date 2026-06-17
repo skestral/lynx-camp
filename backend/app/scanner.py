@@ -8,6 +8,7 @@ from zoneinfo import ZoneInfo
 
 from dateutil.relativedelta import relativedelta
 
+from .cart_assist import CartAssistant
 from .db import Store
 from .notifications import Notifier
 from .recreation import Campsite, RateLimitError, RecreationClient
@@ -192,6 +193,7 @@ class Scanner:
         client: RecreationClient,
         notifier: Notifier,
         min_poll_interval_minutes: int,
+        cart_assistant: CartAssistant | None = None,
         release_scan_before_minutes: int = 15,
         release_scan_after_minutes: int = 60,
         release_scan_interval_minutes: int = 2,
@@ -203,6 +205,7 @@ class Scanner:
         self.store = store
         self.client = client
         self.notifier = notifier
+        self.cart_assistant = cart_assistant
         self.min_poll_interval_minutes = min_poll_interval_minutes
         self.release_scan_before_minutes = release_scan_before_minutes
         self.release_scan_after_minutes = release_scan_after_minutes
@@ -275,6 +278,7 @@ class Scanner:
         trips = [trip for trip in generate_trip_windows(watch) if trip.arrival_date >= date.today()]
         available_count = 0
         missing_count = 0
+        cart_attempt_count = 0
         new_results: list[dict] = []
         seen_dedupe_keys: set[str] = set()
         monthly_cache: dict[date, dict[str, Campsite]] = {}
@@ -333,6 +337,20 @@ class Scanner:
             )
 
             if new_results:
+                if self.cart_assistant:
+                    cart_attempts = await self.cart_assistant.handle_new_results(watch, new_results)
+                    cart_attempt_count = len(cart_attempts)
+                    if cart_attempts:
+                        new_results = [
+                            {
+                                **result,
+                                "cart_assist_message": (
+                                    f"Cart Assist recorded {cart_attempt_count} attempt"
+                                    f"{'' if cart_attempt_count == 1 else 's'} for this scan."
+                                ),
+                            }
+                            for result in new_results
+                        ]
                 await self.notifier.notify_results(new_results, self.store, self.max_notification_results)
 
             status = "available" if available_count else "clear"
@@ -342,6 +360,8 @@ class Scanner:
                 message = "No matching availability found."
             if missing_count:
                 message += f" Marked {missing_count} previous match(es) as booked because they were not returned again."
+            if cart_attempt_count:
+                message += f" Cart Assist recorded {cart_attempt_count} guarded attempt(s)."
             self.store.finish_scan_run(run_id, "success", message, len(trips), available_count)
             self.store.update_target_scan_status(watch["target_id"], status)
             self._schedule_next_scan(watch)

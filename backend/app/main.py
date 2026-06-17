@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from .cart_assist import CartAssistant
 from .db import Store
 from .notifications import Notifier
 from .presets import import_preset_pack, list_preset_packs
@@ -21,11 +22,13 @@ from .settings import settings
 store = Store(settings.database_path)
 client = RecreationClient()
 notifier = Notifier(settings)
+cart_assistant = CartAssistant(store, settings)
 scanner = Scanner(
     store,
     client,
     notifier,
     settings.min_poll_interval_minutes,
+    cart_assistant,
     settings.release_scan_before_minutes,
     settings.release_scan_after_minutes,
     settings.release_scan_interval_minutes,
@@ -244,6 +247,16 @@ def notification_status() -> dict:
 @app.post("/api/notifications/test")
 async def test_notifications() -> dict:
     return await notifier.send_test()
+
+
+@app.get("/api/cart-assist/status")
+def cart_assist_status() -> dict:
+    return cart_assistant.status()
+
+
+@app.get("/api/cart-assist/attempts")
+def list_cart_attempts(limit: int = Query(default=25, ge=1, le=100)) -> list[dict]:
+    return store.list_cart_attempts(limit)
 
 
 if settings.static_dir.exists():

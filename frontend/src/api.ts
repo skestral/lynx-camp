@@ -1,4 +1,6 @@
 import type {
+  CartAssistStatus,
+  CartAttempt,
   ConfigBackup,
   ConfigImportResult,
   NotificationEvent,
@@ -33,6 +35,8 @@ export const api = {
   results: () => request<Result[]>("/api/results"),
   scanRuns: () => request<ScanRun[]>("/api/scans"),
   notifications: () => request<NotificationEvent[]>("/api/notifications"),
+  cartAssistStatus: () => request<CartAssistStatus>("/api/cart-assist/status"),
+  cartAttempts: () => request<CartAttempt[]>("/api/cart-assist/attempts"),
   notificationStatus: () => request<NotificationStatus>("/api/notifications/status"),
   testNotifications: () =>
     request<NotificationTestResult>("/api/notifications/test", { method: "POST" }),

@@ -70,6 +70,7 @@ class WatchCreate(BaseModel):
     window_end: date
     site_filters: SiteFilters = Field(default_factory=SiteFilters)
     specific_ranges: list[DateRange] = Field(default_factory=list)
+    cart_assist_enabled: bool = False
     active: bool = True
 
     @field_validator("window_end")
@@ -104,6 +105,7 @@ class WatchUpdate(BaseModel):
     window_end: date | None = None
     site_filters: SiteFilters | None = None
     specific_ranges: list[DateRange] | None = None
+    cart_assist_enabled: bool | None = None
     active: bool | None = None
 
     @field_validator("arrival_weekdays")
@@ -129,6 +131,7 @@ class ConfigWatch(BaseModel):
     window_end: date
     site_filters: SiteFilters = Field(default_factory=SiteFilters)
     specific_ranges: list[DateRange] = Field(default_factory=list)
+    cart_assist_enabled: bool = False
     active: bool = True
 
     @field_validator("window_end")

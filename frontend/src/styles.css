@@ -696,6 +696,7 @@ small {
 .watch-list,
 .status-list,
 .notification-log,
+.cart-assist-log,
 .release-list {
   display: grid;
   gap: 9px;
@@ -773,9 +774,14 @@ td small {
   background: #f7fbfa;
 }
 
-.notification-log {
+.notification-log,
+.cart-assist-log {
   border-top: 1px solid var(--line);
   padding-top: 13px;
+}
+
+.cart-assist-log {
+  margin-top: 13px;
 }
 
 .backup-tools {
@@ -886,6 +892,11 @@ td small {
   background: #fff0ef;
 }
 
+.status.warning {
+  color: #7b4b00;
+  background: #fff2d6;
+}
+
 .watch-form,
 .target-settings-form {
   display: grid;
@@ -908,7 +919,8 @@ td small {
   margin: 0;
 }
 
-.target-settings-form .wide-field {
+.target-settings-form .wide-field,
+.watch-form .wide-field {
   grid-column: 1 / -1;
 }
 
@@ -953,6 +965,35 @@ td small {
   color: #465550;
   font-size: 12px;
   font-weight: 750;
+}
+
+.watch-form .toggle-field {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px;
+  background: #fbfdfc;
+}
+
+.watch-form .toggle-field strong,
+.watch-form .toggle-field small {
+  display: block;
+}
+
+.watch-form .toggle-field small {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.35;
+}
+
+.watch-form .toggle-field input {
+  width: 18px;
+  height: 18px;
+  min-height: 18px;
+  padding: 0;
 }
 
 .watch-form input,
@@ -1284,6 +1325,10 @@ th {
 .empty-cell {
   text-align: center;
   padding: 28px 10px;
+}
+
+.empty.compact {
+  margin: 8px 0 0;
 }
 
 @media (max-width: 1040px) {

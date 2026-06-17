@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import asyncio
 from datetime import date
+from types import SimpleNamespace
 
+from backend.app.cart_assist import CartAssistant
 from backend.app.db import Store
 from backend.app.recreation import Campsite, RateLimitError
 from backend.app.scanner import Scanner
@@ -70,7 +72,11 @@ class RateLimitedClient:
         raise RateLimitError(retry_after_seconds=120)
 
 
-def create_target_and_watch(store: Store, name: str = "Fri starts, 2 nights") -> tuple[dict, dict]:
+def create_target_and_watch(
+    store: Store,
+    name: str = "Fri starts, 2 nights",
+    cart_assist_enabled: bool = False,
+) -> tuple[dict, dict]:
     existing_targets = store.list_targets()
     if existing_targets:
         target = existing_targets[0]
@@ -99,9 +105,22 @@ def create_target_and_watch(store: Store, name: str = "Fri starts, 2 nights") ->
             "window_end": "2026-07-31",
             "site_filters": {},
             "specific_ranges": [],
+            "cart_assist_enabled": cart_assist_enabled,
         }
     )
     return target, watch
+
+
+def cart_settings(**overrides):
+    defaults = {
+        "cart_assist_enabled": True,
+        "cart_assist_cooldown_minutes": 30,
+        "cart_assist_max_attempts_per_scan": 1,
+        "recreation_gov_username": "camper@example.com",
+        "recreation_gov_password": "secret",
+    }
+    defaults.update(overrides)
+    return SimpleNamespace(**defaults)
 
 
 def test_scan_all_watches_runs_each_active_watch(tmp_path) -> None:
@@ -150,6 +169,32 @@ def test_scan_batches_new_availability_notifications(tmp_path) -> None:
     batch, max_items = notifier.batches[0]
     assert len(batch) == 2
     assert max_items == 3
+
+
+def test_scan_records_cart_attempts_for_high_priority_watches(tmp_path) -> None:
+    store = Store(tmp_path / "campfinder.db")
+    store.init()
+    create_target_and_watch(store, cart_assist_enabled=True)
+    notifier = RecordingNotifier()
+    cart_assistant = CartAssistant(store, cart_settings())
+    scanner = Scanner(
+        store,
+        MultiSiteAvailabilityClient(),
+        notifier,
+        min_poll_interval_minutes=10,
+        cart_assistant=cart_assistant,
+        api_request_delay_seconds=0,
+        max_notification_results=3,
+    )
+
+    result = asyncio.run(scanner.scan_all_watches())
+
+    assert result["available_count"] == 2
+    assert "Cart Assist recorded 2 guarded attempt(s)." in result["summaries"][0]["message"]
+    attempts = store.list_cart_attempts()
+    assert [attempt["status"] for attempt in attempts] == ["skipped", "manual_required"]
+    assert attempts[0]["message"].startswith("Skipped because this scan is limited")
+    assert attempts[1]["site"] == "A01"
 
 
 def test_scan_all_reuses_monthly_availability_between_watches(tmp_path) -> None:

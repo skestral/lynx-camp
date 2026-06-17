@@ -31,6 +31,8 @@ import "leaflet/dist/leaflet.css";
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "./api";
 import type {
+  CartAssistStatus,
+  CartAttempt,
   ConfigBackup,
   NotificationEvent,
   NotificationStatus,
@@ -175,6 +177,7 @@ function isActiveAvailability(result: Result) {
 
 function statusTone(status: string) {
   if (status.startsWith("error")) return "danger";
+  if (status === "needs_credentials" || status === "cooldown" || status === "manual_required") return "warning";
   if (status === "available" || status === "booked") return "success";
   if (status === "clear" || status === "opened" || status === "running") return "calm";
   return "quiet";
@@ -250,6 +253,8 @@ export default function App() {
   const [scanRuns, setScanRuns] = useState<ScanRun[]>([]);
   const [notifications, setNotifications] = useState<NotificationEvent[]>([]);
   const [notificationStatus, setNotificationStatus] = useState<NotificationStatus>({ channels: [] });
+  const [cartAssistStatus, setCartAssistStatus] = useState<CartAssistStatus | null>(null);
+  const [cartAttempts, setCartAttempts] = useState<CartAttempt[]>([]);
   const [loadState, setLoadState] = useState<LoadState>("idle");
   const [message, setMessage] = useState("");
   const [query, setQuery] = useState("");
@@ -259,6 +264,7 @@ export default function App() {
   const [watchName, setWatchName] = useState("");
   const [watchMode, setWatchMode] = useState<"weekend" | "specific">("weekend");
   const [watchTarget, setWatchTarget] = useState("");
+  const [cartAssistEnabled, setCartAssistEnabled] = useState(false);
   const [selectedWeekdays, setSelectedWeekdays] = useState<number[]>([4]);
   const [watchNights, setWatchNights] = useState(2);
   const [windowStart, setWindowStart] = useState(addDays(1));
@@ -653,14 +659,26 @@ export default function App() {
   async function refresh(options?: { silent?: boolean }) {
     if (!options?.silent) setLoadState("loading");
     try {
-      const [targetData, presetData, watchData, resultData, scanRunData, notificationData, notificationStatusData] = await Promise.all([
+      const [
+        targetData,
+        presetData,
+        watchData,
+        resultData,
+        scanRunData,
+        notificationData,
+        notificationStatusData,
+        cartAssistStatusData,
+        cartAttemptData
+      ] = await Promise.all([
         api.targets(),
         api.presets(),
         api.watches(),
         api.results(),
         api.scanRuns(),
         api.notifications(),
-        api.notificationStatus()
+        api.notificationStatus(),
+        api.cartAssistStatus(),
+        api.cartAttempts()
       ]);
       setTargets(targetData);
       setPresets(presetData);
@@ -669,6 +687,8 @@ export default function App() {
       setScanRuns(scanRunData);
       setNotifications(notificationData);
       setNotificationStatus(notificationStatusData);
+      setCartAssistStatus(cartAssistStatusData);
+      setCartAttempts(cartAttemptData);
       setLoadState("idle");
       if (!watchTarget && targetData.length > 0) setWatchTarget(String(targetData[0].id));
       if (!targetSettingsId && targetData.length > 0) {
@@ -740,6 +760,7 @@ export default function App() {
   function resetWatchForm() {
     setEditingWatchId(null);
     setWatchName("");
+    setCartAssistEnabled(false);
   }
 
   function editWatch(watch: Watch) {
@@ -749,6 +770,7 @@ export default function App() {
     setWatchMode(watch.mode);
     setSelectedWeekdays(watch.arrival_weekdays?.length ? watch.arrival_weekdays : [4]);
     setWatchNights(watch.nights);
+    setCartAssistEnabled(Boolean(watch.cart_assist_enabled));
     setWindowStart(watch.window_start);
     setWindowEnd(watch.window_end);
     const firstRange = watch.specific_ranges?.[0];
@@ -944,7 +966,8 @@ export default function App() {
       },
       specific_ranges: isSpecific
         ? [{ arrival_date: specificArrival, departure_date: specificDeparture }]
-        : []
+        : [],
+      cart_assist_enabled: cartAssistEnabled
     };
     if (editingWatchId) {
       const updated = await api.updateWatch(editingWatchId, payload);
@@ -954,6 +977,7 @@ export default function App() {
       const created = await api.createWatch(payload);
       setMessage(`Added ${created.name}.`);
       setWatchName("");
+      setCartAssistEnabled(false);
     }
     await refresh();
   }
@@ -1636,6 +1660,17 @@ export default function App() {
                   placeholder="4"
                 />
               </label>
+              <label className="toggle-field wide-field">
+                <span>
+                  <strong>Cart Assist</strong>
+                  <small>High-priority hits create one guarded server-side hold attempt record.</small>
+                </span>
+                <input
+                  checked={cartAssistEnabled}
+                  onChange={(event) => setCartAssistEnabled(event.target.checked)}
+                  type="checkbox"
+                />
+              </label>
               <button className="icon-button" type="submit">
                 {editingWatchId ? <Save size={18} /> : <Plus size={18} />}
                 <span>{editingWatchId ? "Save Watch" : "Add Watch"}</span>
@@ -1661,6 +1696,11 @@ export default function App() {
                     </small>
                   </span>
                   <span className="row-actions">
+                    {Boolean(watch.cart_assist_enabled) && (
+                      <span className="status warning" title="Cart Assist is enabled for new hits on this watch">
+                        priority
+                      </span>
+                    )}
                     <span className={`status ${watchPaused ? "quiet" : "success"}`}>{watchPaused ? "paused" : "active"}</span>
                     <button className="icon-only" onClick={() => editWatch(watch)} title={`Edit ${watch.name}`}>
                       <Pencil size={16} />
@@ -1821,6 +1861,46 @@ export default function App() {
                   </span>
                 </article>
               ))}
+            </div>
+            <div className="cart-assist-log">
+              <div className="subheading">
+                <strong>Cart Assist</strong>
+                <small>
+                  {cartAssistStatus?.detail || "Server status has not loaded yet."}
+                </small>
+              </div>
+              <article className="status-row">
+                <span>
+                  <strong>Remote hold guard</strong>
+                  <small>
+                    {cartAssistStatus
+                      ? `Cooldown ${cartAssistStatus.cooldown_minutes} min; ${cartAssistStatus.max_attempts_per_scan} attempt per scan.`
+                      : "Waiting for server status."}
+                  </small>
+                </span>
+                <span className={`status ${cartAssistStatus?.ready ? "success" : cartAssistStatus?.enabled ? "warning" : "quiet"}`}>
+                  {cartAssistStatus?.ready ? "ready" : cartAssistStatus?.enabled ? "needs setup" : "off"}
+                </span>
+              </article>
+              {cartAttempts.length === 0 ? (
+                <p className="empty compact">No cart assist attempts yet.</p>
+              ) : (
+                cartAttempts.slice(0, 4).map((attempt) => (
+                  <article className="status-row" key={attempt.id}>
+                    <span>
+                      <strong>{attempt.site}</strong>
+                      <small>
+                        {attempt.target_name} &middot; {formatDate(attempt.arrival_date)} to {formatDate(attempt.departure_date)}
+                      </small>
+                      <small>{attempt.message}</small>
+                    </span>
+                    <span>
+                      <span className={`status ${statusTone(attempt.status)}`}>{attempt.status.split("_").join(" ")}</span>
+                      <small>{formatDateTime(attempt.attempted_at)}</small>
+                    </span>
+                  </article>
+                ))
+              )}
             </div>
             <div className="backup-tools">
               <div className="subheading">

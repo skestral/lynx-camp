@@ -20,6 +20,10 @@ def _float_env(name: str, default: str) -> float:
     return float(os.getenv(name, default))
 
 
+def _bool_env(name: str, default: str = "false") -> bool:
+    return os.getenv(name, default).strip().lower() in {"1", "true", "yes", "on"}
+
+
 @dataclass(frozen=True)
 class Settings:
     database_path: Path = Path(os.getenv("CAMPFINDER_DB", ROOT_DIR / "data" / "campfinder.db"))
@@ -45,6 +49,11 @@ class Settings:
     smtp_password: str | None = _optional_env("CAMPFINDER_SMTP_PASSWORD")
     smtp_from: str | None = _optional_env("CAMPFINDER_SMTP_FROM")
     smtp_to: str | None = _optional_env("CAMPFINDER_SMTP_TO")
+    cart_assist_enabled: bool = _bool_env("CAMPFINDER_CART_ASSIST_ENABLED")
+    cart_assist_cooldown_minutes: int = int(os.getenv("CAMPFINDER_CART_ASSIST_COOLDOWN_MINUTES", "30"))
+    cart_assist_max_attempts_per_scan: int = int(os.getenv("CAMPFINDER_CART_ASSIST_MAX_ATTEMPTS_PER_SCAN", "1"))
+    recreation_gov_username: str | None = _optional_env("CAMPFINDER_RECREATION_GOV_USERNAME")
+    recreation_gov_password: str | None = _optional_env("CAMPFINDER_RECREATION_GOV_PASSWORD")
 
 
 settings = Settings()

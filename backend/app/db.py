@@ -104,6 +104,7 @@ class Store:
                     window_end TEXT NOT NULL,
                     specific_ranges_json TEXT NOT NULL DEFAULT '[]',
                     active INTEGER NOT NULL DEFAULT 1,
+                    cart_assist_enabled INTEGER NOT NULL DEFAULT 0,
                     next_scan_at TEXT,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
@@ -152,10 +153,28 @@ class Store:
                     message TEXT NOT NULL,
                     sent_at TEXT NOT NULL
                 );
+
+                CREATE TABLE IF NOT EXISTS cart_attempts (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    result_id INTEGER NOT NULL REFERENCES results(id) ON DELETE CASCADE,
+                    watch_id INTEGER NOT NULL REFERENCES watches(id) ON DELETE CASCADE,
+                    target_id INTEGER NOT NULL REFERENCES targets(id) ON DELETE CASCADE,
+                    campsite_id TEXT NOT NULL,
+                    site TEXT NOT NULL,
+                    arrival_date TEXT NOT NULL,
+                    departure_date TEXT NOT NULL,
+                    booking_url TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    message TEXT NOT NULL DEFAULT '',
+                    attempted_at TEXT NOT NULL,
+                    finished_at TEXT,
+                    UNIQUE(result_id)
+                );
                 """
             )
             self._ensure_column(conn, "watches", "arrival_weekdays_json", "TEXT")
             self._ensure_column(conn, "watches", "site_filters_json", "TEXT")
+            self._ensure_column(conn, "watches", "cart_assist_enabled", "INTEGER NOT NULL DEFAULT 0")
             self._ensure_column(conn, "targets", "release_window_value", "INTEGER NOT NULL DEFAULT 6")
             self._ensure_column(conn, "targets", "release_window_unit", "TEXT NOT NULL DEFAULT 'Months'")
             self._ensure_column(conn, "targets", "latitude", "REAL")
@@ -338,8 +357,8 @@ class Store:
                 INSERT INTO watches (
                     target_id, name, mode, pattern, nights, window_start, window_end,
                     arrival_weekdays_json, site_filters_json, specific_ranges_json,
-                    active, next_scan_at, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    active, cart_assist_enabled, next_scan_at, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     int(data["target_id"]),
@@ -353,6 +372,7 @@ class Store:
                     json.dumps(site_filters),
                     json.dumps(specific_ranges),
                     1 if data.get("active", True) else 0,
+                    1 if data.get("cart_assist_enabled", False) else 0,
                     now,
                     now,
                     now,
@@ -428,6 +448,7 @@ class Store:
             "window_end",
             "site_filters",
             "specific_ranges",
+            "cart_assist_enabled",
         ]
         targets = {
             target["id"]: {
@@ -444,6 +465,7 @@ class Store:
             target["watches"].append(
                 {
                     **{field: watch.get(field) for field in watch_fields},
+                    "cart_assist_enabled": bool(watch.get("cart_assist_enabled", False)),
                     "active": bool(watch.get("active", True)),
                 }
             )
@@ -515,6 +537,7 @@ class Store:
                     "window_end": watch_config.get("window_end"),
                     "site_filters": watch_config.get("site_filters") or {},
                     "specific_ranges": watch_config.get("specific_ranges") or [],
+                    "cart_assist_enabled": bool(watch_config.get("cart_assist_enabled", False)),
                     "active": bool(watch_config.get("active", True)),
                 }
                 existing_watch = self.get_watch_by_target_and_name(target["id"], watch_name)
@@ -574,6 +597,9 @@ class Store:
         if "active" in updates:
             set_parts.append("active = ?")
             values.append(1 if updates["active"] else 0)
+        if "cart_assist_enabled" in updates:
+            set_parts.append("cart_assist_enabled = ?")
+            values.append(1 if updates["cart_assist_enabled"] else 0)
         should_rescan = bool(set(updates) - {"active"}) and bool(updates.get("active", current["active"]))
         if updates.get("active") is True or should_rescan:
             set_parts.append("next_scan_at = ?")
@@ -843,6 +869,68 @@ class Store:
                 """,
                 (result_id, channel, status, message, utc_now()),
             )
+
+    def record_cart_attempt(self, result: dict[str, Any], status: str, message: str) -> tuple[dict[str, Any], bool]:
+        now = utc_now()
+        with self.connect() as conn:
+            cursor = conn.execute(
+                """
+                INSERT OR IGNORE INTO cart_attempts (
+                    result_id, watch_id, target_id, campsite_id, site, arrival_date, departure_date,
+                    booking_url, status, message, attempted_at, finished_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    int(result["id"]),
+                    int(result["watch_id"]),
+                    int(result["target_id"]),
+                    str(result["campsite_id"]),
+                    str(result["site"]),
+                    str(result["arrival_date"]),
+                    str(result["departure_date"]),
+                    str(result["booking_url"]),
+                    status,
+                    message,
+                    now,
+                    now,
+                ),
+            )
+            row = conn.execute("SELECT * FROM cart_attempts WHERE result_id = ?", (int(result["id"]),)).fetchone()
+            return _row_to_dict(row) or {}, cursor.rowcount > 0
+
+    def count_recent_cart_attempts(self, minutes: int) -> int:
+        cutoff = (datetime.now(UTC).replace(microsecond=0) - timedelta(minutes=max(1, int(minutes)))).isoformat()
+        with self.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT COUNT(*) AS count
+                FROM cart_attempts
+                WHERE attempted_at >= ?
+                  AND status NOT IN ('skipped', 'disabled', 'needs_credentials', 'cooldown')
+                """,
+                (cutoff,),
+            ).fetchone()
+            return int(row["count"] if row else 0)
+
+    def list_cart_attempts(self, limit: int = 25) -> list[dict[str, Any]]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT
+                    cart_attempts.*,
+                    watches.name AS watch_name,
+                    targets.name AS target_name,
+                    targets.park_name AS park_name,
+                    targets.state_code AS state_code
+                FROM cart_attempts
+                JOIN watches ON watches.id = cart_attempts.watch_id
+                JOIN targets ON targets.id = cart_attempts.target_id
+                ORDER BY cart_attempts.attempted_at DESC, cart_attempts.id DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+            return [_row_to_dict(row) for row in rows if row is not None]
 
     def list_notifications(self, limit: int = 25) -> list[dict[str, Any]]:
         with self.connect() as conn:

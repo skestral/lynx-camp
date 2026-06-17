@@ -40,6 +40,7 @@ def test_create_watch_returns_committed_watch(tmp_path) -> None:
     assert watch["name"] == "Fri starts, 2 nights"
     assert watch["mode"] == "weekend"
     assert watch["arrival_weekdays"] == [4]
+    assert watch["cart_assist_enabled"] == 0
 
 
 def test_export_config_includes_only_durable_configuration(tmp_path) -> None:
@@ -71,6 +72,7 @@ def test_export_config_includes_only_durable_configuration(tmp_path) -> None:
             "window_end": "2026-08-31",
             "site_filters": {"site_type": "tent", "loop": "A", "site": "", "min_people": 4},
             "specific_ranges": [],
+            "cart_assist_enabled": True,
         }
     )
     run_id = store.start_scan_run(watch)
@@ -110,6 +112,7 @@ def test_export_config_includes_only_durable_configuration(tmp_path) -> None:
     exported_watch = exported_target["watches"][0]
     assert exported_watch["name"] == "Fri starts, 2 nights"
     assert exported_watch["site_filters"] == {"site_type": "tent", "loop": "A", "site": "", "min_people": 4}
+    assert exported_watch["cart_assist_enabled"] is True
     assert exported_watch["active"] is False
     assert "id" not in exported_watch
     assert "next_scan_at" not in exported_watch
@@ -145,6 +148,7 @@ def test_import_config_restores_and_updates_idempotently(tmp_path) -> None:
                         "window_end": "2026-08-31",
                         "site_filters": {"site_type": "tent", "loop": "A", "site": "", "min_people": 4},
                         "specific_ranges": [],
+                        "cart_assist_enabled": True,
                         "active": True,
                     }
                 ],
@@ -179,6 +183,7 @@ def test_import_config_restores_and_updates_idempotently(tmp_path) -> None:
     assert targets[0]["poll_interval_minutes"] == 10
     assert watches[0]["name"] == "Fri starts, 2 nights"
     assert watches[0]["site_filters"] == {"site_type": "tent", "loop": "A", "site": "", "min_people": 4}
+    assert watches[0]["cart_assist_enabled"] == 1
 
     changed = deepcopy(backup)
     changed["targets"][0]["active"] = True
@@ -388,6 +393,65 @@ def test_update_watch_rules_and_filters(tmp_path) -> None:
     assert updated["window_end"] == "2026-08-15"
     assert updated["site_filters"] == {"site_type": "tent", "loop": "A", "site": "", "min_people": 4}
     assert updated["next_scan_at"] is not None
+
+
+def test_cart_attempts_are_logged_once_per_result(tmp_path) -> None:
+    store = Store(tmp_path / "campfinder.db")
+    store.init()
+    target = store.create_target(
+        {
+            "name": "Kalaloch",
+            "campground_id": "232464",
+            "park_name": "Olympic National Park",
+            "state_code": "WA",
+            "release_months": 6,
+            "release_time": "07:00",
+            "timezone": "America/Los_Angeles",
+            "poll_interval_minutes": 10,
+        }
+    )
+    watch = store.create_watch(
+        {
+            "target_id": target["id"],
+            "name": "High priority weekend",
+            "mode": "weekend",
+            "pattern": "4-2n",
+            "arrival_weekdays": [4],
+            "nights": 2,
+            "window_start": "2026-07-01",
+            "window_end": "2026-08-31",
+            "specific_ranges": [],
+            "cart_assist_enabled": True,
+        }
+    )
+    result, _created = store.upsert_result(
+        {
+            "watch_id": watch["id"],
+            "target_id": target["id"],
+            "campground_id": "232464",
+            "campground_name": "Kalaloch",
+            "campsite_id": "101",
+            "site": "A01",
+            "loop": "A",
+            "campsite_type": "Tent",
+            "arrival_date": "2026-07-03",
+            "departure_date": "2026-07-05",
+            "booking_url": "https://www.recreation.gov/camping/campsites/101",
+        }
+    )
+
+    first, first_created = store.record_cart_attempt(result, "manual_required", "Ready for manual checkout.")
+    second, second_created = store.record_cart_attempt(result, "manual_required", "Duplicate should be ignored.")
+
+    assert first_created is True
+    assert second_created is False
+    assert second["id"] == first["id"]
+    attempts = store.list_cart_attempts()
+    assert len(attempts) == 1
+    assert attempts[0]["watch_name"] == "High priority weekend"
+    assert attempts[0]["target_name"] == "Kalaloch"
+    assert attempts[0]["status"] == "manual_required"
+    assert store.count_recent_cart_attempts(minutes=30) == 1
 
 
 def test_list_scan_runs_includes_watch_and_target_names(tmp_path) -> None:

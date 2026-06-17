@@ -2,7 +2,7 @@
 
 Camp Finder is a local-network web app for monitoring Recreation.gov campground availability. It is designed to run in Docker, persist its data in SQLite, and notify you when a configured campground/date rule has availability.
 
-The first version is intentionally notification-first. It opens Recreation.gov booking links when a match appears, but it does not store Recreation.gov credentials or attempt automatic checkout.
+The app is still notification-first. It opens Recreation.gov booking links when a match appears, and it can flag selected watches as high priority for Cart Assist logging. The current Cart Assist implementation is a guarded audit trail and readiness check; it does not automatically click Add to Cart, submit payment, or try to get around Recreation.gov login or CAPTCHA checks.
 
 ## What It Does
 
@@ -25,6 +25,8 @@ The first version is intentionally notification-first. It opens Recreation.gov b
 - Calculate likely release windows from a target-specific booking window, release time, and timezone.
 - Store availability matches once so notifications are deduped.
 - Send one bulk notification per scan when multiple new site/date matches appear.
+- Mark selected watches as high priority with Cart Assist, then record one guarded assist attempt when a new match appears.
+- Show Cart Assist server readiness and recent attempt history without exposing Recreation.gov credentials in the browser.
 - Triage availability results as opened, booked, dismissed, or active again.
 - Filter, sort, select, and bulk-update availability results from the dashboard.
 - Show notification channel status and send a test notification.
@@ -70,9 +72,18 @@ Watch filters are optional. If left blank, Camp Finder reports every campsite th
 - Site text: case-insensitive contains match against site label.
 - Minimum people: excludes known sites with lower max occupancy.
 
-## Why Not Auto-Book Yet?
+## Cart Assist Boundaries
 
-Recreation.gov says booking windows are set by individual facilities and lists booking-window details under each facility's Seasons & Booking tab. It also describes active bot mitigation. For that reason, this app starts with respectful polling, notifications, and booking deep links. Auto-booking should only be considered after confirming current terms, auth behavior, payment handling, and fairness constraints.
+Recreation.gov says booking windows are set by individual facilities and lists booking-window details under each facility's Seasons & Booking tab. It also describes active bot mitigation and notes that Add to Cart holds a campsite for a limited checkout window. For that reason, Camp Finder keeps Cart Assist conservative:
+
+- Cart Assist is off by default at the server and off by default on every watch rule.
+- A watch must opt in before a new match can create a Cart Assist attempt.
+- The server records at most one configured attempt per scan by default.
+- A cooldown prevents repeated attempts from piling up.
+- Credentials, if used, belong in the server `.env` file or another server-side secret store, not in browser local storage.
+- This build records readiness and manual-checkout attempts. It does not run an automated browser worker yet, does not submit payment, and does not bypass login, CAPTCHA, or any ambiguous Recreation.gov screen.
+
+The next safe step is a separate browser worker that can use one persistent Recreation.gov session, stop on any challenge or uncertainty, and hand the final checkout decision back to you. That worker should be explicitly enabled only after reviewing current Recreation.gov terms and the behavior of your account.
 
 ## Local Development
 
@@ -122,6 +133,18 @@ docker compose up -d
 
 Keep `appdata/config/.env` on the server only. It is where notification secrets such as ntfy topics, webhook URLs, and SMTP credentials belong. The SQLite database is stored at `appdata/campfinder.db`, so the app data folder can be backed up or moved with the deployment.
 
+If you enable Cart Assist later, keep the Recreation.gov username and password in that same server-only `.env` file:
+
+```text
+CAMPFINDER_CART_ASSIST_ENABLED=true
+CAMPFINDER_CART_ASSIST_COOLDOWN_MINUTES=30
+CAMPFINDER_CART_ASSIST_MAX_ATTEMPTS_PER_SCAN=1
+CAMPFINDER_RECREATION_GOV_USERNAME=you@example.com
+CAMPFINDER_RECREATION_GOV_PASSWORD=your-password-or-app-secret
+```
+
+The dashboard only shows whether credentials are configured. It never prints the username or password. For now, those values make the server status read as ready and allow guarded attempt records for high-priority watches; they are not used to complete checkout.
+
 If GitHub Container Registry requires authentication on the server, run:
 
 ```bash
@@ -155,6 +178,17 @@ Availability results include the Recreation.gov booking link plus status actions
 Each successful scan also revalidates active results for the same watch and date ranges. If a previously active site/date match is not returned again, Camp Finder marks it booked and removes it from the active list. Scan errors and Recreation.gov rate limits do not clear old results, because those runs did not prove the match disappeared.
 
 Results are grouped by national park, campground, and stay dates. Campground and stay sections start collapsed so the list is easier to scan after large result bursts. Use the status filter and search field to narrow the dashboard before selecting results. Bulk actions apply to selected results only; Clear All dismisses every active availability result, which is useful when a scan finds many sites that you do not want to pursue.
+
+For high-priority trips, enable Cart Assist on the watch rule. When a new match appears, the scanner writes a Cart Assist attempt with one of these statuses:
+
+- `off`: the watch is not using Cart Assist.
+- `disabled`: the watch asked for Cart Assist, but the server feature flag is off.
+- `needs credentials`: the server flag is on, but Recreation.gov credentials are not configured.
+- `manual required`: the server is ready and the match should be handled in Recreation.gov manually.
+- `cooldown`: a recent attempt already happened and the cooldown is still active.
+- `skipped`: the per-scan attempt cap has already been reached.
+
+These records are shown in the Notification Status panel. They are intentionally boring and explicit, because a hold workflow needs a trustworthy log more than it needs surprises.
 
 ## Map Provider
 
@@ -214,4 +248,4 @@ This project uses the same Recreation.gov availability pattern that makes OpenCa
 
 1. Add filters for equipment, max vehicle length, accessible sites, and electric/water hookups when the API exposes them consistently.
 2. Add notification channels such as Pushover, Telegram, or richer email templates.
-3. Add a human-in-the-loop booking assistant that can prefill more context after opening the exact site/date link.
+3. Add the guarded browser worker for Cart Assist, using one persistent Recreation.gov session and stopping on login challenges, CAPTCHA, unexpected pages, or any payment step.

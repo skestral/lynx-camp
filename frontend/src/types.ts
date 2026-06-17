@@ -56,6 +56,7 @@ export type Watch = {
   window_end: string;
   site_filters: SiteFilters;
   specific_ranges: DateRange[];
+  cart_assist_enabled: number;
   active: number;
   next_scan_at: string | null;
   last_checked_at: string | null;
@@ -107,6 +108,35 @@ export type NotificationEvent = {
   status: string;
   message: string;
   sent_at: string;
+};
+
+export type CartAssistStatus = {
+  enabled: boolean;
+  ready: boolean;
+  credentials_configured: boolean;
+  cooldown_minutes: number;
+  max_attempts_per_scan: number;
+  detail: string;
+};
+
+export type CartAttempt = {
+  id: number;
+  result_id: number;
+  watch_id: number;
+  target_id: number;
+  watch_name: string;
+  target_name: string;
+  park_name: string;
+  state_code: string;
+  campsite_id: string;
+  site: string;
+  arrival_date: string;
+  departure_date: string;
+  booking_url: string;
+  status: string;
+  message: string;
+  attempted_at: string;
+  finished_at: string | null;
 };
 
 export type ScanRun = {
@@ -186,6 +216,7 @@ export type ConfigBackup = {
       window_end: string;
       site_filters: SiteFilters;
       specific_ranges: DateRange[];
+      cart_assist_enabled: boolean;
       active: boolean;
     }>;
   }>;
