@@ -610,14 +610,121 @@ small {
 .utility-rail {
   grid-column: 2;
   grid-row: 2;
-  display: grid;
-  gap: 12px;
   align-self: start;
   position: sticky;
   top: 18px;
   max-height: min(560px, calc(100vh - 36px));
   overflow: auto;
   padding-right: 3px;
+}
+
+.utility-dock {
+  display: grid;
+  gap: 14px;
+  padding: 0;
+  overflow: hidden;
+}
+
+.utility-dock-heading {
+  padding: 16px 18px 0;
+}
+
+.utility-dock-heading h2 {
+  margin: 0;
+}
+
+.utility-dock-heading p {
+  margin-top: 5px;
+  font-size: 13px;
+}
+
+.utility-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 7px;
+  padding: 0 14px;
+}
+
+.utility-tab {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+  min-height: 38px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f7fbfa;
+  color: #465550;
+  padding: 0 8px;
+  font-size: 12px;
+  font-weight: 800;
+  text-align: left;
+}
+
+.utility-tab span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.utility-tab small {
+  display: grid;
+  min-width: 23px;
+  height: 23px;
+  place-items: center;
+  border-radius: 999px;
+  background: #e9f1ef;
+  color: #53625d;
+  font-size: 11px;
+}
+
+.utility-tab.active {
+  border-color: var(--forest);
+  background: var(--forest);
+  color: #ffffff;
+}
+
+.utility-tab.active small {
+  background: rgba(255, 255, 255, 0.16);
+  color: #ffffff;
+}
+
+.utility-tab-panel {
+  display: grid;
+  gap: 12px;
+  padding: 0 18px 18px;
+}
+
+.utility-panel-heading {
+  display: grid;
+  gap: 4px;
+  border-top: 1px solid var(--line);
+  padding-top: 14px;
+}
+
+.utility-panel-heading strong {
+  color: #14231f;
+  font-size: 14px;
+}
+
+.utility-panel-heading small {
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.utility-tab-panel .release-list,
+.utility-tab-panel .status-list,
+.utility-tab-panel .cart-assist-log,
+.utility-tab-panel .backup-tools,
+.utility-tab-panel .notification-log {
+  margin: 0;
+}
+
+.utility-tab-panel .panel-action-row {
+  justify-content: flex-start;
+  margin: 0;
 }
 
 .utility-panel {

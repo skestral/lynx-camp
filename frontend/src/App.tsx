@@ -53,6 +53,7 @@ type LoadState = "idle" | "loading" | "error";
 type ResultView = "active" | "all" | Result["status"];
 type ResultSort = "newest" | "arrival" | "park";
 type SetupDrawerMode = "targets" | "watches";
+type UtilityTab = "release" | "activity" | "settings";
 type ScanProgress = {
   title: string;
   detail: string;
@@ -404,6 +405,7 @@ export default function App() {
   const [filterMinPeople, setFilterMinPeople] = useState("");
   const [setupDrawerOpen, setSetupDrawerOpen] = useState(false);
   const [setupDrawerMode, setSetupDrawerMode] = useState<SetupDrawerMode>("targets");
+  const [utilityTab, setUtilityTab] = useState<UtilityTab>("release");
   const mapElementRef = useRef<HTMLDivElement | null>(null);
   const leafletMapRef = useRef<L.Map | null>(null);
   const markerLayerRef = useRef<L.LayerGroup | null>(null);
@@ -1557,7 +1559,7 @@ export default function App() {
           <a className="nav-item active" href="#results">
             <Bell size={18} /> Alerts
           </a>
-          <a className="nav-item" href="#activity">
+          <a className={`nav-item ${utilityTab === "activity" ? "active" : ""}`} href="#activity" onClick={() => setUtilityTab("activity")}>
             <Timer size={18} /> Activity
           </a>
           <button
@@ -1574,7 +1576,7 @@ export default function App() {
           >
             <CalendarDays size={18} /> Watches
           </button>
-          <a className="nav-item" href="#settings">
+          <a className={`nav-item ${utilityTab === "settings" ? "active" : ""}`} href="#settings" onClick={() => setUtilityTab("settings")}>
             <Settings size={18} /> Settings
           </a>
         </nav>
@@ -2112,344 +2114,391 @@ export default function App() {
           </section>
 
           <aside className="utility-rail" aria-label="Planning and server tools">
-          <details className="panel utility-panel release-panel" open>
-            <summary className="utility-summary">
-              <span>
-                <h2>Release Planner</h2>
-                <p>Calculated from each target's configurable booking window.</p>
-              </span>
-              <ChevronDown className="utility-chevron" size={18} />
-            </summary>
-            <div className="release-list">
-              {latestRelease.length === 0 && <p className="empty">No future release windows calculated yet.</p>}
-              {latestRelease.map((hint) => (
-                <article className="release-row" key={`${hint.target}-${hint.arrival_date}-${hint.release_at}`}>
-                  <span>
-                    <strong>{hint.target}</strong>
-                    <small>{hint.watch} &middot; {formatDate(hint.arrival_date)} to {formatDate(hint.departure_date)}</small>
-                  </span>
-                  <time>
-                    {hint.release_status === "upcoming" ? "Opens " : "Open since "}
-                    {formatDateTime(hint.release_at)}
-                  </time>
-                </article>
-              ))}
-            </div>
-          </details>
-
-          <details className="panel utility-panel scan-panel" id="activity">
-            <summary className="utility-summary">
-              <span>
-                <h2>Recent Scan Activity</h2>
-                <p>Latest background and manual scan runs.</p>
-              </span>
-              <ChevronDown className="utility-chevron" size={18} />
-            </summary>
-            <div className="status-list">
-              {scanRuns.length === 0 && <p className="empty">No scans have run yet.</p>}
-              {scanRuns.slice(0, 6).map((run) => (
-                <article className="status-row scan-row" key={run.id}>
-                  <span>
-                    <strong>{run.watch_name}</strong>
-                    <small>
-                      {run.status === "running"
-                        ? `${run.target_name} \u00b7 in progress since ${formatDateTime(run.started_at)}`
-                        : `${run.target_name} \u00b7 ${run.candidate_count} stays \u00b7 ${run.available_count} matches`}
-                    </small>
-                    <small>{run.message || (run.status === "running" ? "Checking Recreation.gov availability now." : "")}</small>
-                  </span>
-                  <span>
-                    <span className={`status ${statusTone(run.status === "success" && run.available_count > 0 ? "available" : run.status)}`}>
-                      {run.status}
-                    </span>
-                    <small>{formatDateTime(run.finished_at || run.started_at)}</small>
-                  </span>
-                </article>
-              ))}
-            </div>
-          </details>
-
-          <details className="panel utility-panel notification-panel" id="settings">
-            <summary className="utility-summary">
-              <span>
-                <h2>Notifications & Server Settings</h2>
-                <p>Notification channels use environment variables; Cart Assist can use appdata settings.</p>
-              </span>
-              <ChevronDown className="utility-chevron" size={18} />
-            </summary>
-            <div className="panel-action-row">
-              <button className="icon-button" onClick={testNotifications} disabled={testNotifyBusy} title="Send a test notification">
-                <Bell size={17} />
-                <span>Test</span>
-              </button>
-            </div>
-            <div className="status-list">
-              {notificationStatus.channels.map((channel) => (
-                <article className="status-row" key={channel.channel}>
-                  <span>
-                    <strong>{channel.channel}</strong>
-                    <small>{channel.detail}</small>
-                  </span>
-                  <span className={`status ${channel.configured ? "success" : "quiet"}`}>
-                    {channel.configured ? "configured" : "missing"}
-                  </span>
-                </article>
-              ))}
-            </div>
-            <div className="cart-assist-log">
-              <div className="subheading">
-                <strong>Cart Assist</strong>
-                <small>
-                  {cartAssistStatus?.detail || "Server status has not loaded yet."}
-                </small>
-              </div>
-              <article className="status-row">
-                <span>
-                  <strong>Remote hold guard</strong>
-                  <small>{cartAssistGuardSummary(cartAssistStatus)}</small>
-                </span>
-                <span className={`status ${cartAssistGuardTone(cartAssistStatus)}`}>
-                  {cartAssistGuardLabel(cartAssistStatus)}
-                </span>
-              </article>
-              <article className="status-row">
-                <span>
-                  <strong>Checkout queue</strong>
-                  <small>{cartAssistQueueSummary(cartAssistStatus)}</small>
-                </span>
-                <span className="cart-queue-actions">
-                  <span className={`status ${cartAssistStatus ? (cartAssistStatus.active_attempt_count ? "warning" : "success") : "quiet"}`}>
-                    {cartAssistStatus ? `${cartAssistStatus.active_attempt_count} active` : "loading"}
-                  </span>
-                  {nextCheckoutAttempt && (
-                    <a
-                      className="link-button compact"
-                      href={bookingUrlWithStartDate(nextCheckoutAttempt.booking_url, nextCheckoutAttempt.arrival_date)}
-                      onClick={() => openCartAttemptBooking(nextCheckoutAttempt)}
-                      rel="noreferrer"
-                      target="_blank"
-                    >
-                      <ExternalLink size={15} /> Open Next
-                    </a>
-                  )}
-                </span>
-              </article>
-              <form className="cart-assist-form" onSubmit={saveCartAssistConfig}>
-                <label className="toggle-field wide-field">
-                  <span>
-                    <strong>Server Cart Assist</strong>
-                    <small>Watches still opt in individually.</small>
-                  </span>
-                  <input
-                    checked={cartAssistServerEnabled}
-                    onChange={(event) => {
-                      setCartAssistServerEnabled(event.target.checked);
-                      setCartAssistConfigDirty(true);
-                    }}
-                    type="checkbox"
-                  />
-                </label>
-                <label>
-                  Cooldown minutes
-                  <input
-                    min="1"
-                    max="1440"
-                    type="number"
-                    value={cartAssistCooldown}
-                    onChange={(event) => {
-                      setCartAssistCooldown(event.target.value);
-                      setCartAssistConfigDirty(true);
-                    }}
-                  />
-                </label>
-                <label>
-                  Attempts per scan
-                  <input
-                    min="1"
-                    max="25"
-                    type="number"
-                    value={cartAssistMaxAttempts}
-                    onChange={(event) => {
-                      setCartAssistMaxAttempts(event.target.value);
-                      setCartAssistConfigDirty(true);
-                    }}
-                  />
-                </label>
-                <label>
-                  Recreation.gov email
-                  <input
-                    autoComplete="username"
-                    placeholder={cartAssistStatus?.username_configured ? "Configured; leave blank to keep" : "you@example.com"}
-                    value={cartAssistUsername}
-                    onChange={(event) => {
-                      setCartAssistUsername(event.target.value);
-                      setCartAssistConfigDirty(true);
-                    }}
-                  />
-                </label>
-                <label>
-                  Recreation.gov password
-                  <input
-                    autoComplete="current-password"
-                    placeholder={cartAssistStatus?.password_configured ? "Configured; leave blank to keep" : "Password"}
-                    type="password"
-                    value={cartAssistPassword}
-                    onChange={(event) => {
-                      setCartAssistPassword(event.target.value);
-                      setCartAssistConfigDirty(true);
-                    }}
-                  />
-                </label>
-                <div className="cart-assist-actions wide-field">
-                  <button className="icon-button" disabled={cartAssistConfigBusy !== null} type="submit">
-                    <Save size={17} />
-                    <span>{cartAssistConfigBusy === "save" ? "Saving" : "Save"}</span>
-                  </button>
-                  <button
-                    className="icon-button"
-                    disabled={cartAssistConfigBusy !== null || cartAssistStatus?.credential_source !== "appdata"}
-                    onClick={clearCartAssistCredentials}
-                    type="button"
-                  >
-                    <Trash2 size={17} />
-                    <span>{cartAssistConfigBusy === "clear" ? "Clearing" : "Clear Credentials"}</span>
-                  </button>
+            <section className="panel utility-dock">
+              <div className="utility-dock-heading">
+                <div>
+                  <h2>Utility Dock</h2>
+                  <p>Switch between planning, scan history, and server tools.</p>
                 </div>
-              </form>
-              {cartAttempts.length === 0 ? (
-                <p className="empty compact">No cart assist attempts yet.</p>
-              ) : (
-                prioritizedCartAttempts.slice(0, 4).map((attempt) => {
-                  const busy = cartAttemptBusyId === attempt.id;
-                  const checkoutReady = attempt.status === "manual_required" || attempt.status === "opened";
-                  const canMakeReady = ["needs_credentials", "disabled", "failed"].includes(attempt.status);
-                  const activeAttempt = isActiveCartAttempt(attempt);
-                  return (
-                    <article className={`status-row cart-attempt-row ${activeAttempt ? "active" : ""}`} key={attempt.id}>
-                      <span>
-                        <strong>{attempt.site}</strong>
-                        <small>
-                          {attempt.target_name} &middot; {formatDate(attempt.arrival_date)} to {formatDate(attempt.departure_date)}
-                        </small>
-                        <small>{attempt.message}</small>
-                        {attempt.finished_at && <small>Resolved {formatDateTime(attempt.finished_at)}</small>}
-                      </span>
-                      <span>
-                        <span className={`status ${statusTone(attempt.status)}`}>{attempt.status.split("_").join(" ")}</span>
-                        <small>{formatDateTime(attempt.attempted_at)}</small>
-                        <span className="cart-attempt-actions">
-                          {checkoutReady && (
-                            <a
-                              className="link-button compact"
-                              href={bookingUrlWithStartDate(attempt.booking_url, attempt.arrival_date)}
-                              onClick={() => void updateCartAttemptStatus(attempt, "opened")}
-                              rel="noreferrer"
-                              target="_blank"
-                            >
-                              <ExternalLink size={15} /> Open
-                            </a>
-                          )}
-                          {canMakeReady && (
-                            <button
-                              className="icon-button compact"
-                              disabled={busy}
-                              onClick={() => void updateCartAttemptStatus(attempt, "manual_required")}
-                              type="button"
-                            >
-                              <RefreshCw size={15} /> Ready
-                            </button>
-                          )}
-                          {checkoutReady && (
-                            <>
-                              <button
-                                className="icon-button compact"
-                                disabled={busy}
-                                onClick={() => void updateCartAttemptStatus(attempt, "booked")}
-                                type="button"
-                              >
-                                <CheckCircle2 size={15} /> Booked
-                              </button>
-                              <button
-                                className="icon-button compact"
-                                disabled={busy}
-                                onClick={() => void updateCartAttemptStatus(attempt, "dismissed")}
-                                type="button"
-                              >
-                                <Trash2 size={15} /> Dismiss
-                              </button>
-                              <button
-                                className="icon-button compact"
-                                disabled={busy}
-                                onClick={() => void updateCartAttemptStatus(attempt, "failed")}
-                                type="button"
-                              >
-                                <X size={15} /> Failed
-                              </button>
-                            </>
-                          )}
+              </div>
+              <div className="utility-tabs" role="tablist" aria-label="Utility dock views">
+                <button
+                  aria-controls="release-panel"
+                  aria-selected={utilityTab === "release"}
+                  className={`utility-tab ${utilityTab === "release" ? "active" : ""}`}
+                  id="release-tools"
+                  onClick={() => setUtilityTab("release")}
+                  role="tab"
+                  type="button"
+                >
+                  <CalendarDays size={15} />
+                  <span>Releases</span>
+                  <small>{latestRelease.length}</small>
+                </button>
+                <button
+                  aria-controls="activity-panel"
+                  aria-selected={utilityTab === "activity"}
+                  className={`utility-tab ${utilityTab === "activity" ? "active" : ""}`}
+                  id="activity"
+                  onClick={() => setUtilityTab("activity")}
+                  role="tab"
+                  type="button"
+                >
+                  <Timer size={15} />
+                  <span>Activity</span>
+                  <small>{scanRuns.length}</small>
+                </button>
+                <button
+                  aria-controls="settings-panel"
+                  aria-selected={utilityTab === "settings"}
+                  className={`utility-tab ${utilityTab === "settings" ? "active" : ""}`}
+                  id="settings"
+                  onClick={() => setUtilityTab("settings")}
+                  role="tab"
+                  type="button"
+                >
+                  <Settings size={15} />
+                  <span>Server</span>
+                  <small>{cartAssistStatus?.active_attempt_count || 0}</small>
+                </button>
+              </div>
+
+              {utilityTab === "release" && (
+                <div className="utility-tab-panel release-panel" id="release-panel" role="tabpanel" aria-labelledby="release-tools">
+                  <div className="utility-panel-heading">
+                    <strong>Release Planner</strong>
+                    <small>Calculated from each target's configurable booking window.</small>
+                  </div>
+                  <div className="release-list">
+                    {latestRelease.length === 0 && <p className="empty">No future release windows calculated yet.</p>}
+                    {latestRelease.map((hint) => (
+                      <article className="release-row" key={`${hint.target}-${hint.arrival_date}-${hint.release_at}`}>
+                        <span>
+                          <strong>{hint.target}</strong>
+                          <small>{hint.watch} &middot; {formatDate(hint.arrival_date)} to {formatDate(hint.departure_date)}</small>
                         </span>
+                        <time>
+                          {hint.release_status === "upcoming" ? "Opens " : "Open since "}
+                          {formatDateTime(hint.release_at)}
+                        </time>
+                      </article>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {utilityTab === "activity" && (
+                <div className="utility-tab-panel scan-panel" id="activity-panel" role="tabpanel" aria-labelledby="activity">
+                  <div className="utility-panel-heading">
+                    <strong>Recent Scan Activity</strong>
+                    <small>Latest background and manual scan runs.</small>
+                  </div>
+                  <div className="status-list">
+                    {scanRuns.length === 0 && <p className="empty">No scans have run yet.</p>}
+                    {scanRuns.slice(0, 6).map((run) => (
+                      <article className="status-row scan-row" key={run.id}>
+                        <span>
+                          <strong>{run.watch_name}</strong>
+                          <small>
+                            {run.status === "running"
+                              ? `${run.target_name} \u00b7 in progress since ${formatDateTime(run.started_at)}`
+                              : `${run.target_name} \u00b7 ${run.candidate_count} stays \u00b7 ${run.available_count} matches`}
+                          </small>
+                          <small>{run.message || (run.status === "running" ? "Checking Recreation.gov availability now." : "")}</small>
+                        </span>
+                        <span>
+                          <span className={`status ${statusTone(run.status === "success" && run.available_count > 0 ? "available" : run.status)}`}>
+                            {run.status}
+                          </span>
+                          <small>{formatDateTime(run.finished_at || run.started_at)}</small>
+                        </span>
+                      </article>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {utilityTab === "settings" && (
+                <div className="utility-tab-panel notification-panel" id="settings-panel" role="tabpanel" aria-labelledby="settings">
+                  <div className="utility-panel-heading">
+                    <strong>Notifications & Server Settings</strong>
+                    <small>Notification channels use environment variables; Cart Assist can use appdata settings.</small>
+                  </div>
+                  <div className="panel-action-row">
+                    <button className="icon-button" onClick={testNotifications} disabled={testNotifyBusy} title="Send a test notification">
+                      <Bell size={17} />
+                      <span>Test</span>
+                    </button>
+                  </div>
+                  <div className="status-list">
+                    {notificationStatus.channels.map((channel) => (
+                      <article className="status-row" key={channel.channel}>
+                        <span>
+                          <strong>{channel.channel}</strong>
+                          <small>{channel.detail}</small>
+                        </span>
+                        <span className={`status ${channel.configured ? "success" : "quiet"}`}>
+                          {channel.configured ? "configured" : "missing"}
+                        </span>
+                      </article>
+                    ))}
+                  </div>
+                  <div className="cart-assist-log">
+                    <div className="subheading">
+                      <strong>Cart Assist</strong>
+                      <small>
+                        {cartAssistStatus?.detail || "Server status has not loaded yet."}
+                      </small>
+                    </div>
+                    <article className="status-row">
+                      <span>
+                        <strong>Remote hold guard</strong>
+                        <small>{cartAssistGuardSummary(cartAssistStatus)}</small>
+                      </span>
+                      <span className={`status ${cartAssistGuardTone(cartAssistStatus)}`}>
+                        {cartAssistGuardLabel(cartAssistStatus)}
                       </span>
                     </article>
-                  );
-                })
+                    <article className="status-row">
+                      <span>
+                        <strong>Checkout queue</strong>
+                        <small>{cartAssistQueueSummary(cartAssistStatus)}</small>
+                      </span>
+                      <span className="cart-queue-actions">
+                        <span className={`status ${cartAssistStatus ? (cartAssistStatus.active_attempt_count ? "warning" : "success") : "quiet"}`}>
+                          {cartAssistStatus ? `${cartAssistStatus.active_attempt_count} active` : "loading"}
+                        </span>
+                        {nextCheckoutAttempt && (
+                          <a
+                            className="link-button compact"
+                            href={bookingUrlWithStartDate(nextCheckoutAttempt.booking_url, nextCheckoutAttempt.arrival_date)}
+                            onClick={() => openCartAttemptBooking(nextCheckoutAttempt)}
+                            rel="noreferrer"
+                            target="_blank"
+                          >
+                            <ExternalLink size={15} /> Open Next
+                          </a>
+                        )}
+                      </span>
+                    </article>
+                    <form className="cart-assist-form" onSubmit={saveCartAssistConfig}>
+                      <label className="toggle-field wide-field">
+                        <span>
+                          <strong>Server Cart Assist</strong>
+                          <small>Watches still opt in individually.</small>
+                        </span>
+                        <input
+                          checked={cartAssistServerEnabled}
+                          onChange={(event) => {
+                            setCartAssistServerEnabled(event.target.checked);
+                            setCartAssistConfigDirty(true);
+                          }}
+                          type="checkbox"
+                        />
+                      </label>
+                      <label>
+                        Cooldown minutes
+                        <input
+                          min="1"
+                          max="1440"
+                          type="number"
+                          value={cartAssistCooldown}
+                          onChange={(event) => {
+                            setCartAssistCooldown(event.target.value);
+                            setCartAssistConfigDirty(true);
+                          }}
+                        />
+                      </label>
+                      <label>
+                        Attempts per scan
+                        <input
+                          min="1"
+                          max="25"
+                          type="number"
+                          value={cartAssistMaxAttempts}
+                          onChange={(event) => {
+                            setCartAssistMaxAttempts(event.target.value);
+                            setCartAssistConfigDirty(true);
+                          }}
+                        />
+                      </label>
+                      <label>
+                        Recreation.gov email
+                        <input
+                          autoComplete="username"
+                          placeholder={cartAssistStatus?.username_configured ? "Configured; leave blank to keep" : "you@example.com"}
+                          value={cartAssistUsername}
+                          onChange={(event) => {
+                            setCartAssistUsername(event.target.value);
+                            setCartAssistConfigDirty(true);
+                          }}
+                        />
+                      </label>
+                      <label>
+                        Recreation.gov password
+                        <input
+                          autoComplete="current-password"
+                          placeholder={cartAssistStatus?.password_configured ? "Configured; leave blank to keep" : "Password"}
+                          type="password"
+                          value={cartAssistPassword}
+                          onChange={(event) => {
+                            setCartAssistPassword(event.target.value);
+                            setCartAssistConfigDirty(true);
+                          }}
+                        />
+                      </label>
+                      <div className="cart-assist-actions wide-field">
+                        <button className="icon-button" disabled={cartAssistConfigBusy !== null} type="submit">
+                          <Save size={17} />
+                          <span>{cartAssistConfigBusy === "save" ? "Saving" : "Save"}</span>
+                        </button>
+                        <button
+                          className="icon-button"
+                          disabled={cartAssistConfigBusy !== null || cartAssistStatus?.credential_source !== "appdata"}
+                          onClick={clearCartAssistCredentials}
+                          type="button"
+                        >
+                          <Trash2 size={17} />
+                          <span>{cartAssistConfigBusy === "clear" ? "Clearing" : "Clear Credentials"}</span>
+                        </button>
+                      </div>
+                    </form>
+                    {cartAttempts.length === 0 ? (
+                      <p className="empty compact">No cart assist attempts yet.</p>
+                    ) : (
+                      prioritizedCartAttempts.slice(0, 4).map((attempt) => {
+                        const busy = cartAttemptBusyId === attempt.id;
+                        const checkoutReady = attempt.status === "manual_required" || attempt.status === "opened";
+                        const canMakeReady = ["needs_credentials", "disabled", "failed"].includes(attempt.status);
+                        const activeAttempt = isActiveCartAttempt(attempt);
+                        return (
+                          <article className={`status-row cart-attempt-row ${activeAttempt ? "active" : ""}`} key={attempt.id}>
+                            <span>
+                              <strong>{attempt.site}</strong>
+                              <small>
+                                {attempt.target_name} &middot; {formatDate(attempt.arrival_date)} to {formatDate(attempt.departure_date)}
+                              </small>
+                              <small>{attempt.message}</small>
+                              {attempt.finished_at && <small>Resolved {formatDateTime(attempt.finished_at)}</small>}
+                            </span>
+                            <span>
+                              <span className={`status ${statusTone(attempt.status)}`}>{attempt.status.split("_").join(" ")}</span>
+                              <small>{formatDateTime(attempt.attempted_at)}</small>
+                              <span className="cart-attempt-actions">
+                                {checkoutReady && (
+                                  <a
+                                    className="link-button compact"
+                                    href={bookingUrlWithStartDate(attempt.booking_url, attempt.arrival_date)}
+                                    onClick={() => void updateCartAttemptStatus(attempt, "opened")}
+                                    rel="noreferrer"
+                                    target="_blank"
+                                  >
+                                    <ExternalLink size={15} /> Open
+                                  </a>
+                                )}
+                                {canMakeReady && (
+                                  <button
+                                    className="icon-button compact"
+                                    disabled={busy}
+                                    onClick={() => void updateCartAttemptStatus(attempt, "manual_required")}
+                                    type="button"
+                                  >
+                                    <RefreshCw size={15} /> Ready
+                                  </button>
+                                )}
+                                {checkoutReady && (
+                                  <>
+                                    <button
+                                      className="icon-button compact"
+                                      disabled={busy}
+                                      onClick={() => void updateCartAttemptStatus(attempt, "booked")}
+                                      type="button"
+                                    >
+                                      <CheckCircle2 size={15} /> Booked
+                                    </button>
+                                    <button
+                                      className="icon-button compact"
+                                      disabled={busy}
+                                      onClick={() => void updateCartAttemptStatus(attempt, "dismissed")}
+                                      type="button"
+                                    >
+                                      <Trash2 size={15} /> Dismiss
+                                    </button>
+                                    <button
+                                      className="icon-button compact"
+                                      disabled={busy}
+                                      onClick={() => void updateCartAttemptStatus(attempt, "failed")}
+                                      type="button"
+                                    >
+                                      <X size={15} /> Failed
+                                    </button>
+                                  </>
+                                )}
+                              </span>
+                            </span>
+                          </article>
+                        );
+                      })
+                    )}
+                  </div>
+                  <div className="backup-tools">
+                    <div className="subheading">
+                      <strong>Configuration Backup</strong>
+                      <small>Targets, release settings, and watch rules.</small>
+                    </div>
+                    <div className="backup-actions">
+                      <button
+                        className="icon-button"
+                        onClick={downloadConfigBackup}
+                        disabled={configBusy !== null}
+                        title="Download configuration backup"
+                        type="button"
+                      >
+                        <Download size={17} />
+                        <span>Download</span>
+                      </button>
+                      <label className={`file-picker ${configBusy !== null ? "disabled" : ""}`}>
+                        <input
+                          accept="application/json,.json"
+                          disabled={configBusy !== null}
+                          onChange={(event) => setBackupFile(event.target.files?.[0] || null)}
+                          type="file"
+                        />
+                        <Upload size={17} />
+                        <span>{backupFile ? backupFile.name : "Choose JSON"}</span>
+                      </label>
+                      <button
+                        className="icon-button"
+                        onClick={restoreConfigBackup}
+                        disabled={configBusy !== null || !backupFile}
+                        title="Restore configuration backup"
+                        type="button"
+                      >
+                        <Upload size={17} />
+                        <span>Restore</span>
+                      </button>
+                    </div>
+                  </div>
+                  <div className="notification-log">
+                    <div className="subheading">
+                      <strong>Recent notifications</strong>
+                      <small>{notifications.length ? "Latest delivery attempts from availability matches." : "No notification attempts yet."}</small>
+                    </div>
+                    {notifications.slice(0, 4).map((event) => (
+                      <article className="status-row" key={event.id}>
+                        <span>
+                          <strong>{event.channel}</strong>
+                          <small>{event.message}</small>
+                        </span>
+                        <span className={`status ${event.status === "sent" ? "success" : event.status === "error" ? "danger" : "quiet"}`}>
+                          {event.status}
+                        </span>
+                      </article>
+                    ))}
+                  </div>
+                </div>
               )}
-            </div>
-            <div className="backup-tools">
-              <div className="subheading">
-                <strong>Configuration Backup</strong>
-                <small>Targets, release settings, and watch rules.</small>
-              </div>
-              <div className="backup-actions">
-                <button
-                  className="icon-button"
-                  onClick={downloadConfigBackup}
-                  disabled={configBusy !== null}
-                  title="Download configuration backup"
-                  type="button"
-                >
-                  <Download size={17} />
-                  <span>Download</span>
-                </button>
-                <label className={`file-picker ${configBusy !== null ? "disabled" : ""}`}>
-                  <input
-                    accept="application/json,.json"
-                    disabled={configBusy !== null}
-                    onChange={(event) => setBackupFile(event.target.files?.[0] || null)}
-                    type="file"
-                  />
-                  <Upload size={17} />
-                  <span>{backupFile ? backupFile.name : "Choose JSON"}</span>
-                </label>
-                <button
-                  className="icon-button"
-                  onClick={restoreConfigBackup}
-                  disabled={configBusy !== null || !backupFile}
-                  title="Restore configuration backup"
-                  type="button"
-                >
-                  <Upload size={17} />
-                  <span>Restore</span>
-                </button>
-              </div>
-            </div>
-            <div className="notification-log">
-              <div className="subheading">
-                <strong>Recent notifications</strong>
-                <small>{notifications.length ? "Latest delivery attempts from availability matches." : "No notification attempts yet."}</small>
-              </div>
-              {notifications.slice(0, 4).map((event) => (
-                <article className="status-row" key={event.id}>
-                  <span>
-                    <strong>{event.channel}</strong>
-                    <small>{event.message}</small>
-                  </span>
-                  <span className={`status ${event.status === "sent" ? "success" : event.status === "error" ? "danger" : "quiet"}`}>
-                    {event.status}
-                  </span>
-                </article>
-              ))}
-            </div>
-          </details>
+            </section>
           </aside>
 
           <section className="panel results-panel" id="results">

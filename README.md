@@ -49,7 +49,7 @@ The dashboard is organized around the work that usually matters first:
 7. Sort controls support newest first, arrival date, and park/campground grouping.
 8. Select Visible lets you bulk dismiss, mark booked, or reopen the results currently in view.
 
-In normal use, you add or import targets, create watch rules, then spend most of your time in the map, scan status, and results sections. Release hints, recent scan activity, notifications, and server settings live in a collapsible utility rail beside the results on desktop and stack underneath on smaller screens. Release Planner starts open; scan history and server settings stay collapsed until you need the detail.
+In normal use, you add or import targets, create watch rules, then spend most of your time in the map, scan status, and results sections. Release hints, recent scan activity, notifications, Cart Assist, and backups live in a tabbed utility dock beside the results on desktop and stack underneath on smaller screens. The dock shows one workflow at a time so the side column stays short and scannable.
 
 ## Preset Packs
 
