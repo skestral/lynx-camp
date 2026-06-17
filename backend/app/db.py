@@ -170,6 +170,12 @@ class Store:
                     finished_at TEXT,
                     UNIQUE(result_id)
                 );
+
+                CREATE TABLE IF NOT EXISTS app_settings (
+                    key TEXT PRIMARY KEY,
+                    value TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
                 """
             )
             self._ensure_column(conn, "watches", "arrival_weekdays_json", "TEXT")
@@ -869,6 +875,43 @@ class Store:
                 """,
                 (result_id, channel, status, message, utc_now()),
             )
+
+    def get_app_settings(self, keys: list[str] | None = None) -> dict[str, str]:
+        with self.connect() as conn:
+            if keys:
+                placeholders = ", ".join(["?"] * len(keys))
+                rows = conn.execute(
+                    f"SELECT key, value FROM app_settings WHERE key IN ({placeholders})",
+                    keys,
+                ).fetchall()
+            else:
+                rows = conn.execute("SELECT key, value FROM app_settings").fetchall()
+            return {str(row["key"]): str(row["value"]) for row in rows}
+
+    def set_app_settings(self, values: dict[str, str]) -> None:
+        if not values:
+            return
+        now = utc_now()
+        with self.connect() as conn:
+            for key, value in values.items():
+                conn.execute(
+                    """
+                    INSERT INTO app_settings (key, value, updated_at)
+                    VALUES (?, ?, ?)
+                    ON CONFLICT(key) DO UPDATE SET
+                        value = excluded.value,
+                        updated_at = excluded.updated_at
+                    """,
+                    (key, value, now),
+                )
+
+    def delete_app_settings(self, keys: list[str]) -> int:
+        if not keys:
+            return 0
+        placeholders = ", ".join(["?"] * len(keys))
+        with self.connect() as conn:
+            cursor = conn.execute(f"DELETE FROM app_settings WHERE key IN ({placeholders})", keys)
+            return cursor.rowcount
 
     def record_cart_attempt(self, result: dict[str, Any], status: str, message: str) -> tuple[dict[str, Any], bool]:
         now = utc_now()

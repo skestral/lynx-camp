@@ -1,4 +1,5 @@
 import type {
+  CartAssistConfigPayload,
   CartAssistStatus,
   CartAttempt,
   ConfigBackup,
@@ -37,6 +38,10 @@ export const api = {
   notifications: () => request<NotificationEvent[]>("/api/notifications"),
   cartAssistStatus: () => request<CartAssistStatus>("/api/cart-assist/status"),
   cartAttempts: () => request<CartAttempt[]>("/api/cart-assist/attempts"),
+  updateCartAssistConfig: (payload: CartAssistConfigPayload) =>
+    request<CartAssistStatus>("/api/cart-assist/config", { method: "PATCH", body: JSON.stringify(payload) }),
+  clearCartAssistCredentials: () =>
+    request<CartAssistStatus>("/api/cart-assist/credentials/clear", { method: "POST" }),
   notificationStatus: () => request<NotificationStatus>("/api/notifications/status"),
   testNotifications: () =>
     request<NotificationTestResult>("/api/notifications/test", { method: "POST" }),

@@ -27,6 +27,7 @@ The app is still notification-first. It opens Recreation.gov booking links when 
 - Send one bulk notification per scan when multiple new site/date matches appear.
 - Mark selected watches as high priority with Cart Assist, then record one guarded assist attempt when a new match appears.
 - Show Cart Assist server readiness and recent attempt history without exposing Recreation.gov credentials in the browser.
+- Configure server-level Cart Assist from the dashboard or from Docker environment variables.
 - Triage availability results as opened, booked, dismissed, or active again.
 - Filter, sort, select, and bulk-update availability results from the dashboard.
 - Show notification channel status and send a test notification.
@@ -47,7 +48,7 @@ The dashboard is organized around the work that usually matters first:
 7. Sort controls support newest first, arrival date, and park/campground grouping.
 8. Select Visible lets you bulk dismiss, mark booked, or reopen the results currently in view.
 
-In normal use, you add or import targets, create watch rules, then spend most of your time in the map, scan status, and results sections. Release hints, recent scan activity, and notification status stay beside the results on desktop and stack underneath on smaller screens.
+In normal use, you add or import targets, create watch rules, then spend most of your time in the map, scan status, and results sections. Release hints, recent scan activity, notifications, and server settings stay beside the results on desktop and stack underneath on smaller screens.
 
 ## Preset Packs
 
@@ -80,7 +81,7 @@ Recreation.gov says booking windows are set by individual facilities and lists b
 - A watch must opt in before a new match can create a Cart Assist attempt.
 - The server records at most one configured attempt per scan by default.
 - A cooldown prevents repeated attempts from piling up.
-- Credentials, if used, belong in the server `.env` file or another server-side secret store, not in browser local storage.
+- Credentials, if used, belong in the server `.env` file or in the dashboard-managed appdata settings, not in browser local storage.
 - This build records readiness and manual-checkout attempts. It does not run an automated browser worker yet, does not submit payment, and does not bypass login, CAPTCHA, or any ambiguous Recreation.gov screen.
 
 The next safe step is a separate browser worker that can use one persistent Recreation.gov session, stop on any challenge or uncertainty, and hand the final checkout decision back to you. That worker should be explicitly enabled only after reviewing current Recreation.gov terms and the behavior of your account.
@@ -133,7 +134,9 @@ docker compose up -d
 
 Keep `appdata/config/.env` on the server only. It is where notification secrets such as ntfy topics, webhook URLs, and SMTP credentials belong. The SQLite database is stored at `appdata/campfinder.db`, so the app data folder can be backed up or moved with the deployment.
 
-If you enable Cart Assist later, keep the Recreation.gov username and password in that same server-only `.env` file:
+Do not expose the Camp Finder web UI directly to the public internet. The app is built for a trusted local network or a private VPN and does not include user accounts or login protection yet.
+
+If you prefer file-managed secrets, keep the Recreation.gov username and password in that same server-only `.env` file:
 
 ```text
 CAMPFINDER_CART_ASSIST_ENABLED=true
@@ -143,7 +146,9 @@ CAMPFINDER_RECREATION_GOV_USERNAME=you@example.com
 CAMPFINDER_RECREATION_GOV_PASSWORD=your-password-or-app-secret
 ```
 
-The dashboard only shows whether credentials are configured. It never prints the username or password. For now, those values make the server status read as ready and allow guarded attempt records for high-priority watches; they are not used to complete checkout.
+You can also configure Cart Assist from the dashboard. Dashboard-saved values are stored in the SQLite database under `appdata/campfinder.db`, which makes them part of the normal server appdata backup. The dashboard only shows whether credentials are configured. It never prints the username or password, and config backups exported from the UI do not include those credentials.
+
+Protect `appdata` the same way you would protect a `.env` file. This app does not encrypt dashboard-saved Recreation.gov credentials at rest yet; the current tradeoff is simple remote-server setup over secret-manager complexity. For now, those values make the server status read as ready and allow guarded attempt records for high-priority watches; they are not used to complete checkout.
 
 If GitHub Container Registry requires authentication on the server, run:
 
@@ -188,7 +193,7 @@ For high-priority trips, enable Cart Assist on the watch rule. When a new match 
 - `cooldown`: a recent attempt already happened and the cooldown is still active.
 - `skipped`: the per-scan attempt cap has already been reached.
 
-These records are shown in the Notification Status panel. They are intentionally boring and explicit, because a hold workflow needs a trustworthy log more than it needs surprises.
+These records are shown in the Notifications & Server Settings panel. They are intentionally boring and explicit, because a hold workflow needs a trustworthy log more than it needs surprises.
 
 ## Map Provider
 
@@ -238,7 +243,7 @@ CAMPFINDER_SMTP_FROM=you@example.com
 CAMPFINDER_SMTP_TO=you@example.com
 ```
 
-The Notification Status panel shows which channels are configured and which environment variables are missing. Use the test button there after changing `.env` to confirm delivery before relying on background scans.
+The Notifications & Server Settings panel shows which channels are configured and which environment variables are missing. Use the test button there after changing `.env` to confirm delivery before relying on background scans.
 
 ## Notes From OpenCamp
 

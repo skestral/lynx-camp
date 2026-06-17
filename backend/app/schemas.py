@@ -167,3 +167,11 @@ class ConfigBackup(BaseModel):
 
 class ResultStatusUpdate(BaseModel):
     status: Literal["available", "opened", "booked", "dismissed"]
+
+
+class CartAssistConfigUpdate(BaseModel):
+    enabled: bool | None = None
+    cooldown_minutes: int | None = Field(default=None, ge=1, le=1440)
+    max_attempts_per_scan: int | None = Field(default=None, ge=1, le=25)
+    username: str | None = Field(default=None, max_length=200)
+    password: str | None = Field(default=None, max_length=500)

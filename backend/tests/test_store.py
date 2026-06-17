@@ -454,6 +454,24 @@ def test_cart_attempts_are_logged_once_per_result(tmp_path) -> None:
     assert store.count_recent_cart_attempts(minutes=30) == 1
 
 
+def test_app_settings_are_persisted_and_deleted(tmp_path) -> None:
+    store = Store(tmp_path / "campfinder.db")
+    store.init()
+
+    store.set_app_settings({"cart_assist_enabled": "true", "recreation_gov_username": "camper@example.com"})
+    store.set_app_settings({"cart_assist_enabled": "false"})
+
+    assert store.get_app_settings(["cart_assist_enabled"]) == {"cart_assist_enabled": "false"}
+    assert store.get_app_settings(["recreation_gov_username"]) == {
+        "recreation_gov_username": "camper@example.com"
+    }
+
+    deleted = store.delete_app_settings(["recreation_gov_username"])
+
+    assert deleted == 1
+    assert store.get_app_settings(["recreation_gov_username"]) == {}
+
+
 def test_list_scan_runs_includes_watch_and_target_names(tmp_path) -> None:
     store = Store(tmp_path / "campfinder.db")
     store.init()

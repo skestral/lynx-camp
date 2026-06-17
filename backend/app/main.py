@@ -15,7 +15,15 @@ from .notifications import Notifier
 from .presets import import_preset_pack, list_preset_packs
 from .recreation import RecreationClient
 from .scanner import Scanner, generate_trip_windows, release_hints
-from .schemas import ConfigBackup, ResultStatusUpdate, TargetCreate, TargetUpdate, WatchCreate, WatchUpdate
+from .schemas import (
+    CartAssistConfigUpdate,
+    ConfigBackup,
+    ResultStatusUpdate,
+    TargetCreate,
+    TargetUpdate,
+    WatchCreate,
+    WatchUpdate,
+)
 from .settings import settings
 
 
@@ -252,6 +260,16 @@ async def test_notifications() -> dict:
 @app.get("/api/cart-assist/status")
 def cart_assist_status() -> dict:
     return cart_assistant.status()
+
+
+@app.patch("/api/cart-assist/config")
+def update_cart_assist_config(payload: CartAssistConfigUpdate) -> dict:
+    return cart_assistant.update_config(payload.model_dump(exclude_unset=True))
+
+
+@app.post("/api/cart-assist/credentials/clear")
+def clear_cart_assist_credentials() -> dict:
+    return cart_assistant.clear_credentials()
 
 
 @app.get("/api/cart-assist/attempts")

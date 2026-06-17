@@ -114,9 +114,21 @@ export type CartAssistStatus = {
   enabled: boolean;
   ready: boolean;
   credentials_configured: boolean;
+  username_configured: boolean;
+  password_configured: boolean;
   cooldown_minutes: number;
   max_attempts_per_scan: number;
+  config_source: "appdata" | "environment";
+  credential_source: "appdata" | "environment" | "none";
   detail: string;
+};
+
+export type CartAssistConfigPayload = {
+  enabled?: boolean;
+  cooldown_minutes?: number;
+  max_attempts_per_scan?: number;
+  username?: string;
+  password?: string;
 };
 
 export type CartAttempt = {

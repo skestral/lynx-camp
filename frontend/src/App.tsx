@@ -183,6 +183,12 @@ function statusTone(status: string) {
   return "quiet";
 }
 
+function cartAssistCredentialLabel(status: CartAssistStatus | null) {
+  if (!status) return "credentials pending";
+  if (status.credential_source === "none") return "credentials not configured";
+  return `credentials from ${status.credential_source}`;
+}
+
 function filterSummary(filters: Watch["site_filters"]) {
   const parts = [
     filters.site_type ? `type ${filters.site_type}` : "",
@@ -255,6 +261,13 @@ export default function App() {
   const [notificationStatus, setNotificationStatus] = useState<NotificationStatus>({ channels: [] });
   const [cartAssistStatus, setCartAssistStatus] = useState<CartAssistStatus | null>(null);
   const [cartAttempts, setCartAttempts] = useState<CartAttempt[]>([]);
+  const [cartAssistServerEnabled, setCartAssistServerEnabled] = useState(false);
+  const [cartAssistCooldown, setCartAssistCooldown] = useState("30");
+  const [cartAssistMaxAttempts, setCartAssistMaxAttempts] = useState("1");
+  const [cartAssistUsername, setCartAssistUsername] = useState("");
+  const [cartAssistPassword, setCartAssistPassword] = useState("");
+  const [cartAssistConfigDirty, setCartAssistConfigDirty] = useState(false);
+  const [cartAssistConfigBusy, setCartAssistConfigBusy] = useState<"save" | "clear" | null>(null);
   const [loadState, setLoadState] = useState<LoadState>("idle");
   const [message, setMessage] = useState("");
   const [query, setQuery] = useState("");
@@ -712,6 +725,13 @@ export default function App() {
   }, [targetSettingsId, watchTarget]);
 
   useEffect(() => {
+    if (!cartAssistStatus || cartAssistConfigDirty || cartAssistConfigBusy) return;
+    setCartAssistServerEnabled(cartAssistStatus.enabled);
+    setCartAssistCooldown(String(cartAssistStatus.cooldown_minutes));
+    setCartAssistMaxAttempts(String(cartAssistStatus.max_attempts_per_scan));
+  }, [cartAssistConfigBusy, cartAssistConfigDirty, cartAssistStatus]);
+
+  useEffect(() => {
     const visible = new Set(visibleResultIds);
     setSelectedResultIds((current) => {
       const next = current.filter((id) => visible.has(id));
@@ -1032,6 +1052,54 @@ export default function App() {
       setMessage(error instanceof Error ? error.message : "Notification test failed.");
     } finally {
       setTestNotifyBusy(false);
+    }
+  }
+
+  async function saveCartAssistConfig(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setCartAssistConfigBusy("save");
+    try {
+      const payload = {
+        enabled: cartAssistServerEnabled,
+        cooldown_minutes: Number(cartAssistCooldown) || 30,
+        max_attempts_per_scan: Number(cartAssistMaxAttempts) || 1,
+        ...(cartAssistUsername.trim() ? { username: cartAssistUsername.trim() } : {}),
+        ...(cartAssistPassword ? { password: cartAssistPassword } : {})
+      };
+      const status = await api.updateCartAssistConfig(payload);
+      setCartAssistStatus(status);
+      setCartAssistUsername("");
+      setCartAssistPassword("");
+      setCartAssistConfigDirty(false);
+      setMessage("Saved Cart Assist server settings.");
+      await refresh({ silent: true });
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unable to save Cart Assist settings.");
+    } finally {
+      setCartAssistConfigBusy(null);
+    }
+  }
+
+  async function clearCartAssistCredentials() {
+    const confirmed = window.confirm("Clear stored Recreation.gov credentials from appdata?");
+    if (!confirmed) return;
+    setCartAssistConfigBusy("clear");
+    try {
+      const status = await api.clearCartAssistCredentials();
+      setCartAssistStatus(status);
+      setCartAssistUsername("");
+      setCartAssistPassword("");
+      setCartAssistConfigDirty(false);
+      setMessage(
+        status.credential_source === "environment"
+          ? "Cleared appdata credentials; environment credentials are still configured."
+          : "Cleared stored Recreation.gov credentials."
+      );
+      await refresh({ silent: true });
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unable to clear Cart Assist credentials.");
+    } finally {
+      setCartAssistConfigBusy(null);
     }
   }
 
@@ -1841,8 +1909,8 @@ export default function App() {
           <section className="panel notification-panel" id="settings">
             <div className="panel-heading">
               <div>
-                <h2>Notification Status</h2>
-                <p>Configured from Docker or local environment variables.</p>
+                <h2>Notifications & Server Settings</h2>
+                <p>Notification channels use environment variables; Cart Assist can use appdata settings.</p>
               </div>
               <button className="icon-button" onClick={testNotifications} disabled={testNotifyBusy} title="Send a test notification">
                 <Bell size={17} />
@@ -1874,7 +1942,7 @@ export default function App() {
                   <strong>Remote hold guard</strong>
                   <small>
                     {cartAssistStatus
-                      ? `Cooldown ${cartAssistStatus.cooldown_minutes} min; ${cartAssistStatus.max_attempts_per_scan} attempt per scan.`
+                      ? `Cooldown ${cartAssistStatus.cooldown_minutes} min; ${cartAssistStatus.max_attempts_per_scan} attempt per scan; ${cartAssistCredentialLabel(cartAssistStatus)}.`
                       : "Waiting for server status."}
                   </small>
                 </span>
@@ -1882,6 +1950,88 @@ export default function App() {
                   {cartAssistStatus?.ready ? "ready" : cartAssistStatus?.enabled ? "needs setup" : "off"}
                 </span>
               </article>
+              <form className="cart-assist-form" onSubmit={saveCartAssistConfig}>
+                <label className="toggle-field wide-field">
+                  <span>
+                    <strong>Server Cart Assist</strong>
+                    <small>Watches still opt in individually.</small>
+                  </span>
+                  <input
+                    checked={cartAssistServerEnabled}
+                    onChange={(event) => {
+                      setCartAssistServerEnabled(event.target.checked);
+                      setCartAssistConfigDirty(true);
+                    }}
+                    type="checkbox"
+                  />
+                </label>
+                <label>
+                  Cooldown minutes
+                  <input
+                    min="1"
+                    max="1440"
+                    type="number"
+                    value={cartAssistCooldown}
+                    onChange={(event) => {
+                      setCartAssistCooldown(event.target.value);
+                      setCartAssistConfigDirty(true);
+                    }}
+                  />
+                </label>
+                <label>
+                  Attempts per scan
+                  <input
+                    min="1"
+                    max="25"
+                    type="number"
+                    value={cartAssistMaxAttempts}
+                    onChange={(event) => {
+                      setCartAssistMaxAttempts(event.target.value);
+                      setCartAssistConfigDirty(true);
+                    }}
+                  />
+                </label>
+                <label>
+                  Recreation.gov email
+                  <input
+                    autoComplete="username"
+                    placeholder={cartAssistStatus?.username_configured ? "Configured; leave blank to keep" : "you@example.com"}
+                    value={cartAssistUsername}
+                    onChange={(event) => {
+                      setCartAssistUsername(event.target.value);
+                      setCartAssistConfigDirty(true);
+                    }}
+                  />
+                </label>
+                <label>
+                  Recreation.gov password
+                  <input
+                    autoComplete="current-password"
+                    placeholder={cartAssistStatus?.password_configured ? "Configured; leave blank to keep" : "Password"}
+                    type="password"
+                    value={cartAssistPassword}
+                    onChange={(event) => {
+                      setCartAssistPassword(event.target.value);
+                      setCartAssistConfigDirty(true);
+                    }}
+                  />
+                </label>
+                <div className="cart-assist-actions wide-field">
+                  <button className="icon-button" disabled={cartAssistConfigBusy !== null} type="submit">
+                    <Save size={17} />
+                    <span>{cartAssistConfigBusy === "save" ? "Saving" : "Save"}</span>
+                  </button>
+                  <button
+                    className="icon-button"
+                    disabled={cartAssistConfigBusy !== null || cartAssistStatus?.credential_source !== "appdata"}
+                    onClick={clearCartAssistCredentials}
+                    type="button"
+                  >
+                    <Trash2 size={17} />
+                    <span>{cartAssistConfigBusy === "clear" ? "Clearing" : "Clear Credentials"}</span>
+                  </button>
+                </div>
+              </form>
               {cartAttempts.length === 0 ? (
                 <p className="empty compact">No cart assist attempts yet.</p>
               ) : (
