@@ -648,8 +648,15 @@ small {
   background: #c88a1b;
 }
 
-.park-map-marker.selected {
-  outline: 3px solid rgba(39, 134, 200, 0.28);
+.park-map-marker.selected,
+.park-map-marker.checked,
+.park-map-marker.hovered {
+  outline: 3px solid rgba(15, 94, 70, 0.32);
+  box-shadow: 0 12px 30px rgba(13, 44, 37, 0.2), 0 0 0 5px rgba(15, 94, 70, 0.12);
+}
+
+.park-map-marker.related-hover {
+  outline: 3px solid rgba(200, 138, 27, 0.32);
 }
 
 .campground-map-marker {
@@ -673,8 +680,14 @@ small {
   background: #c88a1b;
 }
 
-.campground-map-marker.selected {
-  outline: 3px solid rgba(39, 134, 200, 0.35);
+.campground-map-marker.selected,
+.campground-map-marker.hovered {
+  outline: 3px solid rgba(15, 94, 70, 0.38);
+  box-shadow: 0 8px 22px rgba(13, 44, 37, 0.26), 0 0 0 5px rgba(15, 94, 70, 0.13);
+}
+
+.campground-map-marker.parent-hovered {
+  outline: 3px solid rgba(200, 138, 27, 0.35);
 }
 
 .campground-map-marker span {
@@ -687,6 +700,15 @@ small {
 
 .park-region-box {
   cursor: pointer;
+  vector-effect: non-scaling-stroke;
+  transition: opacity 150ms ease;
+}
+
+.park-region-box.hovered,
+.park-region-box.checked,
+.park-region-box.selected,
+.park-region-box.related-hover {
+  filter: drop-shadow(0 4px 6px rgba(13, 44, 37, 0.24));
 }
 
 .leaflet-popup-content {
@@ -849,6 +871,13 @@ small {
   text-align: left;
 }
 
+.map-detail-list button:hover,
+.map-detail-list button.hovered {
+  border-color: #0f5e46;
+  background: #eef8f4;
+  box-shadow: inset 3px 0 0 #0f5e46;
+}
+
 .map-detail-list span,
 .map-detail-list small {
   min-width: 0;
@@ -912,6 +941,12 @@ small {
 .park-chip.selected {
   border-color: #2786c8;
   background: #f2f9fb;
+}
+
+.park-chip.hovered,
+.park-chip.child-hovered {
+  border-color: #0f5e46;
+  background: #eef8f4;
 }
 
 .park-chip.checked {

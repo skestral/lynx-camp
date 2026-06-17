@@ -69,6 +69,9 @@ type WatchScope = "target" | "park" | "state" | "map" | "selection";
 type MapSelection =
   | { kind: "park"; parkName: string }
   | { kind: "campground"; campgroundId: string };
+type MapHover =
+  | { kind: "park"; parkName: string }
+  | { kind: "campground"; campgroundId: string };
 type LatLngBoundsTuple = [[number, number], [number, number]];
 type ScanProgress = {
   title: string;
@@ -740,6 +743,7 @@ export default function App() {
   const [pageView, setPageView] = useState<PageView>(() => (window.location.hash === "#logs" ? "logs" : "monitor"));
   const [utilityTab, setUtilityTab] = useState<UtilityTab>("release");
   const [mapSelection, setMapSelection] = useState<MapSelection | null>(null);
+  const [mapHover, setMapHover] = useState<MapHover | null>(null);
   const [selectedParkGroups, setSelectedParkGroups] = useState<string[]>([]);
   const [campgroundDetails, setCampgroundDetails] = useState<Record<string, CampgroundDetails>>({});
   const [campgroundDetailsBusyId, setCampgroundDetailsBusyId] = useState<string | null>(null);
@@ -747,6 +751,7 @@ export default function App() {
   const mapElementRef = useRef<HTMLDivElement | null>(null);
   const leafletMapRef = useRef<L.Map | null>(null);
   const markerLayerRef = useRef<L.LayerGroup | null>(null);
+  const mapFitKeyRef = useRef("");
 
   const activeTargets = targets.filter((target) => target.active);
   const activeWatches = watches.filter((watch) => watch.active && watch.target_active);
@@ -1175,6 +1180,7 @@ export default function App() {
     const markerLayer = L.layerGroup().addTo(map);
     leafletMapRef.current = map;
     markerLayerRef.current = markerLayer;
+    mapFitKeyRef.current = "";
 
     return () => {
       map.remove();
@@ -1201,26 +1207,49 @@ export default function App() {
     markerLayer.clearLayers();
     const selectedBounds = L.latLngBounds([]);
     const query = resultQuery.trim().toLowerCase();
+    const fitKey = [
+      resultQuery,
+      mapSelection?.kind || "",
+      mapSelection?.kind === "park" ? mapSelection.parkName : "",
+      mapSelection?.kind === "campground" ? mapSelection.campgroundId : "",
+      selectedParkGroups.join("|"),
+      parkSummaries.map((summary) => `${summary.parkName}:${summary.targetCount}:${summary.activeResultCount}`).join("|")
+    ].join("::");
 
     for (const summary of parkSummaries) {
       const selectedPark =
         resultQuery === summary.parkName || (mapSelection?.kind === "park" && mapSelection.parkName === summary.parkName);
       const selectedGroup = selectedParkGroupSet.has(summary.parkName);
+      const hoveredPark = mapHover?.kind === "park" && mapHover.parkName === summary.parkName;
+      const hoveredCampgroundInPark =
+        mapHover?.kind === "campground" &&
+        summary.campgrounds.some((campground) => campground.campgroundId === mapHover.campgroundId);
+      const highlightedPark = selectedPark || selectedGroup || hoveredPark || hoveredCampgroundInPark;
       if (summary.bounds) {
-        L.rectangle(summary.bounds, {
-          className: `park-region-box ${selectedPark ? "selected" : ""} ${selectedGroup ? "checked" : ""}`,
-          color: selectedPark || selectedGroup ? "#0f5e46" : "#2786c8",
-          fillColor: selectedGroup ? "#0f5e46" : "#2786c8",
-          fillOpacity: selectedPark || selectedGroup ? 0.13 : 0.05,
-          opacity: selectedPark || selectedGroup ? 0.8 : 0.45,
-          weight: selectedPark || selectedGroup ? 2 : 1
-        })
+        const region = L.rectangle(summary.bounds, {
+          className: `park-region-box ${selectedPark ? "selected" : ""} ${selectedGroup ? "checked" : ""} ${
+            hoveredPark ? "hovered" : ""
+          } ${hoveredCampgroundInPark ? "related-hover" : ""}`,
+          color: highlightedPark ? "#0f5e46" : "#2786c8",
+          fillColor: selectedGroup || hoveredPark ? "#0f5e46" : "#2786c8",
+          fillOpacity: highlightedPark ? 0.14 : 0.08,
+          opacity: highlightedPark ? 0.9 : 0.62,
+          weight: highlightedPark ? 2 : 1.4
+        });
+        region
           .addTo(markerLayer)
           .bindTooltip(summary.parkName, { sticky: true })
-          .on("click", () => selectParkRegion(summary));
+          .on("click", () => selectParkRegion(summary))
+          .on("mouseover", () => {
+            setMapHover({ kind: "park", parkName: summary.parkName });
+            region.bringToFront();
+          })
+          .on("mouseout", () => clearParkHover(summary.parkName));
       }
       const parkIcon = L.divIcon({
-        className: `park-map-marker ${summary.activeResultCount ? "has-results" : ""} ${selectedPark ? "selected" : ""}`,
+        className: `park-map-marker ${summary.activeResultCount ? "has-results" : ""} ${selectedPark ? "selected" : ""} ${
+          selectedGroup ? "checked" : ""
+        } ${hoveredPark ? "hovered" : ""} ${hoveredCampgroundInPark ? "related-hover" : ""}`,
         html: `<strong>${summary.targetCount}</strong><small>${summary.activeResultCount}</small>`,
         iconSize: [42, 42],
         iconAnchor: [21, 21]
@@ -1234,7 +1263,9 @@ export default function App() {
         )
         .on("click", () => {
           selectParkRegion(summary);
-        });
+        })
+        .on("mouseover", () => setMapHover({ kind: "park", parkName: summary.parkName }))
+        .on("mouseout", () => clearParkHover(summary.parkName));
       if (summary.bounds && (selectedPark || selectedGroup)) {
         selectedBounds.extend(L.latLngBounds(summary.bounds));
       } else if (query && selectedPark) {
@@ -1245,10 +1276,11 @@ export default function App() {
         const selectedCampground =
           resultQuery === campground.name ||
           (mapSelection?.kind === "campground" && mapSelection.campgroundId === campground.campgroundId);
+        const hoveredCampground = mapHover?.kind === "campground" && mapHover.campgroundId === campground.campgroundId;
         const campgroundIcon = L.divIcon({
           className: `campground-map-marker ${campground.activeResultCount ? "has-results" : ""} ${
             selectedCampground ? "selected" : ""
-          }`,
+          } ${hoveredCampground ? "hovered" : ""} ${hoveredPark ? "parent-hovered" : ""}`,
           html: `<span>${escapeHtml(campground.name)}</span>`,
           iconSize: [22, 22],
           iconAnchor: [11, 11]
@@ -1273,19 +1305,24 @@ export default function App() {
               [`park:${campground.parkName}`]: true,
               [`campground:${campground.parkName}:${campground.name}`]: true
             }));
-          });
+          })
+          .on("mouseover", () => setMapHover({ kind: "campground", campgroundId: campground.campgroundId }))
+          .on("mouseout", () => clearCampgroundHover(campground.campgroundId));
         if (query && (selectedPark || selectedCampground)) {
           selectedBounds.extend([campground.latitude, campground.longitude]);
         }
       }
     }
 
-    if (selectedBounds.isValid()) {
-      map.fitBounds(selectedBounds.pad(0.2), { maxZoom: 9 });
-    } else {
-      map.fitBounds(washingtonMapBounds, { padding: [10, 10] });
+    if (mapFitKeyRef.current !== fitKey) {
+      mapFitKeyRef.current = fitKey;
+      if (selectedBounds.isValid()) {
+        map.fitBounds(selectedBounds.pad(0.2), { maxZoom: 9 });
+      } else {
+        map.fitBounds(washingtonMapBounds, { padding: [10, 10] });
+      }
     }
-  }, [mapSelection, parkSummaries, resultQuery, selectedParkGroupSet]);
+  }, [mapHover, mapSelection, parkSummaries, resultQuery, selectedParkGroupSet, selectedParkGroups]);
 
   async function refresh(options?: { silent?: boolean }) {
     if (!options?.silent) setLoadState("loading");
@@ -2291,6 +2328,14 @@ export default function App() {
     );
   }
 
+  function clearParkHover(parkName: string) {
+    setMapHover((current) => (current?.kind === "park" && current.parkName === parkName ? null : current));
+  }
+
+  function clearCampgroundHover(campgroundId: string) {
+    setMapHover((current) => (current?.kind === "campground" && current.campgroundId === campgroundId ? null : current));
+  }
+
   function focusCampgroundResults(campground: CampgroundMapPoint) {
     setMapSelection({ kind: "campground", campgroundId: campground.campgroundId });
     setResultQuery(campground.name);
@@ -2438,12 +2483,23 @@ export default function App() {
             <span>{selectedMapPark.resultCount} loaded results</span>
           </div>
           <div className="map-detail-list">
-            {previewCampgrounds.map((campground) => (
-              <button key={campground.campgroundId} onClick={() => setMapSelection({ kind: "campground", campgroundId: campground.campgroundId })} type="button">
-                <span>{campground.name}</span>
-                <small>{campground.imported ? "target" : "preset"}</small>
-              </button>
-            ))}
+            {previewCampgrounds.map((campground) => {
+              const hoveredCampground =
+                mapHover?.kind === "campground" && mapHover.campgroundId === campground.campgroundId;
+              return (
+                <button
+                  className={hoveredCampground ? "hovered" : ""}
+                  key={campground.campgroundId}
+                  onClick={() => setMapSelection({ kind: "campground", campgroundId: campground.campgroundId })}
+                  onMouseEnter={() => setMapHover({ kind: "campground", campgroundId: campground.campgroundId })}
+                  onMouseLeave={() => clearCampgroundHover(campground.campgroundId)}
+                  type="button"
+                >
+                  <span>{campground.name}</span>
+                  <small>{campground.imported ? "target" : "preset"}</small>
+                </button>
+              );
+            })}
           </div>
           <div className="map-detail-actions">
             <button className="icon-button primary" disabled={activeImportedCount === 0} onClick={() => openWatchBuilderForPark(selectedMapPark.parkName)} type="button">
@@ -4148,10 +4204,18 @@ export default function App() {
                   const activePark =
                     resultQuery === summary.parkName ||
                     (mapSelection?.kind === "park" && mapSelection.parkName === summary.parkName);
+                  const hoveredPark = mapHover?.kind === "park" && mapHover.parkName === summary.parkName;
+                  const hoveredCampgroundInPark =
+                    mapHover?.kind === "campground" &&
+                    summary.campgrounds.some((campground) => campground.campgroundId === mapHover.campgroundId);
                   return (
                     <article
-                      className={`park-chip ${activePark ? "selected" : ""} ${selectedGroup ? "checked" : ""}`}
+                      className={`park-chip ${activePark ? "selected" : ""} ${selectedGroup ? "checked" : ""} ${
+                        hoveredPark ? "hovered" : ""
+                      } ${hoveredCampgroundInPark ? "child-hovered" : ""}`}
                       key={summary.parkName}
+                      onMouseEnter={() => setMapHover({ kind: "park", parkName: summary.parkName })}
+                      onMouseLeave={() => clearParkHover(summary.parkName)}
                     >
                       <label className="park-chip-checkbox">
                         <input
