@@ -1286,6 +1286,21 @@ th {
   font-weight: 750;
 }
 
+.result-limit-note {
+  display: flex;
+  align-items: center;
+  min-height: 38px;
+  margin-bottom: 12px;
+  border: 1px solid #f0d59f;
+  border-radius: 8px;
+  background: #fff8e8;
+  color: #6b4a08;
+  padding: 9px 11px;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
 .result-group,
 .result-stay {
   border: 1px solid var(--line);

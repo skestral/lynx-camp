@@ -29,7 +29,7 @@ import {
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
-import { api } from "./api";
+import { RESULTS_LIMIT, api } from "./api";
 import type {
   CartAssistStatus,
   CartAttempt,
@@ -41,6 +41,7 @@ import type {
   PresetPack,
   ReleaseWindowProfileResult,
   Result,
+  ResultSummary,
   ScanRun,
   SearchSuggestion,
   Target,
@@ -258,6 +259,7 @@ export default function App() {
   const [presets, setPresets] = useState<PresetPack[]>([]);
   const [watches, setWatches] = useState<Watch[]>([]);
   const [results, setResults] = useState<Result[]>([]);
+  const [resultSummary, setResultSummary] = useState<ResultSummary>({ total_count: 0, active_count: 0 });
   const [scanRuns, setScanRuns] = useState<ScanRun[]>([]);
   const [notifications, setNotifications] = useState<NotificationEvent[]>([]);
   const [notificationStatus, setNotificationStatus] = useState<NotificationStatus>({ channels: [] });
@@ -332,6 +334,10 @@ export default function App() {
   const activeTargets = targets.filter((target) => target.active);
   const activeWatches = watches.filter((watch) => watch.active && watch.target_active);
   const activeResults = results.filter(isActiveAvailability);
+  const loadedResultCount = results.length;
+  const totalResultCount = resultSummary.total_count || loadedResultCount;
+  const activeResultCount = resultSummary.active_count || activeResults.length;
+  const resultListTruncated = totalResultCount > loadedResultCount;
   const selectedResultSet = useMemo(() => new Set(selectedResultIds), [selectedResultIds]);
   const selectedResults = useMemo(
     () => results.filter((result) => selectedResultSet.has(result.id)),
@@ -701,6 +707,7 @@ export default function App() {
         presetData,
         watchData,
         resultData,
+        resultSummaryData,
         scanRunData,
         notificationData,
         notificationStatusData,
@@ -711,6 +718,7 @@ export default function App() {
         api.presets(),
         api.watches(),
         api.results(),
+        api.resultSummary(),
         api.scanRuns(),
         api.notifications(),
         api.notificationStatus(),
@@ -721,6 +729,7 @@ export default function App() {
       setPresets(presetData);
       setWatches(watchData);
       setResults(resultData);
+      setResultSummary(resultSummaryData);
       setScanRuns(scanRunData);
       setNotifications(notificationData);
       setNotificationStatus(notificationStatusData);
@@ -753,13 +762,15 @@ export default function App() {
     const pollLiveScanState = async () => {
       if (document.visibilityState !== "visible") return;
       try {
-        const [scanRunData, resultData, cartAttemptData] = await Promise.all([
+        const [scanRunData, resultData, resultSummaryData, cartAttemptData] = await Promise.all([
           api.scanRuns(),
           api.results(),
+          api.resultSummary(),
           api.cartAttempts()
         ]);
         setScanRuns(scanRunData);
         setResults(resultData);
+        setResultSummary(resultSummaryData);
         setCartAttempts(cartAttemptData);
       } catch {
         // The normal refresh loop and scan completion handler will surface persistent API failures.
@@ -1273,7 +1284,7 @@ export default function App() {
   }
 
   async function clearAllResults() {
-    if (activeResults.length === 0) return;
+    if (activeResultCount === 0) return;
     const confirmed = window.confirm("Dismiss all active availability results?");
     if (!confirmed) return;
 
@@ -1444,7 +1455,7 @@ export default function App() {
         <header className="topbar">
           <div>
             <h1>Availability Monitor</h1>
-            <p>{activeTargets.length} targets &middot; {watchSummary} &middot; {activeResults.length} active matches</p>
+            <p>{activeTargets.length} targets &middot; {watchSummary} &middot; {activeResultCount} active matches</p>
           </div>
           <div className="topbar-actions">
             <button className="icon-button" onClick={() => openSetupDrawer("targets")} type="button" title="Open campground targets">
@@ -1492,7 +1503,7 @@ export default function App() {
         <section className="summary-grid" aria-label="Monitor summary">
           <SummaryMetric label="Targets" value={activeTargets.length.toString()} icon={<MapPin size={18} />} />
           <SummaryMetric label="Active watches" value={activeWatches.length.toString()} icon={<CalendarDays size={18} />} />
-          <SummaryMetric label="Active matches" value={activeResults.length.toString()} icon={<CheckCircle2 size={18} />} />
+          <SummaryMetric label="Active matches" value={activeResultCount.toString()} icon={<CheckCircle2 size={18} />} />
           <SummaryMetric label="Notifications" value={notifications.length.toString()} icon={<Bell size={18} />} />
         </section>
 
@@ -2288,7 +2299,7 @@ export default function App() {
               </div>
               <button
                 className="icon-button"
-                disabled={clearResultsBusy || activeResults.length === 0}
+                disabled={clearResultsBusy || activeResultCount === 0}
                 onClick={() => void clearAllResults()}
                 title="Dismiss all active availability results"
                 type="button"
@@ -2384,9 +2395,15 @@ export default function App() {
                 </button>
               </div>
               <span className="result-count">
-                {filteredResults.length} shown &middot; {selectedResults.length} selected
+                {filteredResults.length} shown &middot; {selectedResults.length} selected &middot; {loadedResultCount} loaded
+                {resultListTruncated ? ` of ${totalResultCount}` : ""}
               </span>
             </div>
+            {resultListTruncated && (
+              <div className="result-limit-note">
+                Showing the newest active working set: {loadedResultCount} of {totalResultCount} saved results. This browser view loads up to {RESULTS_LIMIT} rows; search and Select Visible apply to loaded rows.
+              </div>
+            )}
             <div className="result-groups">
               {resultGroups.length === 0 && (
                 <p className="empty">{results.length ? "No results match the current view." : "No availability saved yet."}</p>

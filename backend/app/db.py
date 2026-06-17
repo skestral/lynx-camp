@@ -803,6 +803,21 @@ class Store:
             ).fetchall()
             return [_row_to_dict(row) for row in rows if row is not None]
 
+    def result_summary(self) -> dict[str, int]:
+        with self.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT
+                    COUNT(*) AS total_count,
+                    SUM(CASE WHEN active = 1 AND status NOT IN ('booked', 'dismissed') THEN 1 ELSE 0 END) AS active_count
+                FROM results
+                """
+            ).fetchone()
+            return {
+                "total_count": int(row["total_count"] or 0) if row else 0,
+                "active_count": int(row["active_count"] or 0) if row else 0,
+            }
+
     def clear_active_results(self) -> int:
         now = utc_now()
         with self.connect() as conn:

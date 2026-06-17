@@ -246,6 +246,11 @@ def list_results(limit: int = Query(default=2000, ge=1, le=2000)) -> list[dict]:
     return store.list_results(limit)
 
 
+@app.get("/api/results/summary")
+def result_summary() -> dict:
+    return store.result_summary()
+
+
 @app.post("/api/results/clear")
 def clear_results() -> dict:
     return {"cleared_count": store.clear_active_results()}

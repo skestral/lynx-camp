@@ -101,6 +101,11 @@ export type Result = {
   last_seen_at: string;
 };
 
+export type ResultSummary = {
+  total_count: number;
+  active_count: number;
+};
+
 export type NotificationEvent = {
   id: number;
   result_id: number;

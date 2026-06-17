@@ -13,12 +13,15 @@ import type {
   PresetSourceImportResult,
   ReleaseWindowProfileResult,
   Result,
+  ResultSummary,
   ScanAllResult,
   ScanRun,
   SearchSuggestion,
   Target,
   Watch
 } from "./types";
+
+export const RESULTS_LIMIT = 2000;
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const response = await fetch(path, {
@@ -36,7 +39,8 @@ export const api = {
   targets: () => request<Target[]>("/api/targets"),
   presets: () => request<PresetPack[]>("/api/presets"),
   watches: () => request<Watch[]>("/api/watches"),
-  results: (limit = 2000) => request<Result[]>(`/api/results?limit=${limit}`),
+  results: (limit = RESULTS_LIMIT) => request<Result[]>(`/api/results?limit=${limit}`),
+  resultSummary: () => request<ResultSummary>("/api/results/summary"),
   scanRuns: () => request<ScanRun[]>("/api/scans"),
   notifications: () => request<NotificationEvent[]>("/api/notifications"),
   cartAssistStatus: () => request<CartAssistStatus>("/api/cart-assist/status"),

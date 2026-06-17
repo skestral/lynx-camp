@@ -855,3 +855,5 @@ def test_list_results_default_handles_large_scan_bursts(tmp_path) -> None:
 
     assert len(results) == 60
     assert results[0]["booking_url"].endswith("?startDate=2026-07-03")
+    summary = store.result_summary()
+    assert summary == {"total_count": 60, "active_count": 60}
