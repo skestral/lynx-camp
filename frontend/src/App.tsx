@@ -581,6 +581,15 @@ function bookingUrlWithStartDate(bookingUrl: string, arrivalDate: string) {
   }
 }
 
+function googleMapsUrl(campground: CampgroundMapPoint) {
+  if (Number.isFinite(campground.latitude) && Number.isFinite(campground.longitude)) {
+    const destination = `${campground.latitude.toFixed(6)},${campground.longitude.toFixed(6)}`;
+    return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(destination)}&travelmode=driving`;
+  }
+  const query = [campground.name, campground.parkName, campground.stateCode].filter(Boolean).join(", ");
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
+}
+
 function escapeHtml(value: string) {
   return value.replace(/[&<>"']/g, (character) => {
     const entities: Record<string, string> = {
@@ -2539,6 +2548,10 @@ export default function App() {
             <a className="icon-button" href={detailUrl} rel="noreferrer" target="_blank">
               <ExternalLink size={16} />
               <span>Details</span>
+            </a>
+            <a className="icon-button" href={googleMapsUrl(selectedMapCampground)} rel="noreferrer" target="_blank">
+              <MapPinned size={16} />
+              <span>Google Maps</span>
             </a>
           </div>
         </section>

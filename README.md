@@ -52,7 +52,7 @@ Park region selection:
 - Configure server-level Cart Assist from the dashboard or from Docker environment variables.
 - Triage availability results as opened, booked, dismissed, or active again.
 - Filter, sort, select, and bulk-update availability results from the dashboard.
-- Inspect map markers with Recreation.gov descriptions, details links, activity tags, notices, and images when Recreation.gov provides media.
+- Inspect map markers with Recreation.gov descriptions, details links, Google Maps navigation links, activity tags, notices, and images when Recreation.gov provides media.
 - Use park bounding boxes and Park Queue checkboxes to select campground groups directly from the map.
 - Show notification channel status, configure delivery settings, and send a test notification.
 - Notify by webhook, Home Assistant webhook, ntfy mobile push, and/or SMTP email when configured.
@@ -111,7 +111,7 @@ Ready sources have Check and Import actions. Check runs the live Recreation.gov 
 
 ## Map and Region Watches
 
-The map is both a navigation tool and a watch builder. Click a park marker or its bounding box to see a park summary, quick campground list, result counts, and a Watch Park button. Click a campground marker to load its Recreation.gov campground details, including description text, activities, amenities, active notices, a Recreation.gov details link, and a campground image when Recreation.gov returns one. Some Recreation.gov campground records do not include media, so the UI shows a simple placeholder instead of guessing with stock imagery. If Recreation.gov does not return a detail record or rate-limits that lookup, Camp Finder falls back to the saved target record instead of blocking the map panel.
+The map is both a navigation tool and a watch builder. Click a park marker or its bounding box to see a park summary, quick campground list, result counts, and a Watch Park button. Click a campground marker to load its Recreation.gov campground details, including description text, activities, amenities, active notices, a Recreation.gov details link, a Google Maps directions link, and a campground image when Recreation.gov returns one. Some Recreation.gov campground records do not include media, so the UI shows a simple placeholder instead of guessing with stock imagery. If Recreation.gov does not return a detail record or rate-limits that lookup, Camp Finder falls back to the saved target record instead of blocking the map panel.
 
 Park regions are calculated from the visible campground coordinates in each park group. The Park Queue checkbox highlights that group's map box and adds it to the selected group set. Use Watch Selected to open the watch form with the Selected park groups scope; Camp Finder then creates one ordinary watch rule per active imported target in those groups.
 
