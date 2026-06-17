@@ -546,6 +546,52 @@ export default function App() {
         .slice(0, 4),
     [activeWatches]
   );
+  const sourceCoverage = useMemo(() => {
+    const bundledIds = new Set<string>();
+    const importedBundledIds = new Set<string>();
+    const parkNames = new Set<string>();
+    let checkedPacks = 0;
+    let sourceNewCount = 0;
+    let sourceMissingCount = 0;
+
+    for (const pack of presets) {
+      const discovery = presetDiscovery[pack.id];
+      if (discovery) {
+        checkedPacks += 1;
+        sourceNewCount += discovery.new_count;
+        sourceMissingCount += discovery.missing_count;
+      }
+      for (const target of pack.targets) {
+        bundledIds.add(target.campground_id);
+        if (target.imported) importedBundledIds.add(target.campground_id);
+        if (target.park_name) parkNames.add(target.park_name);
+      }
+    }
+
+    return {
+      packCount: presets.length,
+      parkCount: parkNames.size,
+      bundledTargetCount: bundledIds.size,
+      importedBundledCount: importedBundledIds.size,
+      checkedPacks,
+      sourceNewCount,
+      sourceMissingCount
+    };
+  }, [presetDiscovery, presets]);
+  const nextReleaseHint = latestRelease[0] || null;
+  const focusSummary = scanInProgress
+    ? `${runningScanRuns.length || 1} scan${(runningScanRuns.length || 1) === 1 ? "" : "s"} running now.`
+    : activeResultCount > 0
+      ? `${activeResultCount} active match${activeResultCount === 1 ? "" : "es"} ready for review.`
+      : activeWatches.length > 0
+        ? `${activeWatches.length} active watch${activeWatches.length === 1 ? "" : "es"} covering ${activeTargets.length} campground${activeTargets.length === 1 ? "" : "s"}.`
+        : targets.length > 0
+          ? `${targets.length} campground target${targets.length === 1 ? "" : "s"} saved.`
+          : "No campground targets saved yet.";
+  const sourceSummary =
+    sourceCoverage.checkedPacks > 0
+      ? `${sourceCoverage.checkedPacks} live source check${sourceCoverage.checkedPacks === 1 ? "" : "s"} run, ${sourceCoverage.sourceNewCount} new target${sourceCoverage.sourceNewCount === 1 ? "" : "s"} found.`
+      : `${sourceCoverage.packCount} preset pack${sourceCoverage.packCount === 1 ? "" : "s"} cover ${sourceCoverage.parkCount} park group${sourceCoverage.parkCount === 1 ? "" : "s"}.`;
   const parkSummaries = useMemo<ParkSummary[]>(() => {
     const summaries = new Map<
       string,
@@ -1715,25 +1761,74 @@ export default function App() {
         {loadState === "error" && <div className="notice danger">The API is not reachable yet.</div>}
         {!isLogsPage && (
           <>
-            <section className={`scan-status-card ${scanInProgress ? "running" : ""}`} aria-live="polite">
-              <span className="scan-status-icon">
-                {scanInProgress ? <RefreshCw className="spinning" size={20} /> : <Activity size={20} />}
-              </span>
-              <span>
-                <strong>{activeScanTitle}</strong>
-                <small>{activeScanDetail}</small>
-                {runningScanRuns.length > 0 && (
-                  <div className="live-scan-list" aria-label="Active scan runs">
-                    {runningScanRuns.slice(0, 3).map((run) => (
-                      <span className="live-scan-pill" key={run.id}>
-                        <RefreshCw className="spinning" size={13} />
-                        <span>{run.watch_name}</span>
-                        <small>{run.target_name}</small>
-                      </span>
-                    ))}
-                  </div>
-                )}
-              </span>
+            <section className="home-focus" aria-label="Trip control">
+              <div className="home-focus-main">
+                <span className="focus-kicker">
+                  <TentTree size={16} />
+                  Camp Finder
+                </span>
+                <div>
+                  <h2>Trip Control</h2>
+                  <p>{focusSummary}</p>
+                </div>
+                <div className="focus-action-row">
+                  <button className="icon-button primary" onClick={() => openDrawer("targets")} type="button">
+                    <MapPin size={17} />
+                    <span>Sources</span>
+                  </button>
+                  <button className="icon-button" onClick={() => openDrawer("watches")} type="button">
+                    <CalendarDays size={17} />
+                    <span>Watches</span>
+                  </button>
+                  <button className="icon-button" onClick={runAllScans} disabled={scanAllBusy || activeWatches.length === 0} type="button">
+                    <Play size={17} />
+                    <span>{scanAllBusy ? "Scanning" : "Scan Now"}</span>
+                  </button>
+                  <button className="icon-button" onClick={() => openDrawer("alerts")} type="button">
+                    <Bell size={17} />
+                    <span>Alerts</span>
+                  </button>
+                </div>
+              </div>
+
+              <div className="home-focus-side">
+                <div className={`scan-status-card focus-scan ${scanInProgress ? "running" : ""}`} aria-live="polite">
+                  <span className="scan-status-icon">
+                    {scanInProgress ? <RefreshCw className="spinning" size={20} /> : <Activity size={20} />}
+                  </span>
+                  <span>
+                    <strong>{activeScanTitle}</strong>
+                    <small>{activeScanDetail}</small>
+                    {runningScanRuns.length > 0 && (
+                      <div className="live-scan-list" aria-label="Active scan runs">
+                        {runningScanRuns.slice(0, 3).map((run) => (
+                          <span className="live-scan-pill" key={run.id}>
+                            <RefreshCw className="spinning" size={13} />
+                            <span>{run.watch_name}</span>
+                            <small>{run.target_name}</small>
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </span>
+                </div>
+                <div className="focus-signal-grid">
+                  <article className="focus-signal">
+                    <Timer size={17} />
+                    <span>
+                      <strong>{nextReleaseHint ? formatDateTime(nextReleaseHint.release_at) : "No release queued"}</strong>
+                      <small>{nextReleaseHint ? `${nextReleaseHint.target} \u00b7 ${formatDate(nextReleaseHint.arrival_date)}` : "Release planner will update after watches are added."}</small>
+                    </span>
+                  </article>
+                  <article className="focus-signal source-signal">
+                    <Search size={17} />
+                    <span>
+                      <strong>{sourceCoverage.importedBundledCount}/{sourceCoverage.bundledTargetCount} preset targets saved</strong>
+                      <small>{sourceSummary}</small>
+                    </span>
+                  </article>
+                </div>
+              </div>
             </section>
 
             <section className="summary-grid" aria-label="Monitor summary">

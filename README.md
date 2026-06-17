@@ -42,17 +42,18 @@ The app is still notification-first. It opens Recreation.gov booking links when 
 
 The dashboard is organized around the work that usually matters first:
 
-1. Scan state and summary counts show whether Camp Finder is idle, scanning, or showing the last completed scan.
+1. Trip Control shows the current priority state, scan status, next release hint, and source coverage before the map and results.
 2. The sidebar opens slide-out drawers for Alerts, Activity, Targets, Watches, and Settings. These tools stay available without stretching the main dashboard.
-3. The map uses Leaflet with OpenStreetMap tiles to show saved targets plus preset park/campground options. It takes the main dashboard width, with the park queue in a compact strip below the map. Selecting a marker or park chip filters the results list and moves you to the matching availability. View Results jumps straight from the map to the working list.
-4. Availability Results stay in the main working area so new matches are not buried below target and watch configuration.
-5. The Alerts drawer gives quick access to active matches, recent notification delivery, View Results, and Clear All.
-6. The Activity drawer shows the active scanner state, recent scan runs, recent checkpoint events, a Logs link, refresh, and Stop Scan.
-7. Target and watch setup live in the same slide-out drawer system. Use the Targets and Watches buttons in the header or sidebar to open them.
-8. Result filters let you switch between active, all, available, opened, booked, and dismissed results.
-9. Result search matches park name, campground, site, loop, campsite type, watch name, and stay dates.
-10. Sort controls support newest first, arrival date, and park/campground grouping.
-11. Select Visible lets you bulk dismiss, mark booked, or reopen the results currently in view.
+3. Scan state and summary counts show whether Camp Finder is idle, scanning, or showing the last completed scan.
+4. The map uses Leaflet with OpenStreetMap tiles to show saved targets plus preset park/campground options. It takes the main dashboard width, with the park queue in a compact strip below the map. Selecting a marker or park chip filters the results list and moves you to the matching availability. View Results jumps straight from the map to the working list.
+5. Availability Results stay in the main working area so new matches are not buried below target and watch configuration.
+6. The Alerts drawer gives quick access to active matches, recent notification delivery, View Results, and Clear All.
+7. The Activity drawer shows the active scanner state, recent scan runs, recent checkpoint events, a Logs link, refresh, and Stop Scan.
+8. Target and watch setup live in the same slide-out drawer system. Use the Targets and Watches buttons in the header or sidebar to open them.
+9. Result filters let you switch between active, all, available, opened, booked, and dismissed results.
+10. Result search matches park name, campground, site, loop, campsite type, watch name, and stay dates.
+11. Sort controls support newest first, arrival date, and park/campground grouping.
+12. Select Visible lets you bulk dismiss, mark booked, or reopen the results currently in view.
 
 In normal use, you add or import targets, create watch rules, then spend most of your time in the map, scan status, and results sections. Alerts, Activity, Targets, Watches, and Settings are slide-out drawers so the working area stays shorter. Release hints remain in a full-width planner below Availability Results, and the Logs link opens a dedicated diagnostics page when you need more detail than the Activity drawer shows.
 
@@ -75,6 +76,19 @@ The target drawer has three ways to use each preset:
 The source check is intentionally visible instead of automatic. It pages through Recreation.gov campground search for each park, keeps only exact parent-park matches, and verifies bundled campground IDs that the broad search misses. It shows how many campgrounds Recreation.gov returned, how many are new compared with the bundled list, and how many bundled targets were not returned by the current source search. That keeps the app useful when the network or upstream API is unavailable while still letting the campground lists drift with Recreation.gov over time.
 
 Paused targets are skipped by background scans and Scan All. Paused watch rules are kept in the dashboard but are also skipped until resumed.
+
+## Source Roadmap
+
+Camp Finder should keep treating Recreation.gov as the first-class source for federal campground targets. Recreation.gov publishes RIDB/API data for federal recreation areas, facilities, campsites, tours, and permits, and its own "Use Our Data" page encourages apps to consume those records and credit Recreation.gov. The current source-check buttons are the first version of that idea: they query Recreation.gov live, compare the response with bundled fallback targets, and can import the discovered campground list.
+
+For v2, the target source model should move from hand-maintained park packs to saved source definitions. A source definition should say what it covers, how it is grouped, and how it refreshes. Good first groupings are:
+
+- National parks by parent park name.
+- National forests and other federal lands by managing agency, recreation area, state, and region.
+- Custom Recreation.gov searches for a state, region, or keyword.
+- Washington state sources as their own provider family, not mixed into federal national-park packs.
+
+Washington needs a staged approach. Washington State Parks publishes reservation guidance, a reservable-park list, and sends reservations through `washington.goingtocamp.com`; no public availability API is documented in the app yet. The first Washington State Parks phase should therefore be a source directory with official reservation links and park metadata, followed by an availability connector only after the reservation system can be reviewed safely. Washington DNR is different: DNR publishes campground GIS data through the Washington geospatial open-data portals, which can seed maps and target directories, but those records do not by themselves mean a site is reservable or scannable.
 
 ## Watch Filters
 
@@ -279,5 +293,7 @@ This project uses the same Recreation.gov availability pattern that makes OpenCa
 ## Next Useful Phases
 
 1. Add filters for equipment, max vehicle length, accessible sites, and electric/water hookups when the API exposes them consistently.
-2. Add notification channels such as Pushover, Telegram, or richer email templates.
-3. Add the guarded browser worker for Cart Assist, using one persistent Recreation.gov session and stopping on login challenges, CAPTCHA, unexpected pages, or any payment step.
+2. Replace one-off preset packs with refreshable source definitions for Recreation.gov national parks, national forests, regions, and custom searches.
+3. Add a Washington source directory beginning with Washington State Parks reservation links and WA DNR campground GIS data.
+4. Add notification channels such as Pushover, Telegram, or richer email templates.
+5. Add the guarded browser worker for Cart Assist, using one persistent Recreation.gov session and stopping on login challenges, CAPTCHA, unexpected pages, or any payment step.
