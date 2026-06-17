@@ -71,22 +71,39 @@ class CartAssistant:
         config = self.config()
         credentials_configured = bool(config["username"] and config["password"])
         enabled = bool(config["enabled"])
-        ready = enabled and credentials_configured
+        cooldown_state = self.store.cart_attempt_cooldown_state(config["cooldown_minutes"])
+        cooldown_active = cooldown_state["recent_actionable_attempt_count"] > 0
         if not enabled:
+            guard_state = "off"
             detail = "Server-side Cart Assist is disabled."
         elif not credentials_configured:
+            guard_state = "needs_credentials"
             detail = "Server-side Cart Assist is enabled, but Recreation.gov credentials are missing."
+        elif cooldown_active:
+            guard_state = "cooldown"
+            detail = (
+                "Server-side Cart Assist is ready, but a recent manual-checkout task is still inside "
+                "the cooldown window."
+            )
         else:
-            detail = "Server-side Cart Assist is configured for high-priority watch rules."
+            guard_state = "ready"
+            detail = "Server-side Cart Assist is ready for high-priority watch rules."
+        ready = guard_state == "ready"
 
         return {
             "enabled": enabled,
             "ready": ready,
+            "guard_state": guard_state,
             "credentials_configured": credentials_configured,
             "username_configured": bool(config["username"]),
             "password_configured": bool(config["password"]),
             "cooldown_minutes": config["cooldown_minutes"],
             "max_attempts_per_scan": config["max_attempts_per_scan"],
+            "recent_actionable_attempt_count": cooldown_state["recent_actionable_attempt_count"],
+            "latest_actionable_attempt_at": cooldown_state["latest_actionable_attempt_at"],
+            "next_allowed_at": cooldown_state["next_allowed_at"],
+            "cooldown_remaining_seconds": cooldown_state["cooldown_remaining_seconds"],
+            "cooldown_remaining_minutes": cooldown_state["cooldown_remaining_minutes"],
             "config_source": config["config_source"],
             "credential_source": config["credential_source"],
             "detail": detail,

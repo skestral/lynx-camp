@@ -118,11 +118,17 @@ export type NotificationEvent = {
 export type CartAssistStatus = {
   enabled: boolean;
   ready: boolean;
+  guard_state: "off" | "needs_credentials" | "cooldown" | "ready";
   credentials_configured: boolean;
   username_configured: boolean;
   password_configured: boolean;
   cooldown_minutes: number;
   max_attempts_per_scan: number;
+  recent_actionable_attempt_count: number;
+  latest_actionable_attempt_at: string | null;
+  next_allowed_at: string | null;
+  cooldown_remaining_seconds: number;
+  cooldown_remaining_minutes: number;
   config_source: "appdata" | "environment";
   credential_source: "appdata" | "environment" | "none";
   detail: string;

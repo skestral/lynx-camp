@@ -192,6 +192,37 @@ function cartAssistCredentialLabel(status: CartAssistStatus | null) {
   return `credentials from ${status.credential_source}`;
 }
 
+function cartAssistGuardLabel(status: CartAssistStatus | null) {
+  if (!status) return "loading";
+  if (status.guard_state === "needs_credentials") return "needs credentials";
+  if (status.guard_state === "cooldown") return "cooling down";
+  return status.guard_state;
+}
+
+function cartAssistGuardTone(status: CartAssistStatus | null) {
+  if (!status) return "quiet";
+  if (status.guard_state === "ready") return "success";
+  if (status.guard_state === "needs_credentials" || status.guard_state === "cooldown") return "warning";
+  return "quiet";
+}
+
+function cartAssistGuardSummary(status: CartAssistStatus | null) {
+  if (!status) return "Waiting for server status.";
+  const attemptLabel = status.max_attempts_per_scan === 1 ? "attempt" : "attempts";
+  const base = `Cooldown ${status.cooldown_minutes} min; ${status.max_attempts_per_scan} ${attemptLabel} per scan; ${cartAssistCredentialLabel(status)}`;
+  if (status.guard_state === "cooldown") {
+    const activeLabel = status.recent_actionable_attempt_count === 1 ? "active checkout task" : "active checkout tasks";
+    const nextWindow =
+      status.cooldown_remaining_minutes > 0
+        ? `next attempt in about ${status.cooldown_remaining_minutes} min`
+        : "next attempt almost ready";
+    return `${base}; ${status.recent_actionable_attempt_count} ${activeLabel}; ${nextWindow}.`;
+  }
+  if (status.guard_state === "ready") return `${base}; guard ready.`;
+  if (status.guard_state === "needs_credentials") return `${base}; add credentials before high-priority holds can be prepared.`;
+  return `${base}; server guard is off.`;
+}
+
 function filterSummary(filters: Watch["site_filters"]) {
   const parts = [
     filters.site_type ? `type ${filters.site_type}` : "",
@@ -2092,14 +2123,10 @@ export default function App() {
               <article className="status-row">
                 <span>
                   <strong>Remote hold guard</strong>
-                  <small>
-                    {cartAssistStatus
-                      ? `Cooldown ${cartAssistStatus.cooldown_minutes} min; ${cartAssistStatus.max_attempts_per_scan} attempt per scan; ${cartAssistCredentialLabel(cartAssistStatus)}.`
-                      : "Waiting for server status."}
-                  </small>
+                  <small>{cartAssistGuardSummary(cartAssistStatus)}</small>
                 </span>
-                <span className={`status ${cartAssistStatus?.ready ? "success" : cartAssistStatus?.enabled ? "warning" : "quiet"}`}>
-                  {cartAssistStatus?.ready ? "ready" : cartAssistStatus?.enabled ? "needs setup" : "off"}
+                <span className={`status ${cartAssistGuardTone(cartAssistStatus)}`}>
+                  {cartAssistGuardLabel(cartAssistStatus)}
                 </span>
               </article>
               <form className="cart-assist-form" onSubmit={saveCartAssistConfig}>

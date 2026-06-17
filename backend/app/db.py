@@ -1052,6 +1052,46 @@ class Store:
             ).fetchone()
             return int(row["count"] if row else 0)
 
+    def cart_attempt_cooldown_state(self, minutes: int) -> dict[str, Any]:
+        cooldown_minutes = max(1, int(minutes))
+        now = datetime.now(UTC).replace(microsecond=0)
+        cutoff = (now - timedelta(minutes=cooldown_minutes)).isoformat()
+        actionable_statuses = sorted(ACTIONABLE_CART_ATTEMPT_STATUSES)
+        placeholders = ", ".join(["?"] * len(actionable_statuses))
+        with self.connect() as conn:
+            row = conn.execute(
+                f"""
+                SELECT
+                    COUNT(*) AS count,
+                    MAX(attempted_at) AS latest_attempted_at
+                FROM cart_attempts
+                WHERE attempted_at >= ?
+                  AND status IN ({placeholders})
+                """,
+                (cutoff, *actionable_statuses),
+            ).fetchone()
+
+        count = int(row["count"] if row else 0)
+        latest_attempted_at = str(row["latest_attempted_at"]) if row and row["latest_attempted_at"] else None
+        next_allowed_at = None
+        remaining_seconds = 0
+
+        if latest_attempted_at:
+            latest = datetime.fromisoformat(latest_attempted_at)
+            if latest.tzinfo is None:
+                latest = latest.replace(tzinfo=UTC)
+            next_allowed = latest + timedelta(minutes=cooldown_minutes)
+            remaining_seconds = max(0, int((next_allowed - now).total_seconds()))
+            next_allowed_at = next_allowed.replace(microsecond=0).isoformat() if remaining_seconds else None
+
+        return {
+            "recent_actionable_attempt_count": count,
+            "latest_actionable_attempt_at": latest_attempted_at,
+            "next_allowed_at": next_allowed_at,
+            "cooldown_remaining_seconds": remaining_seconds,
+            "cooldown_remaining_minutes": (remaining_seconds + 59) // 60 if remaining_seconds else 0,
+        }
+
     def list_cart_attempts(self, limit: int = 25) -> list[dict[str, Any]]:
         with self.connect() as conn:
             rows = conn.execute(
