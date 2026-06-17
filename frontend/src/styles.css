@@ -639,17 +639,19 @@ small {
 }
 
 .utility-tabs {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 7px;
-  padding: 0 14px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 0 18px;
 }
 
 .utility-tab {
+  flex: 1 1 142px;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   gap: 6px;
+  min-width: min(100%, 142px);
   min-height: 38px;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -662,9 +664,9 @@ small {
 }
 
 .utility-tab span {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  min-width: max-content;
+  overflow: visible;
+  text-overflow: clip;
   white-space: nowrap;
 }
 
