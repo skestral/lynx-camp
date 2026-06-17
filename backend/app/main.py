@@ -242,7 +242,7 @@ def delete_watch(watch_id: int) -> dict:
 
 
 @app.get("/api/results")
-def list_results(limit: int = Query(default=50, ge=1, le=200)) -> list[dict]:
+def list_results(limit: int = Query(default=2000, ge=1, le=2000)) -> list[dict]:
     return store.list_results(limit)
 
 

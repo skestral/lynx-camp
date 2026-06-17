@@ -803,3 +803,55 @@ def test_missing_active_results_are_marked_booked_after_successful_rescan(tmp_pa
     assert results["A02"]["booked_at"] is not None
     assert results["A03"]["id"] == future_result["id"]
     assert results["A03"]["active"] == 1
+
+
+def test_list_results_default_handles_large_scan_bursts(tmp_path) -> None:
+    store = Store(tmp_path / "campfinder.db")
+    store.init()
+    target = store.create_target(
+        {
+            "name": "Sol Duc Hot Springs Resort Campground",
+            "campground_id": "251906",
+            "park_name": "Olympic National Park",
+            "state_code": "WA",
+            "release_months": 6,
+            "release_time": "07:00",
+            "timezone": "America/Los_Angeles",
+            "poll_interval_minutes": 10,
+        }
+    )
+    watch = store.create_watch(
+        {
+            "target_id": target["id"],
+            "name": "Fri/Sat starts, 1 night",
+            "mode": "weekend",
+            "pattern": "4-1n",
+            "arrival_weekdays": [4, 5],
+            "nights": 1,
+            "window_start": "2026-07-01",
+            "window_end": "2026-08-31",
+            "specific_ranges": [],
+        }
+    )
+
+    for index in range(60):
+        store.upsert_result(
+            {
+                "watch_id": watch["id"],
+                "target_id": target["id"],
+                "campground_id": target["campground_id"],
+                "campground_name": target["name"],
+                "campsite_id": f"site-{index}",
+                "site": f"A{index:02}",
+                "loop": "A",
+                "campsite_type": "Tent",
+                "arrival_date": "2026-07-03",
+                "departure_date": "2026-07-04",
+                "booking_url": f"https://www.recreation.gov/camping/campsites/site-{index}",
+            }
+        )
+
+    results = store.list_results()
+
+    assert len(results) == 60
+    assert results[0]["booking_url"].endswith("?startDate=2026-07-03")

@@ -36,7 +36,7 @@ export const api = {
   targets: () => request<Target[]>("/api/targets"),
   presets: () => request<PresetPack[]>("/api/presets"),
   watches: () => request<Watch[]>("/api/watches"),
-  results: () => request<Result[]>("/api/results"),
+  results: (limit = 2000) => request<Result[]>(`/api/results?limit=${limit}`),
   scanRuns: () => request<ScanRun[]>("/api/scans"),
   notifications: () => request<NotificationEvent[]>("/api/notifications"),
   cartAssistStatus: () => request<CartAssistStatus>("/api/cart-assist/status"),

@@ -783,7 +783,7 @@ class Store:
             row = conn.execute("SELECT * FROM results WHERE dedupe_key = ?", (dedupe_key,)).fetchone()
             return _row_to_dict(row) or {}, True
 
-    def list_results(self, limit: int = 50) -> list[dict[str, Any]]:
+    def list_results(self, limit: int = 2000) -> list[dict[str, Any]]:
         with self.connect() as conn:
             rows = conn.execute(
                 """
