@@ -343,6 +343,10 @@ export default function App() {
     () => results.filter((result) => selectedResultSet.has(result.id)),
     [results, selectedResultSet]
   );
+  const cartAttemptByResultId = useMemo(
+    () => new Map(cartAttempts.map((attempt) => [attempt.result_id, attempt])),
+    [cartAttempts]
+  );
   const filteredResults = useMemo(() => {
     const query = resultQuery.trim().toLowerCase();
     const filtered = results.filter((result) => {
@@ -1283,6 +1287,16 @@ export default function App() {
     }
   }
 
+  function openResultBooking(result: Result, attempt?: CartAttempt) {
+    if (attempt?.status === "manual_required") {
+      void updateCartAttemptStatus(attempt, "opened");
+      return;
+    }
+    if (result.status === "available") {
+      void updateResultStatus(result.id, "opened");
+    }
+  }
+
   async function clearAllResults() {
     if (activeResultCount === 0) return;
     const confirmed = window.confirm("Dismiss all active availability results?");
@@ -1333,6 +1347,7 @@ export default function App() {
 
   function resultCard(result: Result) {
     const selected = selectedResultSet.has(result.id);
+    const cartAttempt = cartAttemptByResultId.get(result.id);
     return (
       <article className={`result-card ${selected ? "selected" : ""}`} key={result.id}>
         <label className="result-select">
@@ -1359,9 +1374,7 @@ export default function App() {
             href={result.booking_url}
             target="_blank"
             rel="noreferrer"
-            onClick={() => {
-              if (result.status === "available") void updateResultStatus(result.id, "opened");
-            }}
+            onClick={() => openResultBooking(result, cartAttempt)}
           >
             <ExternalLink size={16} /> Open
           </a>
@@ -1407,6 +1420,20 @@ export default function App() {
             </button>
           )}
         </div>
+        {cartAttempt && (
+          <div className="result-cart-assist">
+            <span>
+              <strong>Cart Assist</strong>
+              <small>{cartAttempt.message}</small>
+            </span>
+            <span>
+              <span className={`status ${statusTone(cartAttempt.status)}`}>
+                {cartAttempt.status.split("_").join(" ")}
+              </span>
+              <small>{formatDateTime(cartAttempt.finished_at || cartAttempt.attempted_at)}</small>
+            </span>
+          </div>
+        )}
       </article>
     );
   }
