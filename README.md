@@ -4,6 +4,20 @@ Camp Finder is a local-network web app for monitoring Recreation.gov campground 
 
 The app is still notification-first. It opens Recreation.gov booking links when a match appears, and it can flag selected watches as high priority for Cart Assist logging. The current Cart Assist implementation is a guarded audit trail and readiness check; it does not automatically click Add to Cart, submit payment, or try to get around Recreation.gov login or CAPTCHA checks.
 
+## Screenshots
+
+Dashboard overview:
+
+![Camp Finder availability monitor dashboard](docs/screenshots/dashboard-overview.png)
+
+Campground map details:
+
+![Camp Finder map with a selected campground detail panel](docs/screenshots/map-campground-detail.png)
+
+Region watch setup:
+
+![Camp Finder watch drawer set to current map view scope](docs/screenshots/region-watch-drawer.png)
+
 ## What It Does
 
 - Add campground targets from Recreation.gov search.
@@ -134,7 +148,72 @@ Recreation.gov says booking windows are set by individual facilities and lists b
 
 The next safe step is a separate browser worker that can use one persistent Recreation.gov session, stop on any challenge or uncertainty, and hand the final checkout decision back to you. That worker should be explicitly enabled only after reviewing current Recreation.gov terms and the behavior of your account.
 
-## Local Development
+## Implementation Guide
+
+Camp Finder is meant to run as one Docker service on a trusted local network or private VPN. The container serves the React frontend, FastAPI backend, background scanner, SQLite database, and static assets from the same port.
+
+Use [compose.yaml](/compose.yaml) on a remote server when you want to pull the published image from GitHub Container Registry. Use [docker-compose.yml](/docker-compose.yml) when you are developing locally and want Docker to build from this checkout.
+
+### Server Install
+
+Every push to `main` publishes `ghcr.io/skestral/lynx-camp:main`. On the server, put the compose file and appdata folder in the directory where you want Camp Finder to live:
+
+```bash
+mkdir -p appdata/config
+curl -fsSLO https://raw.githubusercontent.com/skestral/lynx-camp/main/compose.yaml
+curl -fsSLo appdata/config/.env.example https://raw.githubusercontent.com/skestral/lynx-camp/main/appdata/config/.env.example
+cp appdata/config/.env.example appdata/config/.env
+nano appdata/config/.env
+docker compose pull
+docker compose up -d
+```
+
+Open `http://<server-ip>:8080` from a device on the same network. Do not expose the web UI directly to the public internet; the app does not include login protection yet.
+
+If GitHub Container Registry requires authentication on the server, run:
+
+```bash
+echo "<github-token>" | docker login ghcr.io -u skestral --password-stdin
+```
+
+### Local Source Build
+
+For local development or testing changes from this checkout:
+
+```powershell
+docker compose -f docker-compose.yml up -d --build
+```
+
+Then open `http://localhost:8080`. Local source builds use the named Docker volume `campfinder-data` for the SQLite database. The server compose file uses `./appdata`, which is easier to back up and move between machines.
+
+### First-Run Setup
+
+1. Open the Targets drawer and import a preset pack or run a live source import.
+2. Open the map, inspect target coverage, and import any preset-only campgrounds you want to scan.
+3. Open the Watches drawer and create a watch for one campground, a park group, a state, or the current map view.
+4. Open Settings and confirm scan cadence, request delay, rate-limit backoff, and notification channels.
+5. Send a test notification before relying on unattended scans.
+6. Use Download in Settings to save a backup once targets, watches, and settings look right.
+
+### Runtime Data
+
+Keep `appdata/config/.env` on the server only. It is where file-managed notification secrets, SMTP credentials, ntfy tokens, and optional Recreation.gov credentials belong. Dashboard-saved settings are stored in SQLite at `appdata/campfinder.db` and override `.env` defaults.
+
+Protect `appdata` the same way you would protect a `.env` file. This app does not encrypt dashboard-saved Recreation.gov credentials at rest yet; the current tradeoff is simple remote-server setup over secret-manager complexity. For now, those values make the server status read as ready and allow guarded attempt records for high-priority watches; they are not used to complete checkout.
+
+If you prefer file-managed Cart Assist defaults, set these in `appdata/config/.env`:
+
+```text
+CAMPFINDER_CART_ASSIST_ENABLED=true
+CAMPFINDER_CART_ASSIST_COOLDOWN_MINUTES=30
+CAMPFINDER_CART_ASSIST_MAX_ATTEMPTS_PER_SCAN=1
+CAMPFINDER_RECREATION_GOV_USERNAME=you@example.com
+CAMPFINDER_RECREATION_GOV_PASSWORD=your-password-or-app-secret
+```
+
+You can also configure Cart Assist from the dashboard. The dashboard only shows whether credentials are configured. It never prints the username or password. UI config exports omit saved secrets by default; use Include saved secrets only when you intentionally need a portable backup that contains credentials or webhook secrets.
+
+### Development
 
 Backend:
 
@@ -153,64 +232,11 @@ npm run dev
 
 Open `http://localhost:5173` for Vite development, or build the frontend and use the backend on `http://localhost:8080`.
 
-## Docker
-
-For local builds from this checkout:
-
-```powershell
-Copy-Item .env.example .env
-docker compose -f docker-compose.yml up --build
-```
-
-Then open `http://localhost:8080`.
-
-To expose the app to your LAN, visit `http://<this-computer-ip>:8080` from another device on the same network.
-
-## Server Deployment
-
-Every push to `main` publishes a Docker image to GitHub Container Registry as `ghcr.io/skestral/lynx-camp:main`. The root [compose.yaml](/compose.yaml) is the portable server file that pulls that image and stores runtime state under `./appdata`.
-
-On the server:
-
-```bash
-mkdir -p appdata/config
-cp appdata/config/.env.example appdata/config/.env
-nano appdata/config/.env
-docker compose pull
-docker compose up -d
-```
-
-Keep `appdata/config/.env` on the server only. It is where notification secrets such as ntfy topics, webhook URLs, and SMTP credentials belong. The SQLite database is stored at `appdata/campfinder.db`, so the app data folder can be backed up or moved with the deployment.
-
-Do not expose the Camp Finder web UI directly to the public internet. The app is built for a trusted local network or a private VPN and does not include user accounts or login protection yet.
-
-If you prefer file-managed secrets, keep the Recreation.gov username and password in that same server-only `.env` file:
-
-```text
-CAMPFINDER_CART_ASSIST_ENABLED=true
-CAMPFINDER_CART_ASSIST_COOLDOWN_MINUTES=30
-CAMPFINDER_CART_ASSIST_MAX_ATTEMPTS_PER_SCAN=1
-CAMPFINDER_RECREATION_GOV_USERNAME=you@example.com
-CAMPFINDER_RECREATION_GOV_PASSWORD=your-password-or-app-secret
-```
-
-You can also configure Cart Assist from the dashboard. Dashboard-saved values are stored in the SQLite database under `appdata/campfinder.db`, which makes them part of the normal server appdata backup. The dashboard only shows whether credentials are configured. It never prints the username or password. UI config exports omit saved secrets by default; use Include saved secrets only when you intentionally need a portable backup that contains credentials or webhook secrets.
-
-Protect `appdata` the same way you would protect a `.env` file. This app does not encrypt dashboard-saved Recreation.gov credentials at rest yet; the current tradeoff is simple remote-server setup over secret-manager complexity. For now, those values make the server status read as ready and allow guarded attempt records for high-priority watches; they are not used to complete checkout.
-
 ## Configuration Backups
 
 The Settings drawer can download and restore a JSON config backup. A backup includes targets, watches, target release settings, watch Cart Assist flags, scan control overrides, notification settings, and server-level Cart Assist settings. Availability results, scan logs, notification delivery history, and Cart Assist attempt history are not included.
 
 Saved secrets are redacted from downloaded backups unless Include saved secrets is checked before export. Redacted values stay on the server that created the backup, and importing a redacted backup does not erase existing saved secrets on the destination server. When Include saved secrets is checked, the JSON file contains stored Recreation.gov credentials, webhook URLs, ntfy topic/token values, and SMTP username/password values. Treat that file like a `.env` file.
-
-If GitHub Container Registry requires authentication on the server, run:
-
-```bash
-echo "<github-token>" | docker login ghcr.io -u skestral --password-stdin
-```
-
-For local development, continue using [docker-compose.yml](/docker-compose.yml), which builds from source instead of pulling the packaged image.
 
 ## Scanning
 
