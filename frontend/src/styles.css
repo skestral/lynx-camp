@@ -887,6 +887,11 @@ td small {
   align-items: start;
 }
 
+.cart-attempt-row.active {
+  border-color: #d5a63a;
+  background: #fff9e8;
+}
+
 .cart-attempt-actions {
   display: flex;
   flex-wrap: wrap;

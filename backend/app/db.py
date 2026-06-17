@@ -1092,6 +1092,48 @@ class Store:
             "cooldown_remaining_minutes": (remaining_seconds + 59) // 60 if remaining_seconds else 0,
         }
 
+    def cart_attempt_queue_summary(self) -> dict[str, Any]:
+        actionable_statuses = sorted(ACTIONABLE_CART_ATTEMPT_STATUSES)
+        ready_statuses = ["manual_required", "opened"]
+        blocked_statuses = ["disabled", "needs_credentials", "cooldown", "failed"]
+        with self.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT status, COUNT(*) AS count
+                FROM cart_attempts
+                GROUP BY status
+                """
+            ).fetchall()
+            latest_active = conn.execute(
+                f"""
+                SELECT MAX(attempted_at) AS latest_attempted_at
+                FROM cart_attempts
+                WHERE status IN ({", ".join(["?"] * len(actionable_statuses))})
+                """,
+                actionable_statuses,
+            ).fetchone()
+
+        status_counts = {str(row["status"]): int(row["count"]) for row in rows}
+        active_attempt_count = sum(status_counts.get(status, 0) for status in actionable_statuses)
+        ready_attempt_count = sum(status_counts.get(status, 0) for status in ready_statuses)
+        blocked_attempt_count = sum(status_counts.get(status, 0) for status in blocked_statuses)
+        total_attempt_count = sum(status_counts.values())
+        resolved_attempt_count = max(0, total_attempt_count - active_attempt_count - blocked_attempt_count)
+
+        return {
+            "active_attempt_count": active_attempt_count,
+            "ready_attempt_count": ready_attempt_count,
+            "blocked_attempt_count": blocked_attempt_count,
+            "resolved_attempt_count": resolved_attempt_count,
+            "total_attempt_count": total_attempt_count,
+            "latest_active_attempt_at": (
+                str(latest_active["latest_attempted_at"])
+                if latest_active and latest_active["latest_attempted_at"]
+                else None
+            ),
+            "status_counts": status_counts,
+        }
+
     def list_cart_attempts(self, limit: int = 25) -> list[dict[str, Any]]:
         with self.connect() as conn:
             rows = conn.execute(

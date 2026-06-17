@@ -72,6 +72,7 @@ class CartAssistant:
         credentials_configured = bool(config["username"] and config["password"])
         enabled = bool(config["enabled"])
         cooldown_state = self.store.cart_attempt_cooldown_state(config["cooldown_minutes"])
+        queue_summary = self.store.cart_attempt_queue_summary()
         cooldown_active = cooldown_state["recent_actionable_attempt_count"] > 0
         if not enabled:
             guard_state = "off"
@@ -104,6 +105,13 @@ class CartAssistant:
             "next_allowed_at": cooldown_state["next_allowed_at"],
             "cooldown_remaining_seconds": cooldown_state["cooldown_remaining_seconds"],
             "cooldown_remaining_minutes": cooldown_state["cooldown_remaining_minutes"],
+            "active_attempt_count": queue_summary["active_attempt_count"],
+            "ready_attempt_count": queue_summary["ready_attempt_count"],
+            "blocked_attempt_count": queue_summary["blocked_attempt_count"],
+            "resolved_attempt_count": queue_summary["resolved_attempt_count"],
+            "total_attempt_count": queue_summary["total_attempt_count"],
+            "latest_active_attempt_at": queue_summary["latest_active_attempt_at"],
+            "attempt_status_counts": queue_summary["status_counts"],
             "config_source": config["config_source"],
             "credential_source": config["credential_source"],
             "detail": detail,

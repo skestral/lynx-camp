@@ -223,6 +223,33 @@ function cartAssistGuardSummary(status: CartAssistStatus | null) {
   return `${base}; server guard is off.`;
 }
 
+function isActiveCartAttempt(attempt: CartAttempt) {
+  return ["manual_required", "opened", "hold_queued", "hold_attempted"].includes(attempt.status);
+}
+
+function cartAttemptRank(attempt: CartAttempt) {
+  if (attempt.status === "manual_required" || attempt.status === "opened") return 0;
+  if (attempt.status === "hold_queued" || attempt.status === "hold_attempted") return 1;
+  if (["needs_credentials", "disabled", "cooldown", "failed"].includes(attempt.status)) return 2;
+  return 3;
+}
+
+function cartAssistQueueSummary(status: CartAssistStatus | null) {
+  if (!status) return "Waiting for queue status.";
+  if (status.active_attempt_count > 0) {
+    const readyLabel = status.ready_attempt_count === 1 ? "ready checkout task" : "ready checkout tasks";
+    const activeLabel = status.active_attempt_count === 1 ? "active task" : "active tasks";
+    return `${status.ready_attempt_count} ${readyLabel}; ${status.active_attempt_count} ${activeLabel} need a final decision.`;
+  }
+  if (status.blocked_attempt_count > 0) {
+    const blockedLabel = status.blocked_attempt_count === 1 ? "blocked attempt" : "blocked attempts";
+    return `No active checkout tasks. ${status.blocked_attempt_count} ${blockedLabel} remain in history.`;
+  }
+  return status.total_attempt_count > 0
+    ? "No active checkout tasks. Recent attempts are resolved."
+    : "No Cart Assist attempts have been created yet.";
+}
+
 function filterSummary(filters: Watch["site_filters"]) {
   const parts = [
     filters.site_type ? `type ${filters.site_type}` : "",
@@ -376,6 +403,15 @@ export default function App() {
   );
   const cartAttemptByResultId = useMemo(
     () => new Map(cartAttempts.map((attempt) => [attempt.result_id, attempt])),
+    [cartAttempts]
+  );
+  const prioritizedCartAttempts = useMemo(
+    () =>
+      [...cartAttempts].sort((left, right) => {
+        const rankDelta = cartAttemptRank(left) - cartAttemptRank(right);
+        if (rankDelta !== 0) return rankDelta;
+        return right.attempted_at.localeCompare(left.attempted_at);
+      }),
     [cartAttempts]
   );
   const filteredResults = useMemo(() => {
@@ -2129,6 +2165,15 @@ export default function App() {
                   {cartAssistGuardLabel(cartAssistStatus)}
                 </span>
               </article>
+              <article className="status-row">
+                <span>
+                  <strong>Checkout queue</strong>
+                  <small>{cartAssistQueueSummary(cartAssistStatus)}</small>
+                </span>
+                <span className={`status ${cartAssistStatus ? (cartAssistStatus.active_attempt_count ? "warning" : "success") : "quiet"}`}>
+                  {cartAssistStatus ? `${cartAssistStatus.active_attempt_count} active` : "loading"}
+                </span>
+              </article>
               <form className="cart-assist-form" onSubmit={saveCartAssistConfig}>
                 <label className="toggle-field wide-field">
                   <span>
@@ -2214,12 +2259,13 @@ export default function App() {
               {cartAttempts.length === 0 ? (
                 <p className="empty compact">No cart assist attempts yet.</p>
               ) : (
-                cartAttempts.slice(0, 4).map((attempt) => {
+                prioritizedCartAttempts.slice(0, 4).map((attempt) => {
                   const busy = cartAttemptBusyId === attempt.id;
                   const checkoutReady = attempt.status === "manual_required" || attempt.status === "opened";
                   const canMakeReady = ["needs_credentials", "disabled", "failed"].includes(attempt.status);
+                  const activeAttempt = isActiveCartAttempt(attempt);
                   return (
-                    <article className="status-row cart-attempt-row" key={attempt.id}>
+                    <article className={`status-row cart-attempt-row ${activeAttempt ? "active" : ""}`} key={attempt.id}>
                       <span>
                         <strong>{attempt.site}</strong>
                         <small>

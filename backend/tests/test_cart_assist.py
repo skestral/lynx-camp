@@ -85,6 +85,13 @@ def test_cart_assist_status_does_not_expose_stored_credentials(tmp_path) -> None
     assert status["recent_actionable_attempt_count"] == 0
     assert status["next_allowed_at"] is None
     assert status["cooldown_remaining_minutes"] == 0
+    assert status["active_attempt_count"] == 0
+    assert status["ready_attempt_count"] == 0
+    assert status["blocked_attempt_count"] == 0
+    assert status["resolved_attempt_count"] == 0
+    assert status["total_attempt_count"] == 0
+    assert status["latest_active_attempt_at"] is None
+    assert status["attempt_status_counts"] == {}
     assert status["credential_source"] == "appdata"
     assert status["cooldown_minutes"] == 12
     assert status["max_attempts_per_scan"] == 2
@@ -152,3 +159,10 @@ def test_cart_assist_status_reports_cooldown_guard_state(tmp_path) -> None:
     assert status["latest_actionable_attempt_at"] is not None
     assert status["next_allowed_at"] is not None
     assert status["cooldown_remaining_minutes"] > 0
+    assert status["active_attempt_count"] == 1
+    assert status["ready_attempt_count"] == 1
+    assert status["blocked_attempt_count"] == 0
+    assert status["resolved_attempt_count"] == 0
+    assert status["total_attempt_count"] == 1
+    assert status["latest_active_attempt_at"] is not None
+    assert status["attempt_status_counts"] == {"manual_required": 1}

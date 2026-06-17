@@ -129,6 +129,13 @@ export type CartAssistStatus = {
   next_allowed_at: string | null;
   cooldown_remaining_seconds: number;
   cooldown_remaining_minutes: number;
+  active_attempt_count: number;
+  ready_attempt_count: number;
+  blocked_attempt_count: number;
+  resolved_attempt_count: number;
+  total_attempt_count: number;
+  latest_active_attempt_at: string | null;
+  attempt_status_counts: Record<string, number>;
   config_source: "appdata" | "environment";
   credential_source: "appdata" | "environment" | "none";
   detail: string;
