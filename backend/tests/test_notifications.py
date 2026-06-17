@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 
+from backend.app.db import Store
 from backend.app.notifications import Notifier
 from backend.app.settings import Settings
 
@@ -28,10 +29,12 @@ def test_notification_status_reports_missing_channels(tmp_path) -> None:
 
     assert status["channels"][0]["channel"] == "webhook"
     assert status["channels"][0]["configured"] is False
-    assert status["channels"][1]["channel"] == "email"
+    assert status["channels"][1]["channel"] == "home_assistant"
     assert status["channels"][1]["configured"] is False
-    assert status["channels"][2]["channel"] == "ntfy"
+    assert status["channels"][2]["channel"] == "email"
     assert status["channels"][2]["configured"] is False
+    assert status["channels"][3]["channel"] == "ntfy"
+    assert status["channels"][3]["configured"] is False
 
 
 def test_test_notification_skips_unconfigured_channels(tmp_path) -> None:
@@ -41,6 +44,7 @@ def test_test_notification_skips_unconfigured_channels(tmp_path) -> None:
 
     assert {item["channel"]: item["status"] for item in result["results"]} == {
         "webhook": "skipped",
+        "home_assistant": "skipped",
         "email": "skipped",
         "ntfy": "skipped",
     }
@@ -60,6 +64,73 @@ def test_ntfy_status_reports_configured_topic(tmp_path) -> None:
 
     assert channels["ntfy"]["configured"] is True
     assert channels["ntfy"]["detail"] == "https://push.example.com/campfinder-alerts"
+
+
+def test_home_assistant_webhook_can_use_appdata_and_clear_to_environment(tmp_path) -> None:
+    store = Store(tmp_path / "campfinder.db")
+    store.init()
+    notifier = Notifier(
+        Settings(
+            database_path=tmp_path / "campfinder.db",
+            home_assistant_webhook_url="https://ha.example.com/api/webhook/env",
+        ),
+        store,
+    )
+
+    saved = notifier.update_config({"home_assistant_webhook_url": "https://ha.example.com/api/webhook/stored"})
+
+    assert saved["home_assistant_webhook_configured"] is True
+    assert saved["home_assistant_webhook_source"] == "appdata"
+    assert notifier.status()["channels"][1]["configured"] is True
+    assert store.get_app_settings(["home_assistant_webhook_url"]) == {
+        "home_assistant_webhook_url": "https://ha.example.com/api/webhook/stored"
+    }
+
+    cleared = notifier.clear_home_assistant_webhook()
+
+    assert cleared["home_assistant_webhook_configured"] is True
+    assert cleared["home_assistant_webhook_source"] == "environment"
+    assert store.get_app_settings(["home_assistant_webhook_url"]) == {}
+
+
+def test_home_assistant_payload_is_structured_and_bounded(tmp_path) -> None:
+    notifier = Notifier(Settings(database_path=tmp_path / "db.sqlite", app_base_url="http://campfinder.local"))
+
+    payload = notifier._home_assistant_payload(
+        [
+            {
+                "id": 1,
+                "park_name": "Olympic National Park",
+                "campground_name": "Kalaloch",
+                "watch_name": "Weekend",
+                "site": "A01",
+                "loop": "A",
+                "campsite_type": "Tent",
+                "arrival_date": "2026-07-03",
+                "departure_date": "2026-07-05",
+                "booking_url": "https://www.recreation.gov/camping/campsites/101?startDate=2026-07-03",
+            },
+            {
+                "id": 2,
+                "park_name": "Olympic National Park",
+                "campground_name": "Kalaloch",
+                "watch_name": "Weekend",
+                "site": "A02",
+                "arrival_date": "2026-07-04",
+                "departure_date": "2026-07-06",
+                "booking_url": "https://www.recreation.gov/camping/campsites/102?startDate=2026-07-04",
+            },
+        ],
+        "Camp Finder found availability.",
+        max_items=1,
+    )
+
+    assert payload["source"] == "camp_finder"
+    assert payload["event"] == "availability"
+    assert payload["app_url"] == "http://campfinder.local"
+    assert payload["match_count"] == 2
+    assert payload["included_match_count"] == 1
+    assert payload["matches"][0]["site"] == "A01"
 
 
 def test_bulk_notification_records_one_delivery_attempt_and_batched_followups(tmp_path) -> None:

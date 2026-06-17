@@ -187,6 +187,10 @@ class ScanConfigUpdate(BaseModel):
     rate_limit_backoff_minutes: int | None = Field(default=None, ge=1, le=1440)
 
 
+class NotificationConfigUpdate(BaseModel):
+    home_assistant_webhook_url: str | None = Field(default=None, max_length=1000)
+
+
 class CartAttemptStatusUpdate(BaseModel):
     status: Literal["manual_required", "opened", "booked", "dismissed", "failed"]
     message: str | None = Field(default=None, max_length=500)

@@ -6,6 +6,8 @@ import type {
   ConfigBackup,
   ConfigImportResult,
   NotificationEvent,
+  NotificationConfig,
+  NotificationConfigPayload,
   NotificationStatus,
   NotificationTestResult,
   PresetDiscoveryResult,
@@ -57,6 +59,11 @@ export const api = {
     request<ScanConfig>("/api/scan-config", { method: "PATCH", body: JSON.stringify(payload) }),
   resetScanConfig: () => request<ScanConfig>("/api/scan-config/reset", { method: "POST" }),
   notifications: () => request<NotificationEvent[]>("/api/notifications"),
+  notificationConfig: () => request<NotificationConfig>("/api/notifications/config"),
+  updateNotificationConfig: (payload: NotificationConfigPayload) =>
+    request<NotificationConfig>("/api/notifications/config", { method: "PATCH", body: JSON.stringify(payload) }),
+  clearHomeAssistantWebhook: () =>
+    request<NotificationConfig>("/api/notifications/home-assistant/clear", { method: "POST" }),
   cartAssistStatus: () => request<CartAssistStatus>("/api/cart-assist/status"),
   cartAttempts: () => request<CartAttempt[]>("/api/cart-assist/attempts"),
   updateCartAssistConfig: (payload: CartAssistConfigPayload) =>

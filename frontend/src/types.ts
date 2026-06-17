@@ -235,6 +235,16 @@ export type NotificationStatus = {
   channels: NotificationChannelStatus[];
 };
 
+export type NotificationConfig = {
+  home_assistant_webhook_configured: boolean;
+  home_assistant_webhook_source: "appdata" | "environment" | "none";
+  home_assistant_detail: string;
+};
+
+export type NotificationConfigPayload = {
+  home_assistant_webhook_url?: string;
+};
+
 export type NotificationTestResult = {
   results: Array<{
     channel: string;

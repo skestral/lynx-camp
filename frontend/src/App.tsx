@@ -36,6 +36,7 @@ import type {
   CartAttemptStatus,
   ConfigBackup,
   NotificationEvent,
+  NotificationConfig,
   NotificationStatus,
   PresetDiscoveryResult,
   PresetPack,
@@ -359,6 +360,12 @@ function cartAssistQueueSummary(status: CartAssistStatus | null) {
     : "No Cart Assist attempts have been created yet.";
 }
 
+function notificationChannelLabel(channel: string) {
+  if (channel === "home_assistant") return "Home Assistant";
+  if (channel === "ntfy") return "ntfy";
+  return channel.replace(/_/g, " ");
+}
+
 function filterSummary(filters: Watch["site_filters"]) {
   const parts = [
     filters.site_type ? `type ${filters.site_type}` : "",
@@ -451,6 +458,10 @@ export default function App() {
   const [scanEvents, setScanEvents] = useState<ScanEvent[]>([]);
   const [notifications, setNotifications] = useState<NotificationEvent[]>([]);
   const [notificationStatus, setNotificationStatus] = useState<NotificationStatus>({ channels: [] });
+  const [notificationConfig, setNotificationConfig] = useState<NotificationConfig | null>(null);
+  const [homeAssistantWebhookUrl, setHomeAssistantWebhookUrl] = useState("");
+  const [notificationConfigDirty, setNotificationConfigDirty] = useState(false);
+  const [notificationConfigBusy, setNotificationConfigBusy] = useState<"save" | "clear" | null>(null);
   const [cartAssistStatus, setCartAssistStatus] = useState<CartAssistStatus | null>(null);
   const [cartAttempts, setCartAttempts] = useState<CartAttempt[]>([]);
   const [scanConfig, setScanConfig] = useState<ScanConfig | null>(null);
@@ -1025,6 +1036,7 @@ export default function App() {
         scanConfigData,
         notificationData,
         notificationStatusData,
+        notificationConfigData,
         cartAssistStatusData,
         cartAttemptData
       ] = await Promise.all([
@@ -1039,6 +1051,7 @@ export default function App() {
         api.scanConfig(),
         api.notifications(),
         api.notificationStatus(),
+        api.notificationConfig(),
         api.cartAssistStatus(),
         api.cartAttempts()
       ]);
@@ -1053,6 +1066,7 @@ export default function App() {
       setScanConfig(scanConfigData);
       setNotifications(notificationData);
       setNotificationStatus(notificationStatusData);
+      setNotificationConfig(notificationConfigData);
       setCartAssistStatus(cartAssistStatusData);
       setCartAttempts(cartAttemptData);
       setLoadState("idle");
@@ -1120,6 +1134,11 @@ export default function App() {
     setCartAssistCooldown(String(cartAssistStatus.cooldown_minutes));
     setCartAssistMaxAttempts(String(cartAssistStatus.max_attempts_per_scan));
   }, [cartAssistConfigBusy, cartAssistConfigDirty, cartAssistStatus]);
+
+  useEffect(() => {
+    if (!notificationConfig || notificationConfigDirty || notificationConfigBusy) return;
+    setHomeAssistantWebhookUrl("");
+  }, [notificationConfig, notificationConfigBusy, notificationConfigDirty]);
 
   useEffect(() => {
     if (!scanConfig || scanConfigDirty || scanConfigBusy) return;
@@ -1541,6 +1560,50 @@ export default function App() {
     }
   }
 
+  async function saveNotificationConfig(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const webhookUrl = homeAssistantWebhookUrl.trim();
+    if (!webhookUrl) {
+      setMessage("Paste a Home Assistant webhook URL before saving.");
+      return;
+    }
+    setNotificationConfigBusy("save");
+    try {
+      const config = await api.updateNotificationConfig({ home_assistant_webhook_url: webhookUrl });
+      setNotificationConfig(config);
+      setHomeAssistantWebhookUrl("");
+      setNotificationConfigDirty(false);
+      setMessage("Saved Home Assistant webhook.");
+      await refresh({ silent: true });
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unable to save Home Assistant webhook.");
+    } finally {
+      setNotificationConfigBusy(null);
+    }
+  }
+
+  async function clearHomeAssistantWebhook() {
+    const confirmed = window.confirm("Clear the stored Home Assistant webhook from appdata?");
+    if (!confirmed) return;
+    setNotificationConfigBusy("clear");
+    try {
+      const config = await api.clearHomeAssistantWebhook();
+      setNotificationConfig(config);
+      setHomeAssistantWebhookUrl("");
+      setNotificationConfigDirty(false);
+      setMessage(
+        config.home_assistant_webhook_source === "environment"
+          ? "Cleared appdata webhook; environment webhook is still configured."
+          : "Cleared Home Assistant webhook."
+      );
+      await refresh({ silent: true });
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unable to clear Home Assistant webhook.");
+    } finally {
+      setNotificationConfigBusy(null);
+    }
+  }
+
   async function saveCartAssistConfig(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setCartAssistConfigBusy("save");
@@ -1808,6 +1871,58 @@ export default function App() {
     setResultView(summary.activeResultCount > 0 ? "active" : "all");
     setResultGroupOpen((current) => ({ ...current, [`park:${summary.parkName}`]: true }));
     scrollToResults();
+  }
+
+  function renderHomeAssistantControls() {
+    const configured = Boolean(notificationConfig?.home_assistant_webhook_configured);
+    const source = notificationConfig?.home_assistant_webhook_source || "none";
+    const detail = notificationConfig?.home_assistant_detail || "Home Assistant webhook status has not loaded yet.";
+
+    return (
+      <div className="notification-config-panel">
+        <div className="subheading scan-control-heading">
+          <span>
+            <strong>Home Assistant</strong>
+            <small>{detail}</small>
+          </span>
+          <span className={`status ${configured ? "success" : "quiet"}`}>
+            {configured ? `configured from ${source}` : "not configured"}
+          </span>
+        </div>
+        <form className="notification-config-form" onSubmit={saveNotificationConfig}>
+          <label className="wide-field">
+            Webhook URL
+            <input
+              autoComplete="off"
+              inputMode="url"
+              onChange={(event) => {
+                setHomeAssistantWebhookUrl(event.target.value);
+                setNotificationConfigDirty(true);
+              }}
+              placeholder={configured ? "Configured; paste a new URL to replace" : "https://homeassistant.local/api/webhook/..."}
+              type="url"
+              value={homeAssistantWebhookUrl}
+            />
+            <small>Camp Finder sends a structured JSON payload for Home Assistant webhook automations.</small>
+          </label>
+          <div className="notification-config-actions wide-field">
+            <button className="icon-button" disabled={notificationConfigBusy !== null} type="submit">
+              <Save size={17} />
+              <span>{notificationConfigBusy === "save" ? "Saving" : "Save Home Assistant"}</span>
+            </button>
+            <button
+              className="icon-button"
+              disabled={notificationConfigBusy !== null || source !== "appdata"}
+              onClick={clearHomeAssistantWebhook}
+              type="button"
+            >
+              <Trash2 size={17} />
+              <span>{notificationConfigBusy === "clear" ? "Clearing" : "Clear Webhook"}</span>
+            </button>
+          </div>
+        </form>
+      </div>
+    );
   }
 
   function renderScanControls() {
@@ -2801,7 +2916,7 @@ export default function App() {
               {notificationStatus.channels.map((channel) => (
                 <article className="status-row" key={channel.channel}>
                   <span>
-                    <strong>{channel.channel}</strong>
+                    <strong>{notificationChannelLabel(channel.channel)}</strong>
                     <small>{channel.detail}</small>
                   </span>
                   <span className={`status ${channel.configured ? "success" : "quiet"}`}>
@@ -2810,6 +2925,7 @@ export default function App() {
                 </article>
               ))}
             </div>
+            {renderHomeAssistantControls()}
             {renderScanControls()}
             <div className="cart-assist-log">
               <div className="subheading">
@@ -3358,7 +3474,7 @@ export default function App() {
                     {notificationStatus.channels.map((channel) => (
                       <article className="status-row" key={channel.channel}>
                         <span>
-                          <strong>{channel.channel}</strong>
+                          <strong>{notificationChannelLabel(channel.channel)}</strong>
                           <small>{channel.detail}</small>
                         </span>
                         <span className={`status ${channel.configured ? "success" : "quiet"}`}>
@@ -3367,6 +3483,7 @@ export default function App() {
                       </article>
                     ))}
                   </div>
+                  {renderHomeAssistantControls()}
                   {renderScanControls()}
                   <div className="cart-assist-log">
                     <div className="subheading">

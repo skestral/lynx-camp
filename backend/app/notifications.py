@@ -13,11 +13,16 @@ if TYPE_CHECKING:
     from .db import Store
 
 
+HOME_ASSISTANT_WEBHOOK_KEY = "home_assistant_webhook_url"
+
+
 class Notifier:
-    def __init__(self, settings: Settings):
+    def __init__(self, settings: Settings, store: "Store | None" = None):
         self.settings = settings
+        self.store = store
 
     def status(self) -> dict:
+        home_assistant = self.home_assistant_config()
         email_missing = []
         for label, value in [
             ("CAMPFINDER_SMTP_HOST", self.settings.smtp_host),
@@ -35,6 +40,12 @@ class Notifier:
                     "configured": bool(self.settings.webhook_url),
                     "detail": "Configured" if self.settings.webhook_url else "Set CAMPFINDER_WEBHOOK_URL",
                     "missing": [] if self.settings.webhook_url else ["CAMPFINDER_WEBHOOK_URL"],
+                },
+                {
+                    "channel": "home_assistant",
+                    "configured": home_assistant["configured"],
+                    "detail": home_assistant["detail"],
+                    "missing": [] if home_assistant["configured"] else ["CAMPFINDER_HOME_ASSISTANT_WEBHOOK_URL"],
                 },
                 {
                     "channel": "email",
@@ -59,8 +70,11 @@ class Notifier:
             return
         message = self._format_results_message(results, max_items)
         click_url = results[0]["booking_url"] if len(results) == 1 else self.settings.app_base_url
+        home_assistant = self.home_assistant_config()
         if self.settings.webhook_url:
             await self._send_webhook(results, message, store)
+        if home_assistant["url"]:
+            await self._send_home_assistant(results, message, max_items, store, home_assistant["url"])
         if self._smtp_enabled:
             await asyncio.to_thread(self._send_email, results, message, store)
         if self._ntfy_enabled:
@@ -72,10 +86,32 @@ class Notifier:
             "If you received this, notifications are configured correctly."
         )
         results = []
+        home_assistant = self.home_assistant_config()
         if self.settings.webhook_url:
             results.append(await self._post_webhook(message))
         else:
             results.append({"channel": "webhook", "status": "skipped", "message": "Webhook is not configured."})
+
+        if home_assistant["url"]:
+            results.append(
+                await self._post_home_assistant(
+                    home_assistant["url"],
+                    {
+                        "source": "camp_finder",
+                        "event": "test",
+                        "message": message,
+                        "app_url": self.settings.app_base_url,
+                    },
+                )
+            )
+        else:
+            results.append(
+                {
+                    "channel": "home_assistant",
+                    "status": "skipped",
+                    "message": "Home Assistant webhook is not configured.",
+                }
+            )
 
         if self._smtp_enabled:
             results.append(await asyncio.to_thread(self._post_email, message))
@@ -87,6 +123,43 @@ class Notifier:
         else:
             results.append({"channel": "ntfy", "status": "skipped", "message": "ntfy is not configured."})
         return {"results": results}
+
+    def home_assistant_config(self) -> dict:
+        stored = self.store.get_app_settings([HOME_ASSISTANT_WEBHOOK_KEY]) if self.store else {}
+        stored_url = stored.get(HOME_ASSISTANT_WEBHOOK_KEY)
+        env_url = self.settings.home_assistant_webhook_url
+        url = (stored_url or env_url or "").strip()
+        source = "appdata" if stored_url is not None else "environment" if env_url else "none"
+        if url:
+            detail = f"Configured from {source}."
+        else:
+            detail = "Set in Settings or CAMPFINDER_HOME_ASSISTANT_WEBHOOK_URL."
+        return {
+            "configured": bool(url),
+            "url": url,
+            "source": source,
+            "detail": detail,
+        }
+
+    def notification_config(self) -> dict:
+        home_assistant = self.home_assistant_config()
+        return {
+            "home_assistant_webhook_configured": home_assistant["configured"],
+            "home_assistant_webhook_source": home_assistant["source"],
+            "home_assistant_detail": home_assistant["detail"],
+        }
+
+    def update_config(self, data: dict) -> dict:
+        if "home_assistant_webhook_url" in data and self.store:
+            webhook_url = str(data["home_assistant_webhook_url"] or "").strip()
+            if webhook_url:
+                self.store.set_app_settings({HOME_ASSISTANT_WEBHOOK_KEY: webhook_url})
+        return self.notification_config()
+
+    def clear_home_assistant_webhook(self) -> dict:
+        if self.store:
+            self.store.delete_app_settings([HOME_ASSISTANT_WEBHOOK_KEY])
+        return self.notification_config()
 
     @property
     def _smtp_enabled(self) -> bool:
@@ -112,6 +185,23 @@ class Notifier:
     async def _send_webhook(self, results: list[dict], message: str, store: "Store") -> None:
         result = await self._post_webhook(message)
         self._record_batch_notifications(results, "webhook", "sent" if result["status"] == "sent" else "error", result["message"], store)
+
+    async def _send_home_assistant(
+        self,
+        results: list[dict],
+        message: str,
+        max_items: int,
+        store: "Store",
+        webhook_url: str,
+    ) -> None:
+        result = await self._post_home_assistant(webhook_url, self._home_assistant_payload(results, message, max_items))
+        self._record_batch_notifications(
+            results,
+            "home_assistant",
+            "sent" if result["status"] == "sent" else "error",
+            result["message"],
+            store,
+        )
 
     def _send_email(self, results: list[dict], message: str, store: "Store") -> None:
         result = self._post_email(message)
@@ -143,6 +233,19 @@ class Notifier:
             return {"channel": "webhook", "status": "sent", "message": "Webhook notification sent."}
         except Exception as exc:
             return {"channel": "webhook", "status": "error", "message": str(exc)}
+
+    async def _post_home_assistant(self, webhook_url: str, payload: dict) -> dict:
+        try:
+            async with httpx.AsyncClient(timeout=10) as client:
+                response = await client.post(webhook_url, json=payload)
+                response.raise_for_status()
+            return {
+                "channel": "home_assistant",
+                "status": "sent",
+                "message": "Home Assistant webhook notification sent.",
+            }
+        except Exception as exc:
+            return {"channel": "home_assistant", "status": "error", "message": str(exc)}
 
     def _post_email(self, message: str) -> dict:
         email = EmailMessage()
@@ -205,6 +308,34 @@ class Notifier:
             lines.append(f"...and {remaining} more match(es).")
         lines.extend(["", f"Review results: {self.settings.app_base_url}"])
         return "\n".join(lines)
+
+    def _home_assistant_payload(self, results: list[dict], message: str, max_items: int = 5) -> dict:
+        ordered = sorted(results, key=lambda item: (item["arrival_date"], item["site"]))
+        matches = []
+        for result in ordered[:max_items]:
+            matches.append(
+                {
+                    "park_name": result.get("park_name") or "",
+                    "campground_name": result.get("campground_name") or "",
+                    "watch_name": result.get("watch_name") or "",
+                    "site": result.get("site") or "",
+                    "loop": result.get("loop") or "",
+                    "campsite_type": result.get("campsite_type") or "",
+                    "arrival_date": result.get("arrival_date") or "",
+                    "departure_date": result.get("departure_date") or "",
+                    "booking_url": result.get("booking_url") or "",
+                    "cart_assist_message": result.get("cart_assist_message") or "",
+                }
+            )
+        return {
+            "source": "camp_finder",
+            "event": "availability",
+            "message": message,
+            "app_url": self.settings.app_base_url,
+            "match_count": len(results),
+            "included_match_count": len(matches),
+            "matches": matches,
+        }
 
     def _format_message(self, result: dict) -> str:
         lines = [

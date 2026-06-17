@@ -20,6 +20,7 @@ from .schemas import (
     CartAssistConfigUpdate,
     CartAttemptStatusUpdate,
     ConfigBackup,
+    NotificationConfigUpdate,
     ResultStatusUpdate,
     ScanConfigUpdate,
     TargetCreate,
@@ -33,7 +34,7 @@ from .sources import discover_source, import_source, list_source_definitions
 
 store = Store(settings.database_path)
 client = RecreationClient()
-notifier = Notifier(settings)
+notifier = Notifier(settings, store)
 cart_assistant = CartAssistant(store, settings)
 scanner = Scanner(
     store,
@@ -318,6 +319,21 @@ def list_notifications(limit: int = Query(default=25, ge=1, le=100)) -> list[dic
 @app.get("/api/notifications/status")
 def notification_status() -> dict:
     return notifier.status()
+
+
+@app.get("/api/notifications/config")
+def notification_config() -> dict:
+    return notifier.notification_config()
+
+
+@app.patch("/api/notifications/config")
+def update_notification_config(payload: NotificationConfigUpdate) -> dict:
+    return notifier.update_config(payload.model_dump(exclude_unset=True))
+
+
+@app.post("/api/notifications/home-assistant/clear")
+def clear_home_assistant_webhook() -> dict:
+    return notifier.clear_home_assistant_webhook()
 
 
 @app.post("/api/notifications/test")

@@ -272,6 +272,14 @@ CAMPFINDER_WEBHOOK_URL=https://...
 
 Discord webhooks work because Camp Finder sends a simple `content` payload.
 
+For Home Assistant, use the Settings drawer to paste a webhook URL from a webhook-triggered automation. Dashboard-saved values live in `appdata/campfinder.db` and are not shown again after saving. If you prefer file-managed config, set:
+
+```text
+CAMPFINDER_HOME_ASSISTANT_WEBHOOK_URL=https://homeassistant.example.com/api/webhook/...
+```
+
+The Home Assistant channel receives structured JSON with `source`, `event`, `message`, `app_url`, match counts, and a bounded `matches` list. That lets an automation use the simple text message or route on fields such as campground, arrival date, and booking URL.
+
 For ntfy phone push, subscribe to a private topic in the ntfy mobile app and set:
 
 ```text
@@ -297,7 +305,7 @@ CAMPFINDER_SMTP_FROM=you@example.com
 CAMPFINDER_SMTP_TO=you@example.com
 ```
 
-The Settings drawer shows which notification channels are configured and which environment variables are missing. Use the test button there after changing `.env` to confirm delivery before relying on background scans.
+The Settings drawer shows which notification channels are configured and which environment variables are missing. Use the test button there after changing `.env` or saving a Home Assistant webhook to confirm delivery before relying on background scans.
 
 ## Notes From OpenCamp
 

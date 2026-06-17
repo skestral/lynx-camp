@@ -39,6 +39,7 @@ class Settings:
     rate_limit_backoff_minutes: int = int(os.getenv("CAMPFINDER_RATE_LIMIT_BACKOFF_MINUTES", "60"))
     max_notification_results: int = int(os.getenv("CAMPFINDER_MAX_NOTIFICATION_RESULTS", "5"))
     webhook_url: str | None = _optional_env("CAMPFINDER_WEBHOOK_URL")
+    home_assistant_webhook_url: str | None = _optional_env("CAMPFINDER_HOME_ASSISTANT_WEBHOOK_URL")
     ntfy_server: str = os.getenv("CAMPFINDER_NTFY_SERVER", "https://ntfy.sh").rstrip("/")
     ntfy_topic: str | None = _optional_env("CAMPFINDER_NTFY_TOPIC")
     ntfy_token: str | None = _optional_env("CAMPFINDER_NTFY_TOKEN")
