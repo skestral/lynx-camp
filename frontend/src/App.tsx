@@ -11,6 +11,7 @@ import {
   Filter,
   ListChecks,
   MapPin,
+  MapPinned,
   Pause,
   Pencil,
   Play,
@@ -34,6 +35,7 @@ import type {
   CartAssistStatus,
   CartAttempt,
   CartAttemptStatus,
+  CampgroundDetails,
   ConfigBackup,
   NotificationEvent,
   NotificationConfig,
@@ -62,6 +64,10 @@ type ResultSort = "newest" | "arrival" | "park";
 type DrawerMode = "alerts" | "activity" | "targets" | "watches" | "settings";
 type PageView = "monitor" | "logs";
 type UtilityTab = "release" | "activity" | "settings";
+type WatchScope = "target" | "park" | "state" | "map";
+type MapSelection =
+  | { kind: "park"; parkName: string }
+  | { kind: "campground"; campgroundId: string };
 type ScanProgress = {
   title: string;
   detail: string;
@@ -328,6 +334,7 @@ type ParkSummary = {
 
 type CampgroundMapPoint = {
   id: string;
+  targetId: number | null;
   campgroundId: string;
   name: string;
   parkName: string;
@@ -336,7 +343,9 @@ type CampgroundMapPoint = {
   longitude: number;
   active: number;
   imported: boolean;
+  bookingUrl: string;
   activeResultCount: number;
+  resultCount: number;
 };
 
 type ResultStayGroup = {
@@ -645,6 +654,9 @@ export default function App() {
   const [searching, setSearching] = useState(false);
   const [editingWatchId, setEditingWatchId] = useState<number | null>(null);
   const [watchName, setWatchName] = useState("");
+  const [watchScope, setWatchScope] = useState<WatchScope>("target");
+  const [watchPark, setWatchPark] = useState("");
+  const [watchStateCode, setWatchStateCode] = useState("");
   const [watchMode, setWatchMode] = useState<"weekend" | "specific">("weekend");
   const [watchTarget, setWatchTarget] = useState("");
   const [cartAssistEnabled, setCartAssistEnabled] = useState(false);
@@ -699,6 +711,10 @@ export default function App() {
   const [drawerMode, setDrawerMode] = useState<DrawerMode>("targets");
   const [pageView, setPageView] = useState<PageView>(() => (window.location.hash === "#logs" ? "logs" : "monitor"));
   const [utilityTab, setUtilityTab] = useState<UtilityTab>("release");
+  const [mapSelection, setMapSelection] = useState<MapSelection | null>(null);
+  const [campgroundDetails, setCampgroundDetails] = useState<Record<string, CampgroundDetails>>({});
+  const [campgroundDetailsBusyId, setCampgroundDetailsBusyId] = useState<string | null>(null);
+  const [campgroundDetailsErrors, setCampgroundDetailsErrors] = useState<Record<string, string>>({});
   const mapElementRef = useRef<HTMLDivElement | null>(null);
   const leafletMapRef = useRef<L.Map | null>(null);
   const markerLayerRef = useRef<L.LayerGroup | null>(null);
@@ -955,6 +971,7 @@ export default function App() {
       if (Number.isFinite(latitude) && Number.isFinite(longitude)) {
         summary.campgrounds.push({
           id: sourceTarget.campground_id,
+          targetId: savedTarget?.id || null,
           campgroundId: sourceTarget.campground_id,
           name: savedTarget?.name || sourceTarget.name,
           parkName,
@@ -963,7 +980,9 @@ export default function App() {
           longitude,
           active: savedTarget?.active || 0,
           imported: Boolean(savedTarget),
-          activeResultCount: resultCounts.activeResultCount
+          bookingUrl: savedTarget?.booking_url || `https://www.recreation.gov/camping/campgrounds/${sourceTarget.campground_id}`,
+          activeResultCount: resultCounts.activeResultCount,
+          resultCount: resultCounts.resultCount
         });
       }
       summaries.set(parkName, summary);
@@ -1013,6 +1032,44 @@ export default function App() {
         };
       });
   }, [presets, results, targets]);
+  const targetById = useMemo(() => new Map(targets.map((target) => [target.id, target])), [targets]);
+  const watchParkOptions = useMemo(
+    () =>
+      parkSummaries
+        .filter((summary) => summary.campgrounds.some((campground) => campground.imported && campground.active))
+        .map((summary) => ({
+          value: summary.parkName,
+          label: summary.parkName,
+          count: summary.campgrounds.filter((campground) => campground.imported && campground.active).length
+        })),
+    [parkSummaries]
+  );
+  const watchStateOptions = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const target of activeTargets) {
+      const state = target.state_code || "US";
+      counts.set(state, (counts.get(state) || 0) + 1);
+    }
+    return Array.from(counts.entries())
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([value, count]) => ({ value, count }));
+  }, [activeTargets]);
+  const selectedMapPark = useMemo(
+    () =>
+      mapSelection?.kind === "park"
+        ? parkSummaries.find((summary) => summary.parkName === mapSelection.parkName) || null
+        : null,
+    [mapSelection, parkSummaries]
+  );
+  const selectedMapCampground = useMemo(
+    () =>
+      mapSelection?.kind === "campground"
+        ? parkSummaries
+            .flatMap((summary) => summary.campgrounds)
+            .find((campground) => campground.campgroundId === mapSelection.campgroundId) || null
+        : null,
+    [mapSelection, parkSummaries]
+  );
   const resultGroups = useMemo<ResultParkGroup[]>(() => {
     const parkMap = new Map<string, ResultParkGroup>();
 
@@ -1115,7 +1172,8 @@ export default function App() {
     const query = resultQuery.trim().toLowerCase();
 
     for (const summary of parkSummaries) {
-      const selectedPark = resultQuery === summary.parkName;
+      const selectedPark =
+        resultQuery === summary.parkName || (mapSelection?.kind === "park" && mapSelection.parkName === summary.parkName);
       const parkIcon = L.divIcon({
         className: `park-map-marker ${summary.activeResultCount ? "has-results" : ""} ${selectedPark ? "selected" : ""}`,
         html: `<strong>${summary.targetCount}</strong><small>${summary.activeResultCount}</small>`,
@@ -1130,6 +1188,7 @@ export default function App() {
             `${summary.activeResultCount} active result${summary.activeResultCount === 1 ? "" : "s"}`
         )
         .on("click", () => {
+          setMapSelection({ kind: "park", parkName: summary.parkName });
           setResultQuery(summary.parkName);
           setResultSort("park");
           setResultView(summary.activeResultCount > 0 ? "active" : "all");
@@ -1140,7 +1199,9 @@ export default function App() {
       }
 
       for (const campground of summary.campgrounds) {
-        const selectedCampground = resultQuery === campground.name;
+        const selectedCampground =
+          resultQuery === campground.name ||
+          (mapSelection?.kind === "campground" && mapSelection.campgroundId === campground.campgroundId);
         const campgroundIcon = L.divIcon({
           className: `campground-map-marker ${campground.activeResultCount ? "has-results" : ""} ${
             selectedCampground ? "selected" : ""
@@ -1160,6 +1221,7 @@ export default function App() {
               `${campground.activeResultCount} active result${campground.activeResultCount === 1 ? "" : "s"}`
           )
           .on("click", () => {
+            setMapSelection({ kind: "campground", campgroundId: campground.campgroundId });
             setResultQuery(campground.name);
             setResultSort("park");
             setResultView(campground.activeResultCount > 0 ? "active" : "all");
@@ -1180,7 +1242,7 @@ export default function App() {
     } else {
       map.fitBounds(washingtonMapBounds, { padding: [10, 10] });
     }
-  }, [parkSummaries, resultQuery]);
+  }, [mapSelection, parkSummaries, resultQuery]);
 
   async function refresh(options?: { silent?: boolean }) {
     if (!options?.silent) setLoadState("loading");
@@ -1332,6 +1394,50 @@ export default function App() {
     return () => window.clearTimeout(handle);
   }, [query]);
 
+  useEffect(() => {
+    if (!watchPark && watchParkOptions.length > 0) {
+      setWatchPark(watchParkOptions[0].value);
+    }
+  }, [watchPark, watchParkOptions]);
+
+  useEffect(() => {
+    if (!watchStateCode && watchStateOptions.length > 0) {
+      setWatchStateCode(watchStateOptions[0].value);
+    }
+  }, [watchStateCode, watchStateOptions]);
+
+  useEffect(() => {
+    if (
+      !selectedMapCampground ||
+      campgroundDetails[selectedMapCampground.campgroundId] ||
+      campgroundDetailsErrors[selectedMapCampground.campgroundId]
+    ) {
+      return;
+    }
+    let cancelled = false;
+    setCampgroundDetailsBusyId(selectedMapCampground.campgroundId);
+    api
+      .campgroundDetails(selectedMapCampground.campgroundId)
+      .then((details) => {
+        if (cancelled) return;
+        setCampgroundDetails((current) => ({ ...current, [selectedMapCampground.campgroundId]: details }));
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        setCampgroundDetailsErrors((current) => ({
+          ...current,
+          [selectedMapCampground.campgroundId]:
+            error instanceof Error ? error.message : "Campground details are unavailable."
+        }));
+      })
+      .finally(() => {
+        if (!cancelled) setCampgroundDetailsBusyId(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [campgroundDetails, campgroundDetailsErrors, selectedMapCampground]);
+
   function loadTargetSettings(target: Target) {
     setTargetSettingsId(String(target.id));
     setTargetName(target.name);
@@ -1355,12 +1461,14 @@ export default function App() {
   function resetWatchForm() {
     setEditingWatchId(null);
     setWatchName("");
+    setWatchScope("target");
     setCartAssistEnabled(false);
   }
 
   function editWatch(watch: Watch) {
     setEditingWatchId(watch.id);
     setWatchName(watch.name);
+    setWatchScope("target");
     setWatchTarget(String(watch.target_id));
     setWatchMode(watch.mode);
     setSelectedWeekdays(watch.arrival_weekdays?.length ? watch.arrival_weekdays : [4]);
@@ -1610,8 +1718,13 @@ export default function App() {
 
   async function submitWatch(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!watchTarget) {
-      setMessage("Add a campground target first.");
+    const selectedTargets = selectedWatchTargets();
+    if (selectedTargets.length === 0) {
+      setMessage(
+        watchScope === "map"
+          ? "Move the map over imported active targets before creating a map-view watch."
+          : "Choose at least one imported active target for this watch."
+      );
       return;
     }
     const isSpecific = watchMode === "specific";
@@ -1619,9 +1732,10 @@ export default function App() {
       setMessage("Choose at least one arrival day.");
       return;
     }
+    const baseName = watchName.trim() || generatedWatchName(isSpecific);
     const payload = {
-      target_id: Number(watchTarget),
-      name: watchName.trim() || generatedWatchName(isSpecific),
+      target_id: selectedTargets[0].id,
+      name: baseName,
       mode: watchMode,
       pattern: isSpecific ? "specific" : patternKey(selectedWeekdays, watchNights),
       arrival_weekdays: isSpecific ? null : selectedWeekdays,
@@ -1644,8 +1758,52 @@ export default function App() {
       setMessage(`Updated ${updated.name}.`);
       resetWatchForm();
     } else {
-      const created = await api.createWatch(payload);
-      setMessage(`Added ${created.name}.`);
+      let createdCount = 0;
+      let skippedCount = 0;
+      const existingSignatures = new Set(
+        watches.map((watch) =>
+          [
+            watch.target_id,
+            watch.name,
+            watch.mode,
+            watch.pattern,
+            watch.window_start,
+            watch.window_end,
+            JSON.stringify(watch.arrival_weekdays || []),
+            JSON.stringify(watch.specific_ranges || []),
+            JSON.stringify(watch.site_filters || {})
+          ].join("|")
+        )
+      );
+      for (const target of selectedTargets) {
+        const targetPayload = { ...payload, target_id: target.id };
+        const signature = [
+          targetPayload.target_id,
+          targetPayload.name,
+          targetPayload.mode,
+          targetPayload.pattern,
+          targetPayload.window_start,
+          targetPayload.window_end,
+          JSON.stringify(targetPayload.arrival_weekdays || []),
+          JSON.stringify(targetPayload.specific_ranges || []),
+          JSON.stringify(targetPayload.site_filters || {})
+        ].join("|");
+        if (existingSignatures.has(signature)) {
+          skippedCount += 1;
+          continue;
+        }
+        await api.createWatch(targetPayload);
+        existingSignatures.add(signature);
+        createdCount += 1;
+      }
+      setMessage(
+        selectedTargets.length === 1
+          ? createdCount
+            ? `Added ${baseName}.`
+            : `Skipped ${baseName}; an identical watch already exists.`
+          : `Added ${createdCount} region watch rule${createdCount === 1 ? "" : "s"}` +
+              (skippedCount ? `; skipped ${skippedCount} duplicate${skippedCount === 1 ? "" : "s"}.` : ".")
+      );
       setWatchName("");
       setCartAssistEnabled(false);
     }
@@ -2061,11 +2219,269 @@ export default function App() {
   }
 
   function focusPark(summary: ParkSummary) {
+    setMapSelection({ kind: "park", parkName: summary.parkName });
     setResultQuery(summary.parkName);
     setResultSort("park");
     setResultView(summary.activeResultCount > 0 ? "active" : "all");
     setResultGroupOpen((current) => ({ ...current, [`park:${summary.parkName}`]: true }));
     scrollToResults();
+  }
+
+  function focusCampgroundResults(campground: CampgroundMapPoint) {
+    setMapSelection({ kind: "campground", campgroundId: campground.campgroundId });
+    setResultQuery(campground.name);
+    setResultSort("park");
+    setResultView(campground.activeResultCount > 0 ? "active" : "all");
+    setResultGroupOpen((current) => ({
+      ...current,
+      [`park:${campground.parkName}`]: true,
+      [`campground:${campground.parkName}:${campground.name}`]: true
+    }));
+    scrollToResults();
+  }
+
+  function activeTargetsInMapView() {
+    const map = leafletMapRef.current;
+    if (!map) return [];
+    const bounds = map.getBounds();
+    return activeTargets.filter((target) => {
+      const latitude = Number(target.latitude);
+      const longitude = Number(target.longitude);
+      return Number.isFinite(latitude) && Number.isFinite(longitude) && bounds.contains([latitude, longitude]);
+    });
+  }
+
+  function selectedWatchTargets() {
+    if (editingWatchId || watchScope === "target") {
+      const target = targetById.get(Number(watchTarget));
+      return target ? [target] : [];
+    }
+    if (watchScope === "park") {
+      return activeTargets.filter((target) => (target.park_name || "Unassigned park") === watchPark);
+    }
+    if (watchScope === "state") {
+      return activeTargets.filter((target) => (target.state_code || "US") === watchStateCode);
+    }
+    return activeTargetsInMapView();
+  }
+
+  function watchScopeSummary() {
+    const selected = selectedWatchTargets();
+    if (editingWatchId) return "Editing one existing watch.";
+    if (watchScope === "target") return "Creates one watch for the selected campground.";
+    if (watchScope === "park") return `Creates ${selected.length} watch rule${selected.length === 1 ? "" : "s"} across ${watchPark || "this park"}.`;
+    if (watchScope === "state") return `Creates ${selected.length} watch rule${selected.length === 1 ? "" : "s"} across ${watchStateCode || "this state"}.`;
+    return `Creates ${selected.length} watch rule${selected.length === 1 ? "" : "s"} inside the current map view.`;
+  }
+
+  function openWatchBuilderForPark(parkName: string) {
+    setWatchScope("park");
+    setWatchPark(parkName);
+    setEditingWatchId(null);
+    openDrawer("watches");
+  }
+
+  function openWatchBuilderForCampground(campground: CampgroundMapPoint) {
+    if (!campground.targetId) {
+      setMessage("Import this campground as a target before creating a watch.");
+      return;
+    }
+    setWatchScope("target");
+    setWatchTarget(String(campground.targetId));
+    setEditingWatchId(null);
+    openDrawer("watches");
+  }
+
+  function openWatchBuilderForMapView() {
+    setWatchScope("map");
+    setEditingWatchId(null);
+    const count = activeTargetsInMapView().length;
+    setMessage(
+      count > 0
+        ? `Map-view watch will use ${count} active imported target${count === 1 ? "" : "s"} in the current map window.`
+        : "Move the map over active imported targets before creating a map-view watch."
+    );
+    openDrawer("watches");
+  }
+
+  async function importCampgroundFromMap(campground: CampgroundMapPoint) {
+    setMessage("");
+    try {
+      const target = await api.createTarget({
+        name: campground.name,
+        campground_id: campground.campgroundId,
+        park_name: campground.parkName,
+        state_code: campground.stateCode,
+        latitude: campground.latitude,
+        longitude: campground.longitude,
+        booking_url: campground.bookingUrl,
+        release_months: 6,
+        release_window_value: 6,
+        release_window_unit: "Months",
+        release_time: "07:00",
+        timezone: campground.stateCode === "MT" || campground.stateCode === "WY" ? "America/Denver" : "America/Los_Angeles",
+        poll_interval_minutes: scanConfig?.values.min_poll_interval_minutes || 10,
+        active: true
+      });
+      setWatchTarget(String(target.id));
+      setWatchScope("target");
+      setMessage(`Imported ${target.name}.`);
+      await refresh({ silent: true });
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unable to import campground.");
+    }
+  }
+
+  function renderMapSelectionPanel() {
+    if (selectedMapPark) {
+      const activeImportedCount = selectedMapPark.campgrounds.filter((campground) => campground.imported && campground.active).length;
+      const previewCampgrounds = selectedMapPark.campgrounds.slice(0, 5);
+
+      return (
+        <section className="map-detail" aria-label="Selected park details">
+          <div className="map-detail-header">
+            <span className="map-detail-icon">
+              <MapPinned size={18} />
+            </span>
+            <span>
+              <strong>{selectedMapPark.parkName}</strong>
+              <small>
+                {selectedMapPark.targetCount} campground{selectedMapPark.targetCount === 1 ? "" : "s"} shown{" "}
+                &middot; {activeImportedCount} active target{activeImportedCount === 1 ? "" : "s"}
+              </small>
+            </span>
+          </div>
+          <div className="map-detail-facts">
+            <span>{selectedMapPark.stateCodes}</span>
+            <span>{selectedMapPark.activeResultCount} active matches</span>
+            <span>{selectedMapPark.resultCount} loaded results</span>
+          </div>
+          <div className="map-detail-list">
+            {previewCampgrounds.map((campground) => (
+              <button key={campground.campgroundId} onClick={() => setMapSelection({ kind: "campground", campgroundId: campground.campgroundId })} type="button">
+                <span>{campground.name}</span>
+                <small>{campground.imported ? "target" : "preset"}</small>
+              </button>
+            ))}
+          </div>
+          <div className="map-detail-actions">
+            <button className="icon-button primary" disabled={activeImportedCount === 0} onClick={() => openWatchBuilderForPark(selectedMapPark.parkName)} type="button">
+              <CalendarDays size={16} />
+              <span>Watch Park</span>
+            </button>
+            <button className="icon-button" onClick={() => focusPark(selectedMapPark)} type="button">
+              <ListChecks size={16} />
+              <span>View Results</span>
+            </button>
+          </div>
+        </section>
+      );
+    }
+
+    if (selectedMapCampground) {
+      const details = campgroundDetails[selectedMapCampground.campgroundId];
+      const loading = campgroundDetailsBusyId === selectedMapCampground.campgroundId;
+      const detailError = campgroundDetailsErrors[selectedMapCampground.campgroundId] || "";
+      const description =
+        details?.description ||
+        (selectedMapCampground.imported
+          ? "Saved campground target. Recreation.gov details will appear here when available."
+          : "Preset campground option. Import it as a target before adding a recurring watch.");
+      const detailUrl = details?.detail_url || selectedMapCampground.bookingUrl;
+      const mapTags = Array.from(new Set([...(details?.activities || []), ...(details?.amenities || [])])).slice(0, 8);
+      const factRows = [
+        selectedMapCampground.parkName,
+        selectedMapCampground.stateCode,
+        details?.phone,
+        details?.address,
+        details?.timezone
+      ].filter((fact): fact is string => Boolean(fact));
+
+      return (
+        <section className="map-detail" aria-label="Selected campground details">
+          <div className="map-detail-media">
+            {details?.image_url ? (
+              <img alt={`${selectedMapCampground.name} campground`} src={details.image_url} />
+            ) : (
+              <div className="map-detail-placeholder">
+                <TentTree size={28} />
+                <span>{loading ? "Loading Recreation.gov details" : "No campground image provided"}</span>
+              </div>
+            )}
+          </div>
+          <div className="map-detail-header">
+            <span className="map-detail-icon">
+              <MapPin size={18} />
+            </span>
+            <span>
+              <strong>{selectedMapCampground.name}</strong>
+              <small>{selectedMapCampground.imported ? "Imported target" : "Preset target"}</small>
+            </span>
+          </div>
+          <p className="map-detail-copy">{loading ? "Loading the latest campground overview from Recreation.gov." : description}</p>
+          {detailError && !loading && <p className="map-detail-error">{detailError}</p>}
+          <div className="map-detail-facts">
+            {factRows.map((fact) => (
+              <span key={fact}>{fact}</span>
+            ))}
+            <span>{selectedMapCampground.activeResultCount} active matches</span>
+          </div>
+          {mapTags.length > 0 && (
+            <div className="map-detail-tags">
+              {mapTags.map((tag) => (
+                <span key={tag}>{tag}</span>
+              ))}
+            </div>
+          )}
+          {details?.notices?.length ? (
+            <div className="map-detail-notices">
+              {details.notices.map((notice) => (
+                <small key={notice}>{notice}</small>
+              ))}
+            </div>
+          ) : null}
+          <div className="map-detail-actions">
+            {selectedMapCampground.imported ? (
+              <button className="icon-button primary" onClick={() => openWatchBuilderForCampground(selectedMapCampground)} type="button">
+                <CalendarDays size={16} />
+                <span>Watch Campground</span>
+              </button>
+            ) : (
+              <button className="icon-button primary" onClick={() => void importCampgroundFromMap(selectedMapCampground)} type="button">
+                <Plus size={16} />
+                <span>Import Target</span>
+              </button>
+            )}
+            <button className="icon-button" onClick={() => focusCampgroundResults(selectedMapCampground)} type="button">
+              <ListChecks size={16} />
+              <span>View Results</span>
+            </button>
+            <a className="icon-button" href={detailUrl} rel="noreferrer" target="_blank">
+              <ExternalLink size={16} />
+              <span>Details</span>
+            </a>
+          </div>
+        </section>
+      );
+    }
+
+    return (
+      <section className="map-detail empty-selection" aria-label="Map selection details">
+        <div className="map-detail-header">
+          <span className="map-detail-icon">
+            <MapPin size={18} />
+          </span>
+          <span>
+            <strong>Select a marker</strong>
+            <small>Campground details, Recreation.gov links, and watch actions appear here.</small>
+          </span>
+        </div>
+        <button className="icon-button" onClick={openWatchBuilderForMapView} type="button">
+          <MapPinned size={16} />
+          <span>Watch Current Map View</span>
+        </button>
+      </section>
+    );
   }
 
   function renderNotificationField(field: NotificationField) {
@@ -2971,13 +3387,56 @@ export default function App() {
                 <input value={watchName} onChange={(event) => setWatchName(event.target.value)} placeholder={generatedWatchName(watchMode === "specific")} />
               </label>
               <label>
-                Target
-                <select value={watchTarget} onChange={(event) => setWatchTarget(event.target.value)}>
-                  {targets.map((target) => (
-                    <option key={target.id} value={target.id}>{target.name}</option>
-                  ))}
+                Scope
+                <select
+                  disabled={Boolean(editingWatchId)}
+                  value={editingWatchId ? "target" : watchScope}
+                  onChange={(event) => setWatchScope(event.target.value as WatchScope)}
+                >
+                  <option value="target">One campground</option>
+                  <option value="park">Park group</option>
+                  <option value="state">State</option>
+                  <option value="map">Current map view</option>
                 </select>
               </label>
+              {(editingWatchId || watchScope === "target") && (
+                <label>
+                  Target
+                  <select value={watchTarget} onChange={(event) => setWatchTarget(event.target.value)}>
+                    {targets.map((target) => (
+                      <option key={target.id} value={target.id}>{target.name}</option>
+                    ))}
+                  </select>
+                </label>
+              )}
+              {!editingWatchId && watchScope === "park" && (
+                <label>
+                  Park group
+                  <select value={watchPark} onChange={(event) => setWatchPark(event.target.value)}>
+                    {watchParkOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label} ({option.count})
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+              {!editingWatchId && watchScope === "state" && (
+                <label>
+                  State
+                  <select value={watchStateCode} onChange={(event) => setWatchStateCode(event.target.value)}>
+                    {watchStateOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.value} ({option.count})
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+              <div className="watch-scope-note wide-field">
+                <MapPinned size={17} />
+                <span>{watchScopeSummary()}</span>
+              </div>
               <label>
                 Mode
                 <select value={watchMode} onChange={(event) => setWatchMode(event.target.value as "weekend" | "specific")}>
@@ -3526,14 +3985,25 @@ export default function App() {
               <div className="map-toolbar">
                 <div>
                   <h2>Target Map</h2>
-                  <p>Tap a park to filter availability and jump straight to matching results.</p>
+                  <p>Tap a marker for details, campground links, and bulk watch actions.</p>
                 </div>
                 <div className="map-actions">
                   <a className="icon-button primary" href="#results" onClick={scrollToResults}>
                     <ListChecks size={17} />
                     <span>View Results</span>
                   </a>
-                  <button className="icon-button" onClick={() => setResultQuery("")} type="button">
+                  <button className="icon-button" onClick={openWatchBuilderForMapView} type="button">
+                    <MapPinned size={17} />
+                    <span>Watch View</span>
+                  </button>
+                  <button
+                    className="icon-button"
+                    onClick={() => {
+                      setResultQuery("");
+                      setMapSelection(null);
+                    }}
+                    type="button"
+                  >
                     <X size={17} />
                     <span>Clear Filter</span>
                   </button>
@@ -3555,6 +4025,7 @@ export default function App() {
               </div>
             </div>
             <aside className="map-list">
+              {renderMapSelectionPanel()}
               <div className="subheading">
                 <strong>Park Queue</strong>
                 <small>{parkSummaries.length} park group{parkSummaries.length === 1 ? "" : "s"} tracked</small>

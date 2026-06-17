@@ -27,6 +27,31 @@ export type SearchSuggestion = {
   longitude?: string;
 };
 
+export type CampgroundDetails = {
+  campground_id: string;
+  name: string;
+  park_name?: string;
+  state_code?: string;
+  description: string;
+  overview: string;
+  facilities: string;
+  natural_features: string;
+  recreation: string;
+  directions: string;
+  phone: string;
+  address: string;
+  latitude?: number | string | null;
+  longitude?: number | string | null;
+  timezone: string;
+  amenities: string[];
+  activities: string[];
+  notices: string[];
+  links: Array<{ title: string; url: string }>;
+  image_url: string;
+  detail_url: string;
+  source: string;
+};
+
 export type ReleaseHint = {
   arrival_date: string;
   departure_date: string;

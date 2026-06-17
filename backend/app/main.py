@@ -13,7 +13,7 @@ from .cart_assist import CartAssistant
 from .db import Store
 from .notifications import Notifier
 from .presets import discover_preset_pack, import_discovered_preset_pack, import_preset_pack, list_preset_packs
-from .recreation import RecreationClient
+from .recreation import RateLimitError, RecreationClient
 from .scan_config import reset_scan_config, scan_config, update_scan_config
 from .scanner import Scanner, generate_trip_windows, release_hints
 from .schemas import (
@@ -147,6 +147,59 @@ async def target_release_window_profiles(target_id: int) -> dict:
     if target is None:
         raise HTTPException(status_code=404, detail=f"target {target_id} not found")
     return await client.release_window_profiles(target["campground_id"])
+
+
+@app.get("/api/campgrounds/{campground_id}/details")
+async def campground_details(campground_id: str) -> dict:
+    saved_target = store.get_target_by_campground_id(campground_id)
+    try:
+        details = await client.campground_details(campground_id)
+    except RateLimitError as exc:
+        if saved_target:
+            return _saved_target_campground_details(
+                saved_target,
+                "Recreation.gov rate-limited the campground details request, so Camp Finder is showing the saved target record.",
+            )
+        raise HTTPException(status_code=429, detail=str(exc)) from exc
+    if details is None:
+        if saved_target:
+            return _saved_target_campground_details(saved_target)
+        raise HTTPException(status_code=404, detail=f"campground {campground_id} not found")
+    if saved_target:
+        details["name"] = saved_target.get("name") or details["name"]
+        details["park_name"] = saved_target.get("park_name") or ""
+        details["state_code"] = saved_target.get("state_code") or ""
+    return details
+
+
+def _saved_target_campground_details(target: dict, description: str | None = None) -> dict:
+    campground_id = str(target.get("campground_id") or "")
+    detail_url = target.get("booking_url") or f"https://www.recreation.gov/camping/campgrounds/{campground_id}"
+    return {
+        "campground_id": campground_id,
+        "name": target.get("name") or "Campground",
+        "park_name": target.get("park_name") or "",
+        "state_code": target.get("state_code") or "",
+        "description": description
+        or "Recreation.gov does not currently return a campground details record for this saved target.",
+        "overview": "",
+        "facilities": "",
+        "natural_features": "",
+        "recreation": "",
+        "directions": "",
+        "phone": "",
+        "address": "",
+        "latitude": target.get("latitude"),
+        "longitude": target.get("longitude"),
+        "timezone": target.get("timezone") or "",
+        "amenities": [],
+        "activities": [],
+        "notices": [],
+        "links": [],
+        "image_url": "",
+        "detail_url": detail_url,
+        "source": "Saved Camp Finder target",
+    }
 
 
 @app.delete("/api/targets/{target_id}")

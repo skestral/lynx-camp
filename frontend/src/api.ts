@@ -3,6 +3,7 @@ import type {
   CartAssistStatus,
   CartAttempt,
   CartAttemptStatus,
+  CampgroundDetails,
   ConfigBackup,
   ConfigImportResult,
   NotificationEvent,
@@ -84,6 +85,8 @@ export const api = {
   importConfig: (payload: ConfigBackup) =>
     request<ConfigImportResult>("/api/config/import", { method: "POST", body: JSON.stringify(payload) }),
   search: (query: string) => request<SearchSuggestion[]>(`/api/search?q=${encodeURIComponent(query)}`),
+  campgroundDetails: (campgroundId: string) =>
+    request<CampgroundDetails>(`/api/campgrounds/${encodeURIComponent(campgroundId)}/details`),
   createTarget: (payload: Record<string, unknown>) =>
     request<Target>("/api/targets", { method: "POST", body: JSON.stringify(payload) }),
   updateTarget: (targetId: number, payload: Record<string, unknown>) =>

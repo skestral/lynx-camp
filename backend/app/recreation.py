@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections import Counter
 from dataclasses import dataclass
 from datetime import date
+from html.parser import HTMLParser
 from typing import Any
 
 import httpx
@@ -119,6 +120,68 @@ class RecreationClient:
         campground["booking_url"] = f"https://www.recreation.gov/camping/campgrounds/{campground_id}"
         return campground
 
+    async def campground_details(self, campground_id: str) -> dict[str, Any] | None:
+        try:
+            payload = await self._get(f"/camps/campgrounds/{campground_id}", {})
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code == 404:
+                return None
+            raise
+        campground = payload.get("campground") or {}
+        if not campground:
+            return None
+        descriptions = campground.get("facility_description_map") or {}
+        overview = _html_to_text(descriptions.get("Overview"))
+        facilities = _html_to_text(descriptions.get("Facilities"))
+        natural_features = _html_to_text(descriptions.get("Natural Features"))
+        recreation = _html_to_text(descriptions.get("Recreation"))
+        notices = [
+            _html_to_text(notice.get("notice_text"))
+            for notice in campground.get("notices") or []
+            if notice.get("active", True)
+        ]
+        address = _format_address((campground.get("addresses") or [None])[0] or {})
+        activities = [
+            str(activity.get("activity_name") or "").strip()
+            for activity in campground.get("activities") or []
+            if str(activity.get("activity_name") or "").strip()
+        ]
+        amenities = [
+            str(value or key).strip()
+            for key, value in (campground.get("amenities") or {}).items()
+            if str(value or key).strip()
+        ]
+        links = [
+            {
+                "title": str(link.get("title") or link.get("description") or "Link").strip(),
+                "url": str(link.get("url") or "").strip(),
+            }
+            for link in campground.get("links") or []
+            if str(link.get("url") or "").strip()
+        ]
+        return {
+            "campground_id": str(campground.get("facility_id") or campground_id),
+            "name": _title_name(campground.get("facility_name")),
+            "description": overview or facilities or natural_features or recreation,
+            "overview": overview,
+            "facilities": facilities,
+            "natural_features": natural_features,
+            "recreation": recreation,
+            "directions": _html_to_text(campground.get("facility_directions")),
+            "phone": str(campground.get("facility_phone") or "").strip(),
+            "address": address,
+            "latitude": campground.get("facility_latitude"),
+            "longitude": campground.get("facility_longitude"),
+            "timezone": str(campground.get("facility_time_zone") or "").strip(),
+            "amenities": sorted(set(amenities))[:12],
+            "activities": sorted(set(activities))[:8],
+            "notices": [notice for notice in notices if notice][:3],
+            "links": links[:5],
+            "image_url": _first_media_url(campground),
+            "detail_url": f"https://www.recreation.gov/camping/campgrounds/{campground_id}",
+            "source": "Recreation.gov campground details",
+        }
+
     async def monthly_availability(self, campground_id: str, month: date) -> dict[str, Campsite]:
         start_date = f"{month.year:04d}-{month.month:02d}-01T00:00:00.000Z"
         payload = await self._get(
@@ -202,6 +265,57 @@ def _campground_from_search_result(item: dict[str, Any], fallback_id: str = "") 
         "latitude": item.get("latitude") or item.get("lat"),
         "longitude": item.get("longitude") or item.get("lng"),
     }
+
+
+class _TextExtractor(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.parts: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag in {"br", "p", "li", "div"}:
+            self.parts.append(" ")
+
+    def handle_data(self, data: str) -> None:
+        text = data.strip()
+        if text:
+            self.parts.append(text)
+
+
+def _html_to_text(value: Any) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    parser = _TextExtractor()
+    parser.feed(text)
+    parser.close()
+    return " ".join(" ".join(parser.parts).split())
+
+
+def _format_address(address: dict[str, Any]) -> str:
+    fields = [
+        address.get("address1"),
+        address.get("address2"),
+        address.get("city"),
+        address.get("state_code"),
+        address.get("postal_code"),
+    ]
+    return ", ".join(str(field).strip() for field in fields if str(field or "").strip())
+
+
+def _first_media_url(campground: dict[str, Any]) -> str:
+    for key in ("media", "facility_media", "photos", "images"):
+        media = campground.get(key)
+        if not isinstance(media, list):
+            continue
+        for item in media:
+            if not isinstance(item, dict):
+                continue
+            for url_key in ("url", "media_url", "image_url", "large_url", "medium_url"):
+                url = str(item.get(url_key) or "").strip()
+                if url.startswith("http"):
+                    return url
+    return ""
 
 
 STATE_ABBREVIATIONS = {

@@ -3,6 +3,8 @@ from __future__ import annotations
 import asyncio
 from datetime import date
 
+import httpx
+
 from backend.app.recreation import Campsite, RecreationClient
 
 
@@ -79,6 +81,65 @@ def test_search_campgrounds_parses_recreation_search_results() -> None:
             "longitude": "-123.93554010000000",
         }
     ]
+
+
+def test_campground_details_normalizes_recreation_payload() -> None:
+    class FakeClient(RecreationClient):
+        async def _get(self, path, params):
+            assert path == "/camps/campgrounds/232464"
+            assert params == {}
+            return {
+                "campground": {
+                    "facility_id": "232464",
+                    "facility_name": "KALALOCH",
+                    "facility_description_map": {
+                        "Overview": "<p><strong>Ocean bluff</strong> campground.</p>",
+                        "Facilities": "<p>160 campsites<br>Flush toilets</p>",
+                    },
+                    "facility_directions": "On Highway 101.",
+                    "facility_phone": "360-565-3130",
+                    "facility_latitude": 47.6,
+                    "facility_longitude": -124.3,
+                    "facility_time_zone": "America/Los_Angeles",
+                    "amenities": {"Flush Toilets": "Flush Toilets", "Water": "Water"},
+                    "activities": [{"activity_name": "Hiking"}, {"activity_name": "Camping"}],
+                    "addresses": [
+                        {
+                            "address1": "HWY 101",
+                            "city": "Forks",
+                            "state_code": "WA",
+                            "postal_code": "98331",
+                        }
+                    ],
+                    "notices": [{"notice_text": "<p>Valid pass required.</p>", "active": True}],
+                    "links": [{"title": "Park page", "url": "https://example.com"}],
+                    "media": [{"image_url": "https://example.com/kalaloch.jpg"}],
+                }
+            }
+
+    details = asyncio.run(FakeClient().campground_details("232464"))
+
+    assert details is not None
+    assert details["name"] == "Kalaloch"
+    assert details["description"] == "Ocean bluff campground."
+    assert details["facilities"] == "160 campsites Flush toilets"
+    assert details["address"] == "HWY 101, Forks, WA, 98331"
+    assert details["amenities"] == ["Flush Toilets", "Water"]
+    assert details["activities"] == ["Camping", "Hiking"]
+    assert details["notices"] == ["Valid pass required."]
+    assert details["image_url"] == "https://example.com/kalaloch.jpg"
+
+
+def test_campground_details_returns_none_for_missing_detail_record() -> None:
+    class FakeClient(RecreationClient):
+        async def _get(self, path, params):
+            request = httpx.Request("GET", f"https://www.recreation.gov/api{path}")
+            response = httpx.Response(404, request=request)
+            raise httpx.HTTPStatusError("missing", request=request, response=response)
+
+    details = asyncio.run(FakeClient().campground_details("10300477"))
+
+    assert details is None
 
 
 def test_detect_release_window_uses_most_common_window() -> None:
