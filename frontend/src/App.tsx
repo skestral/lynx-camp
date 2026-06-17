@@ -43,6 +43,8 @@ import type {
   Result,
   ResultSummary,
   ScanEvent,
+  ScanConfig,
+  ScanConfigValues,
   ScanRun,
   SearchSuggestion,
   SourceDefinition,
@@ -62,6 +64,96 @@ type ScanProgress = {
   title: string;
   detail: string;
 };
+type ScanConfigForm = Record<keyof ScanConfigValues, string>;
+type ScanControlField = {
+  key: keyof ScanConfigValues;
+  label: string;
+  min: number;
+  max: number;
+  step: number;
+  help: string;
+};
+
+const DEFAULT_SCAN_CONFIG_VALUES: ScanConfigValues = {
+  min_poll_interval_minutes: 10,
+  release_scan_before_minutes: 15,
+  release_scan_after_minutes: 60,
+  release_scan_interval_minutes: 10,
+  availability_cache_minutes: 5,
+  api_request_delay_seconds: 1,
+  rate_limit_backoff_minutes: 60
+};
+
+const SCAN_CONTROL_FIELDS: ScanControlField[] = [
+  {
+    key: "min_poll_interval_minutes",
+    label: "Minimum scan interval",
+    min: 1,
+    max: 1440,
+    step: 1,
+    help: "Lowest interval any target or watch cadence can use."
+  },
+  {
+    key: "release_scan_interval_minutes",
+    label: "Release-window interval",
+    min: 1,
+    max: 1440,
+    step: 1,
+    help: "Temporary cadence while a watched stay is near its calculated release."
+  },
+  {
+    key: "release_scan_before_minutes",
+    label: "Release window starts",
+    min: 0,
+    max: 1440,
+    step: 1,
+    help: "Minutes before release time to begin the faster release cadence."
+  },
+  {
+    key: "release_scan_after_minutes",
+    label: "Release window ends",
+    min: 0,
+    max: 1440,
+    step: 1,
+    help: "Minutes after release time to keep the faster release cadence."
+  },
+  {
+    key: "availability_cache_minutes",
+    label: "Availability cache",
+    min: 0,
+    max: 1440,
+    step: 1,
+    help: "Minutes to reuse campground/month responses across similar watches."
+  },
+  {
+    key: "api_request_delay_seconds",
+    label: "Request delay",
+    min: 0,
+    max: 60,
+    step: 0.25,
+    help: "Seconds to wait between uncached Recreation.gov month requests."
+  },
+  {
+    key: "rate_limit_backoff_minutes",
+    label: "Rate-limit backoff",
+    min: 1,
+    max: 1440,
+    step: 1,
+    help: "Minutes to pause scans after Recreation.gov returns HTTP 429."
+  }
+];
+
+function scanConfigFormFromValues(values: ScanConfigValues): ScanConfigForm {
+  return {
+    min_poll_interval_minutes: String(values.min_poll_interval_minutes),
+    release_scan_before_minutes: String(values.release_scan_before_minutes),
+    release_scan_after_minutes: String(values.release_scan_after_minutes),
+    release_scan_interval_minutes: String(values.release_scan_interval_minutes),
+    availability_cache_minutes: String(values.availability_cache_minutes),
+    api_request_delay_seconds: String(values.api_request_delay_seconds),
+    rate_limit_backoff_minutes: String(values.rate_limit_backoff_minutes)
+  };
+}
 
 type ParkSummary = {
   parkName: string;
@@ -361,6 +453,12 @@ export default function App() {
   const [notificationStatus, setNotificationStatus] = useState<NotificationStatus>({ channels: [] });
   const [cartAssistStatus, setCartAssistStatus] = useState<CartAssistStatus | null>(null);
   const [cartAttempts, setCartAttempts] = useState<CartAttempt[]>([]);
+  const [scanConfig, setScanConfig] = useState<ScanConfig | null>(null);
+  const [scanConfigForm, setScanConfigForm] = useState<ScanConfigForm>(
+    scanConfigFormFromValues(DEFAULT_SCAN_CONFIG_VALUES)
+  );
+  const [scanConfigDirty, setScanConfigDirty] = useState(false);
+  const [scanConfigBusy, setScanConfigBusy] = useState<"save" | "reset" | null>(null);
   const [cartAssistServerEnabled, setCartAssistServerEnabled] = useState(false);
   const [cartAssistCooldown, setCartAssistCooldown] = useState("30");
   const [cartAssistMaxAttempts, setCartAssistMaxAttempts] = useState("1");
@@ -924,6 +1022,7 @@ export default function App() {
         resultSummaryData,
         scanRunData,
         scanEventData,
+        scanConfigData,
         notificationData,
         notificationStatusData,
         cartAssistStatusData,
@@ -937,6 +1036,7 @@ export default function App() {
         api.resultSummary(),
         api.scanRuns(),
         api.scanEvents(),
+        api.scanConfig(),
         api.notifications(),
         api.notificationStatus(),
         api.cartAssistStatus(),
@@ -950,6 +1050,7 @@ export default function App() {
       setResultSummary(resultSummaryData);
       setScanRuns(scanRunData);
       setScanEvents(scanEventData);
+      setScanConfig(scanConfigData);
       setNotifications(notificationData);
       setNotificationStatus(notificationStatusData);
       setCartAssistStatus(cartAssistStatusData);
@@ -1019,6 +1120,11 @@ export default function App() {
     setCartAssistCooldown(String(cartAssistStatus.cooldown_minutes));
     setCartAssistMaxAttempts(String(cartAssistStatus.max_attempts_per_scan));
   }, [cartAssistConfigBusy, cartAssistConfigDirty, cartAssistStatus]);
+
+  useEffect(() => {
+    if (!scanConfig || scanConfigDirty || scanConfigBusy) return;
+    setScanConfigForm(scanConfigFormFromValues(scanConfig.values));
+  }, [scanConfig, scanConfigBusy, scanConfigDirty]);
 
   useEffect(() => {
     const visible = new Set(visibleResultIds);
@@ -1483,6 +1589,60 @@ export default function App() {
     }
   }
 
+  function updateScanConfigFormValue(key: keyof ScanConfigValues, value: string) {
+    setScanConfigForm((current) => ({ ...current, [key]: value }));
+    setScanConfigDirty(true);
+  }
+
+  function scanConfigNumber(key: keyof ScanConfigValues): number {
+    const value = Number(scanConfigForm[key]);
+    if (Number.isFinite(value)) return value;
+    return scanConfig?.values[key] ?? DEFAULT_SCAN_CONFIG_VALUES[key];
+  }
+
+  async function saveScanConfig(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setScanConfigBusy("save");
+    try {
+      const config = await api.updateScanConfig({
+        min_poll_interval_minutes: Math.round(scanConfigNumber("min_poll_interval_minutes")),
+        release_scan_before_minutes: Math.round(scanConfigNumber("release_scan_before_minutes")),
+        release_scan_after_minutes: Math.round(scanConfigNumber("release_scan_after_minutes")),
+        release_scan_interval_minutes: Math.round(scanConfigNumber("release_scan_interval_minutes")),
+        availability_cache_minutes: Math.round(scanConfigNumber("availability_cache_minutes")),
+        api_request_delay_seconds: scanConfigNumber("api_request_delay_seconds"),
+        rate_limit_backoff_minutes: Math.round(scanConfigNumber("rate_limit_backoff_minutes"))
+      });
+      setScanConfig(config);
+      setScanConfigForm(scanConfigFormFromValues(config.values));
+      setScanConfigDirty(false);
+      setMessage("Saved scan controls. New scans use these settings immediately.");
+      await refresh({ silent: true });
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unable to save scan controls.");
+    } finally {
+      setScanConfigBusy(null);
+    }
+  }
+
+  async function resetScanConfigToEnvironment() {
+    const confirmed = window.confirm("Reset scan controls to the server environment defaults?");
+    if (!confirmed) return;
+    setScanConfigBusy("reset");
+    try {
+      const config = await api.resetScanConfig();
+      setScanConfig(config);
+      setScanConfigForm(scanConfigFormFromValues(config.values));
+      setScanConfigDirty(false);
+      setMessage("Reset scan controls to environment defaults.");
+      await refresh({ silent: true });
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unable to reset scan controls.");
+    } finally {
+      setScanConfigBusy(null);
+    }
+  }
+
   async function updateCartAttemptStatus(attempt: CartAttempt, status: CartAttemptStatus) {
     setCartAttemptBusyId(attempt.id);
     setMessage("");
@@ -1648,6 +1808,66 @@ export default function App() {
     setResultView(summary.activeResultCount > 0 ? "active" : "all");
     setResultGroupOpen((current) => ({ ...current, [`park:${summary.parkName}`]: true }));
     scrollToResults();
+  }
+
+  function renderScanControls() {
+    const appdataFieldCount = scanConfig
+      ? Object.values(scanConfig.sources).filter((source) => source === "appdata").length
+      : 0;
+    const sourceSummary = scanConfig
+      ? appdataFieldCount > 0
+        ? `${appdataFieldCount} saved override${appdataFieldCount === 1 ? "" : "s"} active`
+        : "Using environment defaults"
+      : "Loading scan controls";
+
+    return (
+      <div className="scan-control-panel">
+        <div className="subheading scan-control-heading">
+          <span>
+            <strong>Scan Controls</strong>
+            <small>Adjust background cadence, release scanning, caching, and rate-limit recovery.</small>
+          </span>
+          <span className={`status ${appdataFieldCount > 0 ? "warning" : "quiet"}`}>{sourceSummary}</span>
+        </div>
+        <form className="scan-control-form" onSubmit={saveScanConfig}>
+          {SCAN_CONTROL_FIELDS.map((field) => {
+            const source = scanConfig?.sources[field.key] || "environment";
+            return (
+              <label key={field.key}>
+                <span className="scan-field-heading">
+                  <span>{field.label}</span>
+                  <small>{source}</small>
+                </span>
+                <input
+                  max={field.max}
+                  min={field.min}
+                  onChange={(event) => updateScanConfigFormValue(field.key, event.target.value)}
+                  step={field.step}
+                  type="number"
+                  value={scanConfigForm[field.key]}
+                />
+                <small>{field.help}</small>
+              </label>
+            );
+          })}
+          <div className="scan-control-actions wide-field">
+            <button className="icon-button" disabled={scanConfigBusy !== null} type="submit">
+              <Save size={17} />
+              <span>{scanConfigBusy === "save" ? "Saving" : "Save Scan Controls"}</span>
+            </button>
+            <button
+              className="icon-button"
+              disabled={scanConfigBusy !== null || !scanConfig || appdataFieldCount === 0}
+              onClick={resetScanConfigToEnvironment}
+              type="button"
+            >
+              <RefreshCw size={17} />
+              <span>{scanConfigBusy === "reset" ? "Resetting" : "Reset to Env"}</span>
+            </button>
+          </div>
+        </form>
+      </div>
+    );
   }
 
   function resultCard(result: Result) {
@@ -2567,7 +2787,7 @@ export default function App() {
             <div className="panel-heading">
               <div>
                 <h2>Notifications & Server Settings</h2>
-                <p>Notification channels use environment variables; Cart Assist can use appdata settings.</p>
+                <p>Notification channels use environment variables; scan controls and Cart Assist can use appdata settings.</p>
               </div>
               <div className="panel-action-row inline">
                 <button className="icon-button" onClick={testNotifications} disabled={testNotifyBusy} title="Send a test notification">
@@ -2590,6 +2810,7 @@ export default function App() {
                 </article>
               ))}
             </div>
+            {renderScanControls()}
             <div className="cart-assist-log">
               <div className="subheading">
                 <strong>Cart Assist</strong>
@@ -3125,7 +3346,7 @@ export default function App() {
                 <div className="utility-tab-panel notification-panel" id="settings-panel" role="tabpanel" aria-labelledby="settings">
                   <div className="utility-panel-heading">
                     <strong>Notifications & Server Settings</strong>
-                    <small>Notification channels use environment variables; Cart Assist can use appdata settings.</small>
+                    <small>Notification channels use environment variables; scan controls and Cart Assist can use appdata settings.</small>
                   </div>
                   <div className="panel-action-row">
                     <button className="icon-button" onClick={testNotifications} disabled={testNotifyBusy} title="Send a test notification">
@@ -3146,6 +3367,7 @@ export default function App() {
                       </article>
                     ))}
                   </div>
+                  {renderScanControls()}
                   <div className="cart-assist-log">
                     <div className="subheading">
                       <strong>Cart Assist</strong>

@@ -206,6 +206,24 @@ export type ScanCancelResult = {
   stale_cancelled_count: number;
 };
 
+export type ScanConfigValues = {
+  min_poll_interval_minutes: number;
+  release_scan_before_minutes: number;
+  release_scan_after_minutes: number;
+  release_scan_interval_minutes: number;
+  availability_cache_minutes: number;
+  api_request_delay_seconds: number;
+  rate_limit_backoff_minutes: number;
+};
+
+export type ScanConfig = {
+  values: ScanConfigValues;
+  sources: Record<keyof ScanConfigValues, "appdata" | "environment">;
+  environment: ScanConfigValues;
+};
+
+export type ScanConfigPayload = Partial<ScanConfigValues>;
+
 export type NotificationChannelStatus = {
   channel: string;
   configured: boolean;

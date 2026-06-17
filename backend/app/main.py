@@ -14,12 +14,14 @@ from .db import Store
 from .notifications import Notifier
 from .presets import discover_preset_pack, import_discovered_preset_pack, import_preset_pack, list_preset_packs
 from .recreation import RecreationClient
+from .scan_config import reset_scan_config, scan_config, update_scan_config
 from .scanner import Scanner, generate_trip_windows, release_hints
 from .schemas import (
     CartAssistConfigUpdate,
     CartAttemptStatusUpdate,
     ConfigBackup,
     ResultStatusUpdate,
+    ScanConfigUpdate,
     TargetCreate,
     TargetUpdate,
     WatchCreate,
@@ -49,6 +51,16 @@ scanner = Scanner(
 )
 
 
+def apply_scan_config() -> dict:
+    config = scan_config(store, settings)
+    scanner.configure_scan_controls(**config["values"])
+    return config
+
+
+def current_min_poll_interval_minutes() -> int:
+    return scanner.min_poll_interval_minutes
+
+
 async def scan_loop() -> None:
     while True:
         await scanner.scan_due_watches()
@@ -58,6 +70,7 @@ async def scan_loop() -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     store.init()
+    apply_scan_config()
     store.cancel_running_scan_runs("Server restarted before this scan finished.", status="interrupted")
     task = asyncio.create_task(scan_loop())
     try:
@@ -97,12 +110,12 @@ def list_targets() -> list[dict]:
 
 @app.post("/api/targets")
 def create_target(payload: TargetCreate) -> dict:
-    return store.create_target(payload.model_dump(), settings.min_poll_interval_minutes)
+    return store.create_target(payload.model_dump(), current_min_poll_interval_minutes())
 
 
 @app.patch("/api/targets/{target_id}")
 def update_target(target_id: int, payload: TargetUpdate) -> dict:
-    target = store.update_target(target_id, payload.model_dump(exclude_unset=True), settings.min_poll_interval_minutes)
+    target = store.update_target(target_id, payload.model_dump(exclude_unset=True), current_min_poll_interval_minutes())
     if target is None:
         raise HTTPException(status_code=404, detail=f"target {target_id} not found")
     return target
@@ -122,7 +135,7 @@ async def detect_target_release_window(target_id: int) -> dict:
             "release_window_value": detected["release_window_value"],
             "release_window_unit": detected["release_window_unit"],
         },
-        settings.min_poll_interval_minutes,
+        current_min_poll_interval_minutes(),
     )
     return {"target": updated, "detected": detected}
 
@@ -151,7 +164,7 @@ def list_presets() -> list[dict]:
 @app.post("/api/presets/{pack_id}/import")
 def import_preset(pack_id: str) -> dict:
     try:
-        return import_preset_pack(store, pack_id, settings.min_poll_interval_minutes)
+        return import_preset_pack(store, pack_id, current_min_poll_interval_minutes())
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
@@ -167,7 +180,7 @@ async def discover_preset(pack_id: str) -> dict:
 @app.post("/api/presets/{pack_id}/import-discovered")
 async def import_discovered_preset(pack_id: str) -> dict:
     try:
-        return await import_discovered_preset_pack(store, client, pack_id, settings.min_poll_interval_minutes)
+        return await import_discovered_preset_pack(store, client, pack_id, current_min_poll_interval_minutes())
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
@@ -188,7 +201,7 @@ async def discover_source_definition(source_id: str) -> dict:
 @app.post("/api/sources/{source_id}/import")
 async def import_source_definition(source_id: str) -> dict:
     try:
-        return await import_source(store, client, source_id, settings.min_poll_interval_minutes)
+        return await import_source(store, client, source_id, current_min_poll_interval_minutes())
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -201,7 +214,7 @@ def export_config() -> dict:
 @app.post("/api/config/import")
 def import_config(payload: ConfigBackup) -> dict:
     try:
-        return store.import_config(payload.model_dump(mode="json"), settings.min_poll_interval_minutes)
+        return store.import_config(payload.model_dump(mode="json"), current_min_poll_interval_minutes())
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -310,6 +323,25 @@ def notification_status() -> dict:
 @app.post("/api/notifications/test")
 async def test_notifications() -> dict:
     return await notifier.send_test()
+
+
+@app.get("/api/scan-config")
+def get_scan_config() -> dict:
+    return scan_config(store, settings)
+
+
+@app.patch("/api/scan-config")
+def save_scan_config(payload: ScanConfigUpdate) -> dict:
+    config = update_scan_config(store, settings, payload.model_dump(exclude_unset=True))
+    scanner.configure_scan_controls(**config["values"])
+    return config
+
+
+@app.post("/api/scan-config/reset")
+def restore_scan_config_defaults() -> dict:
+    config = reset_scan_config(store, settings)
+    scanner.configure_scan_controls(**config["values"])
+    return config
 
 
 @app.get("/api/cart-assist/status")

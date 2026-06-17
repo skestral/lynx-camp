@@ -945,6 +945,7 @@ small {
 
 .utility-tab-panel .release-list,
 .utility-tab-panel .status-list,
+.utility-tab-panel .scan-control-panel,
 .utility-tab-panel .cart-assist-log,
 .utility-tab-panel .backup-tools,
 .utility-tab-panel .notification-log {
@@ -1005,12 +1006,14 @@ small {
 
 .utility-panel > .release-list,
 .utility-panel > .status-list,
+.utility-panel > .scan-control-panel,
 .utility-panel > .cart-assist-log,
 .utility-panel > .backup-tools,
 .utility-panel > .notification-log {
   margin: 0 18px 18px;
 }
 
+.utility-panel > .scan-control-panel,
 .utility-panel > .cart-assist-log,
 .utility-panel > .backup-tools,
 .utility-panel > .notification-log {
@@ -1388,6 +1391,82 @@ td small {
 .cart-assist-log {
   border-top: 1px solid var(--line);
   padding-top: 13px;
+}
+
+.scan-control-panel {
+  border-top: 1px solid var(--line);
+  margin-top: 13px;
+  padding-top: 13px;
+}
+
+.scan-control-heading {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 10px;
+}
+
+.scan-control-heading > span:first-child,
+.scan-field-heading {
+  display: grid;
+  gap: 3px;
+}
+
+.scan-control-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.scan-control-form label {
+  display: grid;
+  gap: 6px;
+  color: #465550;
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.scan-control-form input {
+  min-height: 38px;
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0 10px;
+  background: #ffffff;
+  color: #14231f;
+}
+
+.scan-field-heading {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.scan-field-heading small {
+  border-radius: 999px;
+  background: #eef5f2;
+  color: #596963;
+  font-size: 11px;
+  font-weight: 800;
+  padding: 2px 7px;
+  text-transform: uppercase;
+}
+
+.scan-control-form label > small {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.35;
+}
+
+.scan-control-form .wide-field {
+  grid-column: 1 / -1;
+}
+
+.scan-control-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px;
 }
 
 .cart-assist-log {
@@ -2297,7 +2376,8 @@ th {
   }
 
   .watch-form,
-  .cart-assist-form {
+  .cart-assist-form,
+  .scan-control-form {
     grid-template-columns: 1fr;
   }
 
@@ -2310,6 +2390,7 @@ th {
   .preset-row,
   .watch-row,
   .status-row,
+  .scan-control-heading,
   .release-row,
   .release-profile-row,
   .result-toolbar {

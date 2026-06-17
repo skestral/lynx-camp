@@ -177,6 +177,16 @@ class CartAssistConfigUpdate(BaseModel):
     password: str | None = Field(default=None, max_length=500)
 
 
+class ScanConfigUpdate(BaseModel):
+    min_poll_interval_minutes: int | None = Field(default=None, ge=1, le=1440)
+    release_scan_before_minutes: int | None = Field(default=None, ge=0, le=1440)
+    release_scan_after_minutes: int | None = Field(default=None, ge=0, le=1440)
+    release_scan_interval_minutes: int | None = Field(default=None, ge=1, le=1440)
+    availability_cache_minutes: int | None = Field(default=None, ge=0, le=1440)
+    api_request_delay_seconds: float | None = Field(default=None, ge=0, le=60)
+    rate_limit_backoff_minutes: int | None = Field(default=None, ge=1, le=1440)
+
+
 class CartAttemptStatusUpdate(BaseModel):
     status: Literal["manual_required", "opened", "booked", "dismissed", "failed"]
     message: str | None = Field(default=None, max_length=500)

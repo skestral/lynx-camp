@@ -227,6 +227,25 @@ class Scanner:
         self._active_watch_id: int | None = None
         self._active_target_id: int | None = None
 
+    def configure_scan_controls(
+        self,
+        *,
+        min_poll_interval_minutes: int,
+        release_scan_before_minutes: int,
+        release_scan_after_minutes: int,
+        release_scan_interval_minutes: int,
+        availability_cache_minutes: int,
+        api_request_delay_seconds: float,
+        rate_limit_backoff_minutes: int,
+    ) -> None:
+        self.min_poll_interval_minutes = max(1, int(min_poll_interval_minutes))
+        self.release_scan_before_minutes = max(0, int(release_scan_before_minutes))
+        self.release_scan_after_minutes = max(0, int(release_scan_after_minutes))
+        self.release_scan_interval_minutes = max(1, int(release_scan_interval_minutes))
+        self.availability_cache_minutes = max(0, int(availability_cache_minutes))
+        self.api_request_delay_seconds = max(0.0, float(api_request_delay_seconds))
+        self.rate_limit_backoff_minutes = max(1, int(rate_limit_backoff_minutes))
+
     async def scan_watch(self, watch_id: int) -> dict:
         watch = self.store.get_watch(watch_id)
         if watch is None:
