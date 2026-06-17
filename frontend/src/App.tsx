@@ -144,6 +144,10 @@ const mapTileUrl = import.meta.env.VITE_CAMPFINDER_TILE_URL || "https://tile.ope
 const mapTileAttribution =
   import.meta.env.VITE_CAMPFINDER_TILE_ATTRIBUTION ||
   '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
+const washingtonMapBounds: L.LatLngBoundsExpression = [
+  [45.45, -125.15],
+  [49.1, -116.85]
+];
 
 function weekdayLabel(days: number[]) {
   return [...days]
@@ -719,7 +723,7 @@ export default function App() {
     const map = L.map(mapElementRef.current, {
       scrollWheelZoom: false,
       zoomControl: true
-    }).setView([46.5, -118.5], 5);
+    }).fitBounds(washingtonMapBounds, { padding: [10, 10] });
     L.tileLayer(mapTileUrl, {
       attribution: mapTileAttribution,
       maxZoom: 18
@@ -750,7 +754,8 @@ export default function App() {
     if (!map || !markerLayer) return;
 
     markerLayer.clearLayers();
-    const bounds = L.latLngBounds([]);
+    const selectedBounds = L.latLngBounds([]);
+    const query = resultQuery.trim().toLowerCase();
 
     for (const summary of parkSummaries) {
       const selectedPark = resultQuery === summary.parkName;
@@ -773,7 +778,9 @@ export default function App() {
           setResultView(summary.activeResultCount > 0 ? "active" : "all");
           setResultGroupOpen((current) => ({ ...current, [`park:${summary.parkName}`]: true }));
         });
-      bounds.extend([summary.latitude, summary.longitude]);
+      if (query && selectedPark) {
+        selectedBounds.extend([summary.latitude, summary.longitude]);
+      }
 
       for (const campground of summary.campgrounds) {
         const selectedCampground = resultQuery === campground.name;
@@ -805,14 +812,16 @@ export default function App() {
               [`campground:${campground.parkName}:${campground.name}`]: true
             }));
           });
-        bounds.extend([campground.latitude, campground.longitude]);
+        if (query && (selectedPark || selectedCampground)) {
+          selectedBounds.extend([campground.latitude, campground.longitude]);
+        }
       }
     }
 
-    if (bounds.isValid()) {
-      map.fitBounds(bounds.pad(0.16), { maxZoom: 8 });
+    if (selectedBounds.isValid()) {
+      map.fitBounds(selectedBounds.pad(0.2), { maxZoom: 9 });
     } else {
-      map.setView([46.5, -118.5], 5);
+      map.fitBounds(washingtonMapBounds, { padding: [10, 10] });
     }
   }, [parkSummaries, resultQuery]);
 
