@@ -42,6 +42,7 @@ import type {
   ReleaseWindowProfileResult,
   Result,
   ResultSummary,
+  ScanEvent,
   ScanRun,
   SearchSuggestion,
   Target,
@@ -181,7 +182,15 @@ function isActiveAvailability(result: Result) {
 
 function statusTone(status: string) {
   if (status.startsWith("error") || status === "failed") return "danger";
-  if (status === "needs_credentials" || status === "cooldown" || status === "manual_required") return "warning";
+  if (
+    status === "needs_credentials" ||
+    status === "cooldown" ||
+    status === "manual_required" ||
+    status === "cancelled" ||
+    status === "interrupted" ||
+    status === "rate_limited"
+  )
+    return "warning";
   if (status === "available" || status === "booked") return "success";
   if (status === "clear" || status === "opened" || status === "running") return "calm";
   return "quiet";
@@ -339,6 +348,7 @@ export default function App() {
   const [results, setResults] = useState<Result[]>([]);
   const [resultSummary, setResultSummary] = useState<ResultSummary>({ total_count: 0, active_count: 0 });
   const [scanRuns, setScanRuns] = useState<ScanRun[]>([]);
+  const [scanEvents, setScanEvents] = useState<ScanEvent[]>([]);
   const [notifications, setNotifications] = useState<NotificationEvent[]>([]);
   const [notificationStatus, setNotificationStatus] = useState<NotificationStatus>({ channels: [] });
   const [cartAssistStatus, setCartAssistStatus] = useState<CartAssistStatus | null>(null);
@@ -369,6 +379,7 @@ export default function App() {
   const [specificDeparture, setSpecificDeparture] = useState(addDays(32));
   const [scanBusyId, setScanBusyId] = useState<number | null>(null);
   const [scanAllBusy, setScanAllBusy] = useState(false);
+  const [scanCancelBusy, setScanCancelBusy] = useState(false);
   const [testNotifyBusy, setTestNotifyBusy] = useState(false);
   const [resultBusyId, setResultBusyId] = useState<number | null>(null);
   const [resultGroupOpen, setResultGroupOpen] = useState<Record<string, boolean>>({});
@@ -488,6 +499,7 @@ export default function App() {
   const scanInProgress = scanAllBusy || scanBusyId !== null || Boolean(runningScan);
   const latestScan = scanRuns.find((run) => run.status !== "running") || scanRuns[0];
   const runningScanRuns = scanRuns.filter((run) => run.status === "running" && !run.finished_at);
+  const latestScanEvent = scanEvents[0];
   const activeScanTitle = runningScan
     ? `Scanning ${runningScan.watch_name}`
     : scanProgress?.title || (latestScan ? `Last scan: ${latestScan.watch_name}` : "No scans yet");
@@ -814,6 +826,7 @@ export default function App() {
         resultData,
         resultSummaryData,
         scanRunData,
+        scanEventData,
         notificationData,
         notificationStatusData,
         cartAssistStatusData,
@@ -825,6 +838,7 @@ export default function App() {
         api.results(),
         api.resultSummary(),
         api.scanRuns(),
+        api.scanEvents(),
         api.notifications(),
         api.notificationStatus(),
         api.cartAssistStatus(),
@@ -836,6 +850,7 @@ export default function App() {
       setResults(resultData);
       setResultSummary(resultSummaryData);
       setScanRuns(scanRunData);
+      setScanEvents(scanEventData);
       setNotifications(notificationData);
       setNotificationStatus(notificationStatusData);
       setCartAssistStatus(cartAssistStatusData);
@@ -867,13 +882,15 @@ export default function App() {
     const pollLiveScanState = async () => {
       if (document.visibilityState !== "visible") return;
       try {
-        const [scanRunData, resultData, resultSummaryData, cartAttemptData] = await Promise.all([
+        const [scanRunData, scanEventData, resultData, resultSummaryData, cartAttemptData] = await Promise.all([
           api.scanRuns(),
+          api.scanEvents(),
           api.results(),
           api.resultSummary(),
           api.cartAttempts()
         ]);
         setScanRuns(scanRunData);
+        setScanEvents(scanEventData);
         setResults(resultData);
         setResultSummary(resultSummaryData);
         setCartAttempts(cartAttemptData);
@@ -1236,6 +1253,31 @@ export default function App() {
     }
   }
 
+  async function cancelScans() {
+    setScanCancelBusy(true);
+    setMessage("");
+    try {
+      const result = await api.cancelScans();
+      setScanAllBusy(false);
+      setScanBusyId(null);
+      setScanProgress(null);
+      const staleMessage =
+        result.stale_cancelled_count > 0
+          ? ` Marked ${result.stale_cancelled_count} stale run${result.stale_cancelled_count === 1 ? "" : "s"} as cancelled.`
+          : "";
+      setMessage(
+        result.cancel_requested
+          ? `Stop requested for the active scan.${staleMessage}`
+          : `No active scanner was running.${staleMessage}`
+      );
+      await refresh({ silent: true });
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unable to stop scan.");
+    } finally {
+      setScanCancelBusy(false);
+    }
+  }
+
   async function testNotifications() {
     setTestNotifyBusy(true);
     setMessage("");
@@ -1568,7 +1610,7 @@ export default function App() {
           <a className="nav-item active" href="#results">
             <Bell size={18} /> Alerts
           </a>
-          <a className={`nav-item ${utilityTab === "activity" ? "active" : ""}`} href="#activity" onClick={() => setUtilityTab("activity")}>
+          <a className={`nav-item ${utilityTab === "activity" ? "active" : ""}`} href="#activity-log" onClick={() => setUtilityTab("activity")}>
             <Timer size={18} /> Activity
           </a>
           <button
@@ -1614,6 +1656,12 @@ export default function App() {
               <Play size={18} />
               <span>{scanAllBusy ? "Scanning" : "Scan All"}</span>
             </button>
+            {scanInProgress && (
+              <button className="icon-button danger" onClick={cancelScans} disabled={scanCancelBusy} title="Stop the active scan">
+                <X size={18} />
+                <span>{scanCancelBusy ? "Stopping" : "Stop"}</span>
+              </button>
+            )}
             <button className="icon-button primary" onClick={() => void refresh()} disabled={loadState === "loading"} title="Refresh data">
               <RefreshCw size={18} />
               <span>Refresh</span>
@@ -1642,6 +1690,89 @@ export default function App() {
               </div>
             )}
           </span>
+        </section>
+
+        <section className="panel activity-diagnostics" id="activity-log" aria-label="Scan diagnostics">
+          <div className="panel-heading">
+            <div>
+              <h2>Activity Diagnostics</h2>
+              <p>Live scan state, recent server events, and manual stop control.</p>
+            </div>
+            <div className="panel-action-row">
+              <button className="icon-button" onClick={() => void refresh({ silent: true })} disabled={loadState === "loading"} title="Refresh diagnostics">
+                <RefreshCw size={17} />
+                <span>Refresh</span>
+              </button>
+              <button className="icon-button danger" onClick={cancelScans} disabled={!scanInProgress || scanCancelBusy} title="Stop the active scan">
+                <X size={17} />
+                <span>{scanCancelBusy ? "Stopping" : "Stop Scan"}</span>
+              </button>
+            </div>
+          </div>
+          <div className="diagnostic-grid">
+            <article className="diagnostic-card">
+              <span className={`status ${scanInProgress ? "calm" : "quiet"}`}>
+                {scanInProgress ? "running" : "idle"}
+              </span>
+              <strong>{activeScanTitle}</strong>
+              <small>{activeScanDetail}</small>
+            </article>
+            <article className="diagnostic-card">
+              <span className={`status ${latestScanEvent?.level === "error" ? "danger" : latestScanEvent?.level === "warning" ? "warning" : "quiet"}`}>
+                {latestScanEvent?.event_type || "no events"}
+              </span>
+              <strong>{latestScanEvent ? latestScanEvent.watch_name || "Scanner" : "No scan events yet"}</strong>
+              <small>{latestScanEvent ? latestScanEvent.message : "The server will log scan checkpoints here once a scan starts."}</small>
+            </article>
+          </div>
+          <div className="diagnostic-columns">
+            <div>
+              <div className="subheading">
+                <strong>Recent runs</strong>
+                <small>Durable run records from the server.</small>
+              </div>
+              <div className="status-list compact-list">
+                {scanRuns.length === 0 && <p className="empty">No scans have run yet.</p>}
+                {scanRuns.slice(0, 8).map((run) => (
+                  <article className="status-row scan-row" key={run.id}>
+                    <span>
+                      <strong>{run.watch_name}</strong>
+                      <small>
+                        {run.status === "running"
+                          ? `${run.target_name} · in progress since ${formatDateTime(run.started_at)}`
+                          : `${run.target_name} · ${run.candidate_count} stays · ${run.available_count} matches`}
+                      </small>
+                      <small>{run.message || (run.status === "running" ? "Checking Recreation.gov availability now." : "")}</small>
+                    </span>
+                    <span>
+                      <span className={`status ${statusTone(run.status === "success" && run.available_count > 0 ? "available" : run.status)}`}>
+                        {run.status}
+                      </span>
+                      <small>{formatDateTime(run.finished_at || run.started_at)}</small>
+                    </span>
+                  </article>
+                ))}
+              </div>
+            </div>
+            <div>
+              <div className="subheading">
+                <strong>Event log</strong>
+                <small>Checkpoint messages from active and recent scans.</small>
+              </div>
+              <div className="scan-event-list">
+                {scanEvents.length === 0 && <p className="empty">No event log entries yet.</p>}
+                {scanEvents.slice(0, 30).map((event) => (
+                  <article className={`scan-event-row ${event.level}`} key={event.id}>
+                    <span>
+                      <strong>{event.event_type.split("_").join(" ")}</strong>
+                      <small>{event.watch_name || event.target_name || "Scanner"} · {formatDateTime(event.created_at)}</small>
+                    </span>
+                    <p>{event.message}</p>
+                  </article>
+                ))}
+              </div>
+            </div>
+          </div>
         </section>
 
         <section className="summary-grid" aria-label="Monitor summary">
@@ -2152,7 +2283,7 @@ export default function App() {
                   aria-controls="activity-panel"
                   aria-selected={utilityTab === "activity"}
                   className={`utility-tab ${utilityTab === "activity" ? "active" : ""}`}
-                  id="activity"
+                  id="activity-tools"
                   onClick={() => setUtilityTab("activity")}
                   role="tab"
                   type="button"
@@ -2201,10 +2332,20 @@ export default function App() {
               )}
 
               {utilityTab === "activity" && (
-                <div className="utility-tab-panel scan-panel" id="activity-panel" role="tabpanel" aria-labelledby="activity">
+                <div className="utility-tab-panel scan-panel" id="activity-panel" role="tabpanel" aria-labelledby="activity-tools">
                   <div className="utility-panel-heading">
                     <strong>Recent Scan Activity</strong>
                     <small>Latest background and manual scan runs.</small>
+                  </div>
+                  <div className="panel-action-row">
+                    <a className="link-button compact" href="#activity-log">
+                      <ListChecks size={16} />
+                      <span>Open Log</span>
+                    </a>
+                    <button className="icon-button compact danger" onClick={cancelScans} disabled={!scanInProgress || scanCancelBusy} title="Stop the active scan">
+                      <X size={16} />
+                      <span>Stop</span>
+                    </button>
                   </div>
                   <div className="status-list">
                     {scanRuns.length === 0 && <p className="empty">No scans have run yet.</p>}

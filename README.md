@@ -21,6 +21,7 @@ The app is still notification-first. It opens Recreation.gov booking links when 
 - Temporarily increase scan cadence around calculated release times.
 - Run every active watch on demand with the Scan All control.
 - See the latest scan state at the top of the dashboard, including manual scans and background scans that are still running.
+- Open Activity Diagnostics for scan run history, server checkpoint logs, and a manual Stop Scan control.
 - Revalidate previously available matches on each successful scan and remove matches that Recreation.gov no longer returns.
 - Review recent scan activity, including candidate counts, matches, status, and messages.
 - Calculate likely release windows from a target-specific booking window, release time, and timezone.
@@ -41,15 +42,16 @@ The app is still notification-first. It opens Recreation.gov booking links when 
 The dashboard is organized around the work that usually matters first:
 
 1. Scan state and summary counts show whether Camp Finder is idle, scanning, or showing the last completed scan.
-2. The map uses Leaflet with OpenStreetMap tiles to show saved targets plus preset park/campground options. It now takes the main dashboard width, with the park queue in a compact strip below the map. Selecting a marker or park chip filters the results list and moves you to the matching availability. View Results jumps straight from the map to the working list.
-3. Availability Results stay in the main working area so new matches are not buried below target and watch configuration.
-4. Target and watch setup live in the slide-out drawer. Use the Targets and Watches buttons in the header or sidebar to open it.
-5. Result filters let you switch between active, all, available, opened, booked, and dismissed results.
-6. Result search matches park name, campground, site, loop, campsite type, watch name, and stay dates.
-7. Sort controls support newest first, arrival date, and park/campground grouping.
-8. Select Visible lets you bulk dismiss, mark booked, or reopen the results currently in view.
+2. Activity Diagnostics shows the active scanner state, recent scan runs, detailed server checkpoint logs, and Stop Scan.
+3. The map uses Leaflet with OpenStreetMap tiles to show saved targets plus preset park/campground options. It now takes the main dashboard width, with the park queue in a compact strip below the map. Selecting a marker or park chip filters the results list and moves you to the matching availability. View Results jumps straight from the map to the working list.
+4. Availability Results stay in the main working area so new matches are not buried below target and watch configuration.
+5. Target and watch setup live in the slide-out drawer. Use the Targets and Watches buttons in the header or sidebar to open it.
+6. Result filters let you switch between active, all, available, opened, booked, and dismissed results.
+7. Result search matches park name, campground, site, loop, campsite type, watch name, and stay dates.
+8. Sort controls support newest first, arrival date, and park/campground grouping.
+9. Select Visible lets you bulk dismiss, mark booked, or reopen the results currently in view.
 
-In normal use, you add or import targets, create watch rules, then spend most of your time in the map, scan status, and results sections. Release hints, recent scan activity, notifications, Cart Assist, and backups live in a narrow tabbed utility dock beside the results on desktop and stack underneath on smaller screens. The dock shows one workflow at a time so the side column stays short and scannable while results keep the wider working column.
+In normal use, you add or import targets, create watch rules, then spend most of your time in the map, scan status, diagnostics, and results sections. Release hints, a short scan activity summary, notifications, Cart Assist, and backups live in a narrow tabbed utility dock beside the results on desktop and stack underneath on smaller screens. The dock shows one workflow at a time so the side column stays short and scannable while results keep the wider working column.
 
 ## Preset Packs
 
@@ -182,7 +184,11 @@ The Target Settings form includes a Detect Window action. It samples Recreation.
 
 For campgrounds with staggered releases, use View Profiles in Target Settings. It groups sampled Recreation.gov campsite metadata by loop, site type, and reservation window, which helps you decide whether a watch should filter to a specific loop and use a different day/week/month release window.
 
-The scan status strip at the top of the dashboard changes as soon as a manual scan starts. While a scan is active, the dashboard refreshes scan runs, results, and Cart Assist attempts every few seconds so long Recreation.gov checks show which watch is currently running. It also uses recent scan-run records, so background scans that are still marked `running` can surface after the periodic dashboard refresh. The Recent Scan Activity panel keeps the detailed history: watch name, target, candidate stays, matches, status, timestamp, and scanner message. That combination is meant to answer two different questions quickly: what is happening right now, and what happened during the last few scans.
+The scan status strip at the top of the dashboard changes as soon as a manual scan starts. While a scan is active, the dashboard refreshes scan runs, scan events, results, and Cart Assist attempts every few seconds so long Recreation.gov checks show which watch is currently running. It also uses recent scan-run records, so background scans that are still marked `running` can surface after the periodic dashboard refresh.
+
+Activity Diagnostics is the first place to look when a scan appears stuck. It shows durable scan rows plus checkpoint events such as scan start, candidate count, Recreation.gov month fetches, available-site discoveries, rate limits, errors, and cancellation requests. If the server restarts while a scan row is still marked `running`, startup marks that row `interrupted` so the dashboard does not keep showing a stale process forever.
+
+Stop Scan asks the server to cancel the active scan at the next safe checkpoint and also marks any stale `running` rows as cancelled. It does not delete results or watch rules. A Recreation.gov request that is already in flight may take until its HTTP timeout before the scanner can stop, but the activity log records the stop request immediately.
 
 ## Booking Assist
 

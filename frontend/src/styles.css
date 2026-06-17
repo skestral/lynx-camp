@@ -184,6 +184,12 @@ small {
   border-color: var(--forest);
 }
 
+.icon-button.danger {
+  background: #fff0ef;
+  border-color: #f1c3bd;
+  color: var(--danger);
+}
+
 .icon-button:disabled,
 .icon-only:disabled {
   cursor: progress;
@@ -239,6 +245,98 @@ small {
 .scan-status-card.running {
   border-color: #8fc6dc;
   background: #f2f9fb;
+}
+
+.activity-diagnostics {
+  order: 4;
+  margin-bottom: 18px;
+}
+
+.diagnostic-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.diagnostic-card {
+  display: grid;
+  gap: 7px;
+  align-content: start;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfdfc;
+  padding: 13px;
+}
+
+.diagnostic-card .status {
+  justify-self: start;
+}
+
+.diagnostic-card strong {
+  color: #14231f;
+  font-size: 15px;
+}
+
+.diagnostic-card small {
+  line-height: 1.4;
+}
+
+.diagnostic-columns {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 14px;
+}
+
+.compact-list {
+  margin-top: 9px;
+}
+
+.scan-event-list {
+  display: grid;
+  gap: 9px;
+  margin-top: 9px;
+  max-height: 520px;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.scan-event-row {
+  display: grid;
+  gap: 6px;
+  border: 1px solid var(--line);
+  border-left: 4px solid #9aa8a3;
+  border-radius: 8px;
+  background: #fbfdfc;
+  padding: 11px 12px;
+}
+
+.scan-event-row.warning {
+  border-left-color: var(--amber);
+  background: #fffaf0;
+}
+
+.scan-event-row.error {
+  border-left-color: var(--danger);
+  background: #fff6f5;
+}
+
+.scan-event-row strong {
+  color: #14231f;
+  font-size: 13px;
+}
+
+.scan-event-row small {
+  display: block;
+  margin-top: 3px;
+  font-size: 12px;
+}
+
+.scan-event-row p {
+  margin: 0;
+  color: #40504b;
+  font-size: 13px;
+  line-height: 1.4;
 }
 
 .scan-status-icon {
@@ -1762,6 +1860,8 @@ th {
   }
 
   .summary-grid,
+  .diagnostic-grid,
+  .diagnostic-columns,
   .map-dashboard,
   .content-grid,
   .content-grid.lower {

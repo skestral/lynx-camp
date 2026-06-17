@@ -186,6 +186,26 @@ export type ScanRun = {
   available_count: number;
 };
 
+export type ScanEvent = {
+  id: number;
+  run_id: number | null;
+  watch_id: number | null;
+  target_id: number | null;
+  watch_name: string | null;
+  target_name: string | null;
+  campground_id: string | null;
+  level: "info" | "warning" | "error" | string;
+  event_type: string;
+  message: string;
+  created_at: string;
+};
+
+export type ScanCancelResult = {
+  cancel_requested: boolean;
+  active_run_id: number | null;
+  stale_cancelled_count: number;
+};
+
 export type NotificationChannelStatus = {
   channel: string;
   configured: boolean;

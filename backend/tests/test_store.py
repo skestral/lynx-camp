@@ -653,6 +653,93 @@ def test_list_scan_runs_includes_watch_and_target_names(tmp_path) -> None:
     assert runs[0]["available_count"] == 0
 
 
+def test_scan_events_include_watch_and_target_context(tmp_path) -> None:
+    store = Store(tmp_path / "campfinder.db")
+    store.init()
+    target = store.create_target(
+        {
+            "name": "Kalaloch",
+            "campground_id": "232464",
+            "park_name": "Olympic National Park",
+            "state_code": "WA",
+            "release_months": 6,
+            "release_time": "07:00",
+            "timezone": "America/Los_Angeles",
+            "poll_interval_minutes": 10,
+        }
+    )
+    watch = store.create_watch(
+        {
+            "target_id": target["id"],
+            "name": "Fri starts, 2 nights",
+            "mode": "weekend",
+            "pattern": "4-2n",
+            "arrival_weekdays": [4],
+            "nights": 2,
+            "window_start": "2026-07-01",
+            "window_end": "2026-08-31",
+            "specific_ranges": [],
+        }
+    )
+
+    run_id = store.start_scan_run(watch)
+    event = store.log_scan_event(run_id, watch["id"], target["id"], "info", "fetch", "Fetching July 2026.")
+
+    events = store.list_scan_events()
+
+    assert event["message"] == "Fetching July 2026."
+    assert len(events) == 1
+    assert events[0]["run_id"] == run_id
+    assert events[0]["watch_name"] == "Fri starts, 2 nights"
+    assert events[0]["target_name"] == "Kalaloch"
+    assert events[0]["event_type"] == "fetch"
+
+
+def test_cancel_running_scan_runs_can_leave_active_run_open(tmp_path) -> None:
+    store = Store(tmp_path / "campfinder.db")
+    store.init()
+    target = store.create_target(
+        {
+            "name": "Kalaloch",
+            "campground_id": "232464",
+            "park_name": "Olympic National Park",
+            "state_code": "WA",
+            "release_months": 6,
+            "release_time": "07:00",
+            "timezone": "America/Los_Angeles",
+            "poll_interval_minutes": 10,
+        }
+    )
+    watch = store.create_watch(
+        {
+            "target_id": target["id"],
+            "name": "Fri starts, 2 nights",
+            "mode": "weekend",
+            "pattern": "4-2n",
+            "arrival_weekdays": [4],
+            "nights": 2,
+            "window_start": "2026-07-01",
+            "window_end": "2026-08-31",
+            "specific_ranges": [],
+        }
+    )
+
+    stale_run_id = store.start_scan_run(watch)
+    active_run_id = store.start_scan_run(watch)
+    cancelled_count = store.cancel_running_scan_runs(
+        "Marked stale from diagnostics.",
+        exclude_run_ids=[active_run_id],
+    )
+
+    runs = {run["id"]: run for run in store.list_scan_runs()}
+
+    assert cancelled_count == 1
+    assert runs[stale_run_id]["status"] == "cancelled"
+    assert runs[stale_run_id]["finished_at"] is not None
+    assert runs[active_run_id]["status"] == "running"
+    assert runs[active_run_id]["finished_at"] is None
+
+
 def test_result_status_updates_and_preserves_dismissal_on_rescan(tmp_path) -> None:
     store = Store(tmp_path / "campfinder.db")
     store.init()

@@ -57,6 +57,7 @@ async def scan_loop() -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     store.init()
+    store.cancel_running_scan_runs("Server restarted before this scan finished.", status="interrupted")
     task = asyncio.create_task(scan_loop())
     try:
         yield
@@ -231,6 +232,16 @@ async def run_all_scans() -> dict:
 @app.get("/api/scans")
 def list_scan_runs(limit: int = Query(default=25, ge=1, le=100)) -> list[dict]:
     return store.list_scan_runs(limit)
+
+
+@app.get("/api/scans/events")
+def list_scan_events(limit: int = Query(default=100, ge=1, le=300)) -> list[dict]:
+    return store.list_scan_events(limit)
+
+
+@app.post("/api/scans/cancel")
+def cancel_scan() -> dict:
+    return scanner.cancel_current_scan()
 
 
 @app.delete("/api/watches/{watch_id}")

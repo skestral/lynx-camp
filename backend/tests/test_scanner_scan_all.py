@@ -72,6 +72,18 @@ class RateLimitedClient:
         raise RateLimitError(retry_after_seconds=120)
 
 
+class CancelAfterFirstFetchClient:
+    def __init__(self) -> None:
+        self.calls = 0
+        self.scanner = None
+
+    async def monthly_availability(self, campground_id, month):
+        self.calls += 1
+        if self.scanner is not None:
+            self.scanner.cancel_current_scan()
+        return {}
+
+
 def create_target_and_watch(
     store: Store,
     name: str = "Fri starts, 2 nights",
@@ -245,3 +257,27 @@ def test_rate_limit_pauses_following_watches_without_more_api_calls(tmp_path) ->
     assert client.calls == 1
     assert [summary["status"] for summary in result["summaries"]] == ["rate_limited", "rate_limited"]
     assert result["summaries"][1]["candidate_count"] == 0
+
+
+def test_cancel_current_scan_marks_active_run_cancelled(tmp_path) -> None:
+    store = Store(tmp_path / "campfinder.db")
+    store.init()
+    create_target_and_watch(store)
+    client = CancelAfterFirstFetchClient()
+    scanner = Scanner(
+        store,
+        client,
+        NoopNotifier(),
+        min_poll_interval_minutes=10,
+        api_request_delay_seconds=0,
+    )
+    client.scanner = scanner
+
+    result = asyncio.run(scanner.scan_all_watches())
+
+    assert client.calls == 1
+    assert result["summaries"][0]["status"] == "cancelled"
+    assert store.list_scan_runs()[0]["status"] == "cancelled"
+    event_types = [event["event_type"] for event in store.list_scan_events()]
+    assert "cancel_requested" in event_types
+    assert "cancelled" in event_types

@@ -222,6 +222,10 @@ class Scanner:
         self._api_backoff_until: datetime | None = None
         self._last_api_request_at: datetime | None = None
         self._lock = asyncio.Lock()
+        self._cancel_requested = False
+        self._active_run_id: int | None = None
+        self._active_watch_id: int | None = None
+        self._active_target_id: int | None = None
 
     async def scan_watch(self, watch_id: int) -> dict:
         watch = self.store.get_watch(watch_id)
@@ -238,6 +242,8 @@ class Scanner:
                 try:
                     result = await self._scan_watch(watch)
                     summaries.append({"watch_id": watch["id"], "watch_name": watch["name"], **result})
+                    if result.get("status") == "cancelled":
+                        break
                 except Exception as exc:
                     summaries.append(
                         {
@@ -260,10 +266,34 @@ class Scanner:
         async with self._lock:
             for watch in self.store.due_watches():
                 try:
-                    await self._scan_watch(watch)
+                    result = await self._scan_watch(watch)
+                    if result.get("status") == "cancelled":
+                        break
                 except Exception as exc:
                     self.store.update_target_scan_status(watch["target_id"], f"error: {exc}")
                     self._schedule_next_scan(watch)
+
+    def cancel_current_scan(self) -> dict:
+        active_run_id = self._active_run_id
+        if active_run_id is not None:
+            self._cancel_requested = True
+            self.store.log_scan_event(
+                active_run_id,
+                self._active_watch_id,
+                self._active_target_id,
+                "warning",
+                "cancel_requested",
+                "Stop requested from the web UI. The scanner will stop at the next safe checkpoint.",
+            )
+        stale_count = self.store.cancel_running_scan_runs(
+            "Scan was marked cancelled from the activity log.",
+            exclude_run_ids=[active_run_id] if active_run_id is not None else [],
+        )
+        return {
+            "cancel_requested": active_run_id is not None,
+            "active_run_id": active_run_id,
+            "stale_cancelled_count": stale_count,
+        }
 
     def _schedule_next_scan(self, watch: dict) -> int:
         interval = release_scan_delay_minutes(
@@ -279,7 +309,25 @@ class Scanner:
 
     async def _scan_watch(self, watch: dict) -> dict:
         run_id = self.store.start_scan_run(watch)
+        self._cancel_requested = False
+        self._active_run_id = run_id
+        self._active_watch_id = int(watch["id"])
+        self._active_target_id = int(watch["target_id"])
+        self._log_scan_event(
+            run_id,
+            watch,
+            "info",
+            "started",
+            f"Started {watch['name']} for {watch['target_name']}.",
+        )
         trips = [trip for trip in generate_trip_windows(watch) if trip.arrival_date >= date.today()]
+        self._log_scan_event(
+            run_id,
+            watch,
+            "info",
+            "planned",
+            f"Prepared {len(trips)} candidate stay(s) to check.",
+        )
         available_count = 0
         missing_count = 0
         cart_attempt_count = 0
@@ -293,6 +341,8 @@ class Scanner:
             self.store.finish_scan_run(run_id, "rate_limited", message, 0, 0)
             self.store.update_target_scan_status(watch["target_id"], "rate_limited")
             self.store.schedule_next_scan(watch["id"], backoff_minutes)
+            self._log_scan_event(run_id, watch, "warning", "rate_limited", message)
+            self._clear_active_run(run_id)
             return {
                 "status": "rate_limited",
                 "message": message,
@@ -301,11 +351,38 @@ class Scanner:
             }
 
         try:
-            for trip in trips:
+            for trip_index, trip in enumerate(trips, start=1):
+                self._raise_if_cancel_requested()
+                if trip_index == 1 or trip_index % 25 == 0 or trip_index == len(trips):
+                    self._log_scan_event(
+                        run_id,
+                        watch,
+                        "info",
+                        "progress",
+                        (
+                            f"Checking stay {trip_index} of {len(trips)}: "
+                            f"{trip.arrival_date.isoformat()} to {trip.departure_date.isoformat()}."
+                        ),
+                    )
                 month_maps = []
                 for month in months_for_trip(trip.arrival_date, trip.departure_date):
+                    self._raise_if_cancel_requested()
                     if month not in monthly_cache:
+                        self._log_scan_event(
+                            run_id,
+                            watch,
+                            "info",
+                            "fetch",
+                            f"Fetching Recreation.gov availability for {month.strftime('%B %Y')}.",
+                        )
                         monthly_cache[month] = await self._monthly_availability(watch["campground_id"], month)
+                        self._log_scan_event(
+                            run_id,
+                            watch,
+                            "info",
+                            "fetched",
+                            f"Loaded {len(monthly_cache[month])} campsite record(s) for {month.strftime('%B %Y')}.",
+                        )
                     month_maps.append(monthly_cache[month])
 
                 sites = [
@@ -333,6 +410,17 @@ class Scanner:
                     available_count += 1
                     if is_new:
                         new_results.append({**result, "watch_name": watch["name"]})
+                if sites:
+                    self._log_scan_event(
+                        run_id,
+                        watch,
+                        "info",
+                        "available",
+                        (
+                            f"Found {len(sites)} available site(s) for "
+                            f"{trip.arrival_date.isoformat()} to {trip.departure_date.isoformat()}."
+                        ),
+                    )
 
             missing_count = self.store.mark_missing_results_booked(
                 watch["id"],
@@ -356,6 +444,13 @@ class Scanner:
                             for result in new_results
                         ]
                 await self.notifier.notify_results(new_results, self.store, self.max_notification_results)
+                self._log_scan_event(
+                    run_id,
+                    watch,
+                    "info",
+                    "notified",
+                    f"Prepared notifications for {len(new_results)} new result(s).",
+                )
 
             status = "available" if available_count else "clear"
             if available_count:
@@ -368,9 +463,35 @@ class Scanner:
                 message += f" Cart Assist recorded {cart_attempt_count} guarded attempt(s)."
             self.store.finish_scan_run(run_id, "success", message, len(trips), available_count)
             self.store.update_target_scan_status(watch["target_id"], status)
-            self._schedule_next_scan(watch)
+            next_delay = self._schedule_next_scan(watch)
+            self._log_scan_event(
+                run_id,
+                watch,
+                "info",
+                "finished",
+                f"{message} Next scan is scheduled in about {next_delay} minute(s).",
+            )
             return {
                 "status": "success",
+                "message": message,
+                "candidate_count": len(trips),
+                "available_count": available_count,
+                "missing_count": missing_count,
+            }
+        except ScanCancelled:
+            message = "Scan stopped by user."
+            self.store.finish_scan_run(run_id, "cancelled", message, len(trips), available_count)
+            self.store.update_target_scan_status(watch["target_id"], "cancelled")
+            next_delay = self._schedule_next_scan(watch)
+            self._log_scan_event(
+                run_id,
+                watch,
+                "warning",
+                "cancelled",
+                f"{message} Next scan is scheduled in about {next_delay} minute(s).",
+            )
+            return {
+                "status": "cancelled",
                 "message": message,
                 "candidate_count": len(trips),
                 "available_count": available_count,
@@ -383,6 +504,7 @@ class Scanner:
             self.store.finish_scan_run(run_id, "rate_limited", message, len(trips), available_count)
             self.store.update_target_scan_status(watch["target_id"], "rate_limited")
             self.store.schedule_next_scan(watch["id"], backoff_minutes)
+            self._log_scan_event(run_id, watch, "warning", "rate_limited", message)
             return {
                 "status": "rate_limited",
                 "message": message,
@@ -393,7 +515,10 @@ class Scanner:
             self.store.finish_scan_run(run_id, "error", str(exc), len(trips), available_count)
             self.store.update_target_scan_status(watch["target_id"], f"error: {exc}")
             self._schedule_next_scan(watch)
+            self._log_scan_event(run_id, watch, "error", "error", str(exc))
             raise
+        finally:
+            self._clear_active_run(run_id)
 
     async def _monthly_availability(self, campground_id: str, month: date) -> dict[str, Campsite]:
         key = (campground_id, month)
@@ -413,12 +538,36 @@ class Scanner:
     async def _wait_for_api_slot(self) -> None:
         if self.api_request_delay_seconds <= 0:
             return
+        self._raise_if_cancel_requested()
         now = datetime.now(UTC)
         if self._last_api_request_at is not None:
             elapsed = (now - self._last_api_request_at).total_seconds()
             if elapsed < self.api_request_delay_seconds:
                 await asyncio.sleep(self.api_request_delay_seconds - elapsed)
+        self._raise_if_cancel_requested()
         self._last_api_request_at = datetime.now(UTC)
+
+    def _raise_if_cancel_requested(self) -> None:
+        if self._cancel_requested:
+            raise ScanCancelled
+
+    def _clear_active_run(self, run_id: int) -> None:
+        if self._active_run_id != run_id:
+            return
+        self._active_run_id = None
+        self._active_watch_id = None
+        self._active_target_id = None
+        self._cancel_requested = False
+
+    def _log_scan_event(
+        self,
+        run_id: int,
+        watch: dict,
+        level: str,
+        event_type: str,
+        message: str,
+    ) -> None:
+        self.store.log_scan_event(run_id, watch["id"], watch["target_id"], level, event_type, message)
 
     def _start_rate_limit_backoff(self, exc: RateLimitError) -> None:
         seconds = exc.retry_after_seconds or self.rate_limit_backoff_minutes * 60
@@ -432,3 +581,7 @@ class Scanner:
             self._api_backoff_until = None
             return None
         return max(1, math.ceil(remaining.total_seconds() / 60))
+
+
+class ScanCancelled(Exception):
+    pass

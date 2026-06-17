@@ -130,6 +130,17 @@ class Store:
                     available_count INTEGER NOT NULL DEFAULT 0
                 );
 
+                CREATE TABLE IF NOT EXISTS scan_events (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    run_id INTEGER REFERENCES scan_runs(id) ON DELETE CASCADE,
+                    watch_id INTEGER REFERENCES watches(id) ON DELETE SET NULL,
+                    target_id INTEGER REFERENCES targets(id) ON DELETE SET NULL,
+                    level TEXT NOT NULL DEFAULT 'info',
+                    event_type TEXT NOT NULL DEFAULT 'status',
+                    message TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                );
+
                 CREATE TABLE IF NOT EXISTS results (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     watch_id INTEGER NOT NULL REFERENCES watches(id) ON DELETE CASCADE,
@@ -699,6 +710,31 @@ class Store:
                 (utc_now(), status, message, candidate_count, available_count, run_id),
             )
 
+    def cancel_running_scan_runs(
+        self,
+        message: str = "Scan stopped by user.",
+        status: str = "cancelled",
+        exclude_run_ids: Iterable[int] | None = None,
+    ) -> int:
+        exclude_ids = [int(run_id) for run_id in exclude_run_ids or []]
+        params: list[Any] = [utc_now(), status, message]
+        exclude_clause = ""
+        if exclude_ids:
+            exclude_clause = f" AND id NOT IN ({', '.join(['?'] * len(exclude_ids))})"
+            params.extend(exclude_ids)
+        with self.connect() as conn:
+            cursor = conn.execute(
+                f"""
+                UPDATE scan_runs
+                SET finished_at = ?, status = ?, message = ?
+                WHERE status = 'running'
+                  AND finished_at IS NULL
+                  {exclude_clause}
+                """,
+                params,
+            )
+            return int(cursor.rowcount or 0)
+
     def list_scan_runs(self, limit: int = 25) -> list[dict[str, Any]]:
         with self.connect() as conn:
             rows = conn.execute(
@@ -712,6 +748,71 @@ class Store:
                 JOIN watches ON watches.id = scan_runs.watch_id
                 JOIN targets ON targets.id = scan_runs.target_id
                 ORDER BY scan_runs.started_at DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+            return [_row_to_dict(row) for row in rows if row is not None]
+
+    def log_scan_event(
+        self,
+        run_id: int | None,
+        watch_id: int | None,
+        target_id: int | None,
+        level: str,
+        event_type: str,
+        message: str,
+    ) -> dict[str, Any]:
+        with self.connect() as conn:
+            cursor = conn.execute(
+                """
+                INSERT INTO scan_events (run_id, watch_id, target_id, level, event_type, message, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (run_id, watch_id, target_id, level, event_type, message, utc_now()),
+            )
+            event_id = int(cursor.lastrowid)
+        return self.get_scan_event(event_id) or {
+            "id": event_id,
+            "run_id": run_id,
+            "watch_id": watch_id,
+            "target_id": target_id,
+            "level": level,
+            "event_type": event_type,
+            "message": message,
+        }
+
+    def get_scan_event(self, event_id: int) -> dict[str, Any] | None:
+        with self.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT
+                    scan_events.*,
+                    watches.name AS watch_name,
+                    targets.name AS target_name,
+                    targets.campground_id
+                FROM scan_events
+                LEFT JOIN watches ON watches.id = scan_events.watch_id
+                LEFT JOIN targets ON targets.id = scan_events.target_id
+                WHERE scan_events.id = ?
+                """,
+                (event_id,),
+            ).fetchone()
+            return _row_to_dict(row)
+
+    def list_scan_events(self, limit: int = 100) -> list[dict[str, Any]]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT
+                    scan_events.*,
+                    watches.name AS watch_name,
+                    targets.name AS target_name,
+                    targets.campground_id
+                FROM scan_events
+                LEFT JOIN watches ON watches.id = scan_events.watch_id
+                LEFT JOIN targets ON targets.id = scan_events.target_id
+                ORDER BY scan_events.created_at DESC, scan_events.id DESC
                 LIMIT ?
                 """,
                 (limit,),
