@@ -552,7 +552,7 @@ small {
 
 .content-grid.lower {
   order: 6;
-  grid-template-columns: minmax(0, 1fr) minmax(320px, 420px);
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 340px);
   margin-bottom: 18px;
 }
 
@@ -613,7 +613,7 @@ small {
   align-self: start;
   position: sticky;
   top: 18px;
-  max-height: min(560px, calc(100vh - 36px));
+  max-height: min(500px, calc(100vh - 36px));
   overflow: auto;
   padding-right: 3px;
 }
