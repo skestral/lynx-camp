@@ -4,6 +4,7 @@ from datetime import UTC, date, datetime
 
 from backend.app.recreation import Campsite
 from backend.app.scanner import (
+    campsite_booking_url,
     compute_release_at,
     find_available_sites,
     generate_trip_windows,
@@ -19,6 +20,13 @@ def test_required_nights_are_departure_exclusive() -> None:
     nights = required_night_keys(date(2026, 7, 3), date(2026, 7, 5))
 
     assert nights == ["2026-07-03T00:00:00Z", "2026-07-04T00:00:00Z"]
+
+
+def test_campsite_booking_url_includes_start_date() -> None:
+    assert (
+        campsite_booking_url("98609", date(2026, 6, 20))
+        == "https://www.recreation.gov/camping/campsites/98609?startDate=2026-06-20"
+    )
 
 
 def test_weekend_pattern_generates_friday_arrivals() -> None:

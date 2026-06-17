@@ -88,6 +88,10 @@ def site_matches_filters(campsite: Campsite, filters: dict | None) -> bool:
     return True
 
 
+def campsite_booking_url(campsite_id: str, arrival_date: date) -> str:
+    return f"https://www.recreation.gov/camping/campsites/{campsite_id}?startDate={arrival_date.isoformat()}"
+
+
 def generate_trip_windows(watch: dict) -> list[TripWindow]:
     if watch["mode"] == "specific":
         return [
@@ -322,7 +326,7 @@ class Scanner:
                             "campsite_type": site.campsite_type,
                             "arrival_date": trip.arrival_date.isoformat(),
                             "departure_date": trip.departure_date.isoformat(),
-                            "booking_url": f"https://www.recreation.gov/camping/campsites/{site.campsite_id}",
+                            "booking_url": campsite_booking_url(site.campsite_id, trip.arrival_date),
                         }
                     )
                     seen_dedupe_keys.add(result["dedupe_key"])

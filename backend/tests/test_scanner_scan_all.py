@@ -169,6 +169,11 @@ def test_scan_batches_new_availability_notifications(tmp_path) -> None:
     batch, max_items = notifier.batches[0]
     assert len(batch) == 2
     assert max_items == 3
+    saved_links = sorted(result["booking_url"] for result in store.list_results())
+    assert saved_links == [
+        "https://www.recreation.gov/camping/campsites/101?startDate=2026-07-03",
+        "https://www.recreation.gov/camping/campsites/102?startDate=2026-07-03",
+    ]
 
 
 def test_scan_records_cart_attempts_for_high_priority_watches(tmp_path) -> None:
