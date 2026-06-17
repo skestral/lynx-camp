@@ -1445,11 +1445,20 @@ export default function App() {
     setSetupDrawerOpen(true);
   }
 
+  function scrollToResults() {
+    const results = document.getElementById("results");
+    if (!results) return;
+    const targetTop = results.getBoundingClientRect().top + window.scrollY;
+    window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}#results`);
+    window.scrollTo({ top: targetTop, behavior: "auto" });
+  }
+
   function focusPark(summary: ParkSummary) {
     setResultQuery(summary.parkName);
     setResultSort("park");
     setResultView(summary.activeResultCount > 0 ? "active" : "all");
     setResultGroupOpen((current) => ({ ...current, [`park:${summary.parkName}`]: true }));
+    scrollToResults();
   }
 
   function resultCard(result: Result) {
@@ -2063,14 +2072,18 @@ export default function App() {
               <div className="map-toolbar">
                 <div>
                   <h2>Target Map</h2>
-                  <p>Tap a park to filter active availability without leaving the results view.</p>
+                  <p>Tap a park to filter availability and jump straight to matching results.</p>
                 </div>
                 <div className="map-actions">
+                  <a className="icon-button primary" href="#results" onClick={scrollToResults}>
+                    <ListChecks size={17} />
+                    <span>View Results</span>
+                  </a>
                   <button className="icon-button" onClick={() => setResultQuery("")} type="button">
                     <X size={17} />
                     <span>Clear Filter</span>
                   </button>
-                  <button className="icon-button primary" onClick={() => openSetupDrawer("targets")} type="button">
+                  <button className="icon-button" onClick={() => openSetupDrawer("targets")} type="button">
                     <Plus size={17} />
                     <span>Add Target</span>
                   </button>

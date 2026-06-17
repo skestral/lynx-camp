@@ -41,7 +41,7 @@ The app is still notification-first. It opens Recreation.gov booking links when 
 The dashboard is organized around the work that usually matters first:
 
 1. Scan state and summary counts show whether Camp Finder is idle, scanning, or showing the last completed scan.
-2. The map uses Leaflet with OpenStreetMap tiles to show saved targets plus preset park/campground options. It now takes the main dashboard width, with the park queue in a compact strip below the map. Selecting a marker or park chip filters the results list.
+2. The map uses Leaflet with OpenStreetMap tiles to show saved targets plus preset park/campground options. It now takes the main dashboard width, with the park queue in a compact strip below the map. Selecting a marker or park chip filters the results list and moves you to the matching availability. View Results jumps straight from the map to the working list.
 3. Availability Results stay in the main working area so new matches are not buried below target and watch configuration.
 4. Target and watch setup live in the slide-out drawer. Use the Targets and Watches buttons in the header or sidebar to open it.
 5. Result filters let you switch between active, all, available, opened, booked, and dismissed results.
