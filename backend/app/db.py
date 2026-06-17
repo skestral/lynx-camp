@@ -8,6 +8,7 @@ from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+from .app_settings import EXPORTABLE_APP_SETTING_KEYS, SECRET_APP_SETTING_KEYS
 from .coordinates import CAMPGROUND_COORDINATES
 
 
@@ -465,7 +466,7 @@ class Store:
             cursor = conn.execute("DELETE FROM watches WHERE id = ?", (watch_id,))
             return cursor.rowcount > 0
 
-    def export_config(self) -> dict[str, Any]:
+    def export_config(self, include_secrets: bool = False) -> dict[str, Any]:
         target_fields = [
             "name",
             "campground_id",
@@ -512,17 +513,42 @@ class Store:
                     "active": bool(watch.get("active", True)),
                 }
             )
-        return {"version": 1, "exported_at": utc_now(), "targets": list(targets.values())}
+        stored_settings = self.get_app_settings(EXPORTABLE_APP_SETTING_KEYS)
+        exported_settings = {
+            key: value
+            for key, value in sorted(stored_settings.items())
+            if include_secrets or key not in SECRET_APP_SETTING_KEYS
+        }
+        redacted_keys = [
+            key
+            for key in sorted(stored_settings)
+            if key in SECRET_APP_SETTING_KEYS and not include_secrets
+        ]
+        return {
+            "version": 1,
+            "exported_at": utc_now(),
+            "targets": list(targets.values()),
+            "settings": {
+                "app_settings": exported_settings,
+                "redacted_keys": redacted_keys,
+            },
+        }
 
     def import_config(self, config: dict[str, Any], min_poll_interval_minutes: int = 10) -> dict[str, int]:
         targets = config.get("targets") if isinstance(config, dict) else None
         if not isinstance(targets, list):
             raise ValueError("config must include a targets list")
 
+        settings_section = config.get("settings") or {}
+        if settings_section and not isinstance(settings_section, dict):
+            raise ValueError("settings must be an object")
+
         imported_targets = 0
         updated_targets = 0
         created_watches = 0
         updated_watches = 0
+        imported_settings = 0
+        skipped_settings = 0
 
         for target_config in targets:
             if not isinstance(target_config, dict):
@@ -591,12 +617,29 @@ class Store:
                     self.create_watch(watch_payload)
                     created_watches += 1
 
+        raw_settings = settings_section.get("app_settings", {}) if isinstance(settings_section, dict) else {}
+        if raw_settings:
+            if not isinstance(raw_settings, dict):
+                raise ValueError("settings.app_settings must be an object")
+            allowed_keys = set(EXPORTABLE_APP_SETTING_KEYS)
+            settings_to_import: dict[str, str] = {}
+            for key, value in raw_settings.items():
+                setting_key = str(key)
+                if setting_key not in allowed_keys:
+                    skipped_settings += 1
+                    continue
+                settings_to_import[setting_key] = str(value)
+            self.set_app_settings(settings_to_import)
+            imported_settings = len(settings_to_import)
+
         return {
             "target_count": len(targets),
             "imported_targets": imported_targets,
             "updated_targets": updated_targets,
             "created_watches": created_watches,
             "updated_watches": updated_watches,
+            "imported_settings": imported_settings,
+            "skipped_settings": skipped_settings,
         }
 
     def update_watch(self, watch_id: int, data: dict[str, Any]) -> dict[str, Any] | None:

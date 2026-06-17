@@ -37,6 +37,7 @@ import type {
   ConfigBackup,
   NotificationEvent,
   NotificationConfig,
+  NotificationConfigValues,
   NotificationStatus,
   PresetDiscoveryResult,
   PresetPack,
@@ -66,6 +67,7 @@ type ScanProgress = {
   detail: string;
 };
 type ScanConfigForm = Record<keyof ScanConfigValues, string>;
+type NotificationConfigForm = Record<keyof NotificationConfigValues, string>;
 type ScanControlField = {
   key: keyof ScanConfigValues;
   label: string;
@@ -73,6 +75,18 @@ type ScanControlField = {
   max: number;
   step: number;
   help: string;
+};
+type NotificationField = {
+  key: keyof NotificationConfigValues;
+  label: string;
+  help: string;
+  type?: "text" | "url" | "number" | "password";
+  min?: number;
+  max?: number;
+  step?: number;
+  placeholder?: string;
+  secret?: boolean;
+  wide?: boolean;
 };
 
 const DEFAULT_SCAN_CONFIG_VALUES: ScanConfigValues = {
@@ -153,6 +167,150 @@ function scanConfigFormFromValues(values: ScanConfigValues): ScanConfigForm {
     availability_cache_minutes: String(values.availability_cache_minutes),
     api_request_delay_seconds: String(values.api_request_delay_seconds),
     rate_limit_backoff_minutes: String(values.rate_limit_backoff_minutes)
+  };
+}
+
+const DEFAULT_NOTIFICATION_CONFIG_VALUES: NotificationConfigValues = {
+  webhook_url: "",
+  home_assistant_webhook_url: "",
+  ntfy_server: "https://ntfy.sh",
+  ntfy_topic: "",
+  ntfy_token: "",
+  ntfy_priority: "high",
+  smtp_host: "",
+  smtp_port: 587,
+  smtp_username: "",
+  smtp_password: "",
+  smtp_from: "",
+  smtp_to: "",
+  max_notification_results: 5
+};
+
+const WEBHOOK_NOTIFICATION_FIELDS: NotificationField[] = [
+  {
+    key: "webhook_url",
+    label: "Discord or generic webhook URL",
+    type: "url",
+    secret: true,
+    wide: true,
+    placeholder: "https://discord.com/api/webhooks/...",
+    help: "Sends the plain text availability summary to a Discord-compatible webhook."
+  },
+  {
+    key: "home_assistant_webhook_url",
+    label: "Home Assistant webhook URL",
+    type: "url",
+    secret: true,
+    wide: true,
+    placeholder: "https://homeassistant.local/api/webhook/...",
+    help: "Sends structured JSON for Home Assistant automations."
+  }
+];
+
+const NTFY_NOTIFICATION_FIELDS: NotificationField[] = [
+  {
+    key: "ntfy_server",
+    label: "ntfy server",
+    type: "url",
+    placeholder: "https://ntfy.sh",
+    help: "Server base URL for ntfy push notifications."
+  },
+  {
+    key: "ntfy_topic",
+    label: "ntfy topic",
+    type: "password",
+    secret: true,
+    placeholder: "campfinder-alerts",
+    help: "Topic to publish to. Leave blank to keep the current saved or environment topic."
+  },
+  {
+    key: "ntfy_token",
+    label: "ntfy token",
+    type: "password",
+    secret: true,
+    placeholder: "Optional bearer token",
+    help: "Optional access token for private ntfy topics."
+  },
+  {
+    key: "ntfy_priority",
+    label: "ntfy priority",
+    placeholder: "high",
+    help: "Priority header used for ntfy messages."
+  }
+];
+
+const SMTP_NOTIFICATION_FIELDS: NotificationField[] = [
+  {
+    key: "smtp_host",
+    label: "SMTP host",
+    placeholder: "smtp.example.com",
+    help: "Mail server hostname."
+  },
+  {
+    key: "smtp_port",
+    label: "SMTP port",
+    type: "number",
+    min: 1,
+    max: 65535,
+    step: 1,
+    help: "TLS port for the SMTP server."
+  },
+  {
+    key: "smtp_username",
+    label: "SMTP username",
+    type: "password",
+    secret: true,
+    placeholder: "Account username",
+    help: "Leave blank to keep the current saved or environment username."
+  },
+  {
+    key: "smtp_password",
+    label: "SMTP password",
+    type: "password",
+    secret: true,
+    placeholder: "App password",
+    help: "Leave blank to keep the current saved or environment password."
+  },
+  {
+    key: "smtp_from",
+    label: "From address",
+    placeholder: "campfinder@example.com",
+    help: "Sender shown on email alerts."
+  },
+  {
+    key: "smtp_to",
+    label: "To address",
+    placeholder: "you@example.com",
+    help: "Recipient for email alerts."
+  },
+  {
+    key: "max_notification_results",
+    label: "Max results per alert",
+    type: "number",
+    min: 1,
+    max: 100,
+    step: 1,
+    help: "Caps how many matches are listed in one notification."
+  }
+];
+
+function notificationConfigFormFromValues(values: NotificationConfigValues): NotificationConfigForm {
+  return {
+    webhook_url: "",
+    home_assistant_webhook_url: "",
+    ntfy_server: String(values.ntfy_server || DEFAULT_NOTIFICATION_CONFIG_VALUES.ntfy_server),
+    ntfy_topic: "",
+    ntfy_token: "",
+    ntfy_priority: String(values.ntfy_priority || DEFAULT_NOTIFICATION_CONFIG_VALUES.ntfy_priority),
+    smtp_host: String(values.smtp_host || ""),
+    smtp_port: String(values.smtp_port || DEFAULT_NOTIFICATION_CONFIG_VALUES.smtp_port),
+    smtp_username: "",
+    smtp_password: "",
+    smtp_from: String(values.smtp_from || ""),
+    smtp_to: String(values.smtp_to || ""),
+    max_notification_results: String(
+      values.max_notification_results || DEFAULT_NOTIFICATION_CONFIG_VALUES.max_notification_results
+    )
   };
 }
 
@@ -459,7 +617,9 @@ export default function App() {
   const [notifications, setNotifications] = useState<NotificationEvent[]>([]);
   const [notificationStatus, setNotificationStatus] = useState<NotificationStatus>({ channels: [] });
   const [notificationConfig, setNotificationConfig] = useState<NotificationConfig | null>(null);
-  const [homeAssistantWebhookUrl, setHomeAssistantWebhookUrl] = useState("");
+  const [notificationConfigForm, setNotificationConfigForm] = useState<NotificationConfigForm>(
+    notificationConfigFormFromValues(DEFAULT_NOTIFICATION_CONFIG_VALUES)
+  );
   const [notificationConfigDirty, setNotificationConfigDirty] = useState(false);
   const [notificationConfigBusy, setNotificationConfigBusy] = useState<"save" | "clear" | null>(null);
   const [cartAssistStatus, setCartAssistStatus] = useState<CartAssistStatus | null>(null);
@@ -517,6 +677,7 @@ export default function App() {
   const [sourceDiscovery, setSourceDiscovery] = useState<Record<string, SourceDiscoveryResult>>({});
   const [configBusy, setConfigBusy] = useState<"export" | "import" | null>(null);
   const [backupFile, setBackupFile] = useState<File | null>(null);
+  const [includeSecretSettings, setIncludeSecretSettings] = useState(false);
   const [targetSettingsId, setTargetSettingsId] = useState("");
   const [targetName, setTargetName] = useState("");
   const [targetParkName, setTargetParkName] = useState("");
@@ -1137,7 +1298,7 @@ export default function App() {
 
   useEffect(() => {
     if (!notificationConfig || notificationConfigDirty || notificationConfigBusy) return;
-    setHomeAssistantWebhookUrl("");
+    setNotificationConfigForm(notificationConfigFormFromValues(notificationConfig.values));
   }, [notificationConfig, notificationConfigBusy, notificationConfigDirty]);
 
   useEffect(() => {
@@ -1322,7 +1483,7 @@ export default function App() {
     setConfigBusy("export");
     setMessage("");
     try {
-      const backup = await api.exportConfig();
+      const backup = await api.exportConfig(includeSecretSettings);
       const blob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" });
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
@@ -1332,7 +1493,13 @@ export default function App() {
       link.click();
       link.remove();
       window.setTimeout(() => URL.revokeObjectURL(url), 0);
-      setMessage(`Downloaded backup with ${backup.targets.length} target${backup.targets.length === 1 ? "" : "s"}.`);
+      const settingCount = Object.keys(backup.settings?.app_settings || {}).length;
+      const redactedCount = backup.settings?.redacted_keys?.length || 0;
+      setMessage(
+        `Downloaded backup with ${backup.targets.length} target${backup.targets.length === 1 ? "" : "s"} ` +
+          `and ${settingCount} saved setting${settingCount === 1 ? "" : "s"}` +
+          (redactedCount > 0 ? `; ${redactedCount} secret${redactedCount === 1 ? "" : "s"} omitted.` : ".")
+      );
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Backup download failed.");
     } finally {
@@ -1351,10 +1518,13 @@ export default function App() {
       const parsed = JSON.parse(await backupFile.text()) as ConfigBackup;
       const result = await api.importConfig(parsed);
       setBackupFile(null);
+      const importedSettings = result.imported_settings || 0;
+      const skippedSettings = result.skipped_settings || 0;
       setMessage(
         `Restored ${result.target_count} target${result.target_count === 1 ? "" : "s"}; ` +
           `${result.created_watches} new watch${result.created_watches === 1 ? "" : "es"}, ` +
-          `${result.updated_watches} updated.`
+          `${result.updated_watches} updated; ${importedSettings} setting${importedSettings === 1 ? "" : "s"} restored` +
+          (skippedSettings > 0 ? `, ${skippedSettings} skipped.` : ".")
       );
       await refresh();
     } catch (error) {
@@ -1562,43 +1732,56 @@ export default function App() {
 
   async function saveNotificationConfig(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const webhookUrl = homeAssistantWebhookUrl.trim();
-    if (!webhookUrl) {
-      setMessage("Paste a Home Assistant webhook URL before saving.");
-      return;
-    }
     setNotificationConfigBusy("save");
     try {
-      const config = await api.updateNotificationConfig({ home_assistant_webhook_url: webhookUrl });
+      const payload: Partial<NotificationConfigValues> = {
+        ntfy_server: notificationConfigForm.ntfy_server.trim(),
+        ntfy_priority: notificationConfigForm.ntfy_priority.trim(),
+        smtp_host: notificationConfigForm.smtp_host.trim(),
+        smtp_port: Math.round(notificationConfigNumber("smtp_port")),
+        smtp_from: notificationConfigForm.smtp_from.trim(),
+        smtp_to: notificationConfigForm.smtp_to.trim(),
+        max_notification_results: Math.round(notificationConfigNumber("max_notification_results"))
+      };
+      const secretFields = [
+        "webhook_url",
+        "home_assistant_webhook_url",
+        "ntfy_topic",
+        "ntfy_token",
+        "smtp_username",
+        "smtp_password"
+      ] as const;
+      const secretPayload: Partial<Record<(typeof secretFields)[number], string>> = {};
+      secretFields.forEach((key) => {
+        const value = notificationConfigForm[key].trim();
+        if (value) secretPayload[key] = value;
+      });
+      const config = await api.updateNotificationConfig({ ...payload, ...secretPayload });
       setNotificationConfig(config);
-      setHomeAssistantWebhookUrl("");
+      setNotificationConfigForm(notificationConfigFormFromValues(config.values));
       setNotificationConfigDirty(false);
-      setMessage("Saved Home Assistant webhook.");
+      setMessage("Saved notification settings.");
       await refresh({ silent: true });
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Unable to save Home Assistant webhook.");
+      setMessage(error instanceof Error ? error.message : "Unable to save notification settings.");
     } finally {
       setNotificationConfigBusy(null);
     }
   }
 
-  async function clearHomeAssistantWebhook() {
-    const confirmed = window.confirm("Clear the stored Home Assistant webhook from appdata?");
+  async function clearNotificationSecrets() {
+    const confirmed = window.confirm("Clear stored notification webhooks, topics, tokens, usernames, and passwords from appdata?");
     if (!confirmed) return;
     setNotificationConfigBusy("clear");
     try {
-      const config = await api.clearHomeAssistantWebhook();
+      const config = await api.clearNotificationSecrets();
       setNotificationConfig(config);
-      setHomeAssistantWebhookUrl("");
+      setNotificationConfigForm(notificationConfigFormFromValues(config.values));
       setNotificationConfigDirty(false);
-      setMessage(
-        config.home_assistant_webhook_source === "environment"
-          ? "Cleared appdata webhook; environment webhook is still configured."
-          : "Cleared Home Assistant webhook."
-      );
+      setMessage("Cleared stored notification secrets.");
       await refresh({ silent: true });
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Unable to clear Home Assistant webhook.");
+      setMessage(error instanceof Error ? error.message : "Unable to clear notification secrets.");
     } finally {
       setNotificationConfigBusy(null);
     }
@@ -1655,6 +1838,18 @@ export default function App() {
   function updateScanConfigFormValue(key: keyof ScanConfigValues, value: string) {
     setScanConfigForm((current) => ({ ...current, [key]: value }));
     setScanConfigDirty(true);
+  }
+
+  function updateNotificationConfigFormValue(key: keyof NotificationConfigValues, value: string) {
+    setNotificationConfigForm((current) => ({ ...current, [key]: value }));
+    setNotificationConfigDirty(true);
+  }
+
+  function notificationConfigNumber(key: keyof NotificationConfigValues): number {
+    const value = Number(notificationConfigForm[key]);
+    if (Number.isFinite(value)) return value;
+    const fallback = notificationConfig?.values[key] ?? DEFAULT_NOTIFICATION_CONFIG_VALUES[key];
+    return Number(fallback) || Number(DEFAULT_NOTIFICATION_CONFIG_VALUES[key]);
   }
 
   function scanConfigNumber(key: keyof ScanConfigValues): number {
@@ -1873,51 +2068,84 @@ export default function App() {
     scrollToResults();
   }
 
-  function renderHomeAssistantControls() {
-    const configured = Boolean(notificationConfig?.home_assistant_webhook_configured);
-    const source = notificationConfig?.home_assistant_webhook_source || "none";
-    const detail = notificationConfig?.home_assistant_detail || "Home Assistant webhook status has not loaded yet.";
+  function renderNotificationField(field: NotificationField) {
+    const source = notificationConfig?.sources?.[field.key] || "none";
+    const configured = Boolean(notificationConfig?.configured?.[field.key]);
+    const placeholder =
+      field.secret && configured
+        ? `Configured from ${source}; paste a new value to replace`
+        : field.placeholder || "";
+
+    return (
+      <label className={field.wide ? "wide-field" : ""} key={field.key}>
+        <span className="scan-field-heading">
+          <span>{field.label}</span>
+          <small>{configured ? source : "none"}</small>
+        </span>
+        <input
+          autoComplete="off"
+          inputMode={field.type === "url" ? "url" : field.type === "number" ? "decimal" : "text"}
+          max={field.max}
+          min={field.min}
+          onChange={(event) => updateNotificationConfigFormValue(field.key, event.target.value)}
+          placeholder={placeholder}
+          step={field.step}
+          type={field.type || "text"}
+          value={notificationConfigForm[field.key]}
+        />
+        <small>{field.help}</small>
+      </label>
+    );
+  }
+
+  function renderNotificationSection(title: string, detail: string, fields: NotificationField[]) {
+    return (
+      <div className="notification-fieldset">
+        <div className="notification-fieldset-heading">
+          <strong>{title}</strong>
+          <small>{detail}</small>
+        </div>
+        <div className="notification-config-grid">{fields.map((field) => renderNotificationField(field))}</div>
+      </div>
+    );
+  }
+
+  function renderNotificationControls() {
+    const configuredChannelCount = notificationStatus.channels.filter((channel) => channel.configured).length;
+    const secretFields = notificationConfig?.secret_fields || [];
+    const savedSecretCount = secretFields.filter(
+      (key) => notificationConfig?.sources?.[key] === "appdata" && notificationConfig?.configured?.[key]
+    ).length;
+    const sourceSummary = notificationConfig
+      ? `${configuredChannelCount} channel${configuredChannelCount === 1 ? "" : "s"} ready`
+      : "Loading notification settings";
 
     return (
       <div className="notification-config-panel">
         <div className="subheading scan-control-heading">
           <span>
-            <strong>Home Assistant</strong>
-            <small>{detail}</small>
+            <strong>Notification Settings</strong>
+            <small>Saved values override environment defaults for webhooks, ntfy, email, and alert size.</small>
           </span>
-          <span className={`status ${configured ? "success" : "quiet"}`}>
-            {configured ? `configured from ${source}` : "not configured"}
-          </span>
+          <span className={`status ${configuredChannelCount > 0 ? "success" : "quiet"}`}>{sourceSummary}</span>
         </div>
         <form className="notification-config-form" onSubmit={saveNotificationConfig}>
-          <label className="wide-field">
-            Webhook URL
-            <input
-              autoComplete="off"
-              inputMode="url"
-              onChange={(event) => {
-                setHomeAssistantWebhookUrl(event.target.value);
-                setNotificationConfigDirty(true);
-              }}
-              placeholder={configured ? "Configured; paste a new URL to replace" : "https://homeassistant.local/api/webhook/..."}
-              type="url"
-              value={homeAssistantWebhookUrl}
-            />
-            <small>Camp Finder sends a structured JSON payload for Home Assistant webhook automations.</small>
-          </label>
+          {renderNotificationSection("Webhooks", "Discord-compatible and Home Assistant endpoints.", WEBHOOK_NOTIFICATION_FIELDS)}
+          {renderNotificationSection("ntfy", "Push topic, server, priority, and token.", NTFY_NOTIFICATION_FIELDS)}
+          {renderNotificationSection("SMTP Email", "Server, mailbox credentials, recipient, and batch size.", SMTP_NOTIFICATION_FIELDS)}
           <div className="notification-config-actions wide-field">
             <button className="icon-button" disabled={notificationConfigBusy !== null} type="submit">
               <Save size={17} />
-              <span>{notificationConfigBusy === "save" ? "Saving" : "Save Home Assistant"}</span>
+              <span>{notificationConfigBusy === "save" ? "Saving" : "Save Notifications"}</span>
             </button>
             <button
               className="icon-button"
-              disabled={notificationConfigBusy !== null || source !== "appdata"}
-              onClick={clearHomeAssistantWebhook}
+              disabled={notificationConfigBusy !== null || savedSecretCount === 0}
+              onClick={clearNotificationSecrets}
               type="button"
             >
               <Trash2 size={17} />
-              <span>{notificationConfigBusy === "clear" ? "Clearing" : "Clear Webhook"}</span>
+              <span>{notificationConfigBusy === "clear" ? "Clearing" : "Clear Secrets"}</span>
             </button>
           </div>
         </form>
@@ -2902,7 +3130,7 @@ export default function App() {
             <div className="panel-heading">
               <div>
                 <h2>Notifications & Server Settings</h2>
-                <p>Notification channels use environment variables; scan controls and Cart Assist can use appdata settings.</p>
+                <p>Notifications, scan controls, and Cart Assist can use appdata settings or environment defaults.</p>
               </div>
               <div className="panel-action-row inline">
                 <button className="icon-button" onClick={testNotifications} disabled={testNotifyBusy} title="Send a test notification">
@@ -2925,7 +3153,7 @@ export default function App() {
                 </article>
               ))}
             </div>
-            {renderHomeAssistantControls()}
+            {renderNotificationControls()}
             {renderScanControls()}
             <div className="cart-assist-log">
               <div className="subheading">
@@ -3126,8 +3354,17 @@ export default function App() {
             <div className="backup-tools">
               <div className="subheading">
                 <strong>Configuration Backup</strong>
-                <small>Targets, release settings, and watch rules.</small>
+                <small>Targets, watches, scan controls, notifications, and Cart Assist settings.</small>
               </div>
+              <label className="backup-secret-toggle">
+                <input
+                  checked={includeSecretSettings}
+                  disabled={configBusy !== null}
+                  onChange={(event) => setIncludeSecretSettings(event.target.checked)}
+                  type="checkbox"
+                />
+                <span>Include saved secrets</span>
+              </label>
               <div className="backup-actions">
                 <button
                   className="icon-button"
@@ -3462,7 +3699,7 @@ export default function App() {
                 <div className="utility-tab-panel notification-panel" id="settings-panel" role="tabpanel" aria-labelledby="settings">
                   <div className="utility-panel-heading">
                     <strong>Notifications & Server Settings</strong>
-                    <small>Notification channels use environment variables; scan controls and Cart Assist can use appdata settings.</small>
+                    <small>Notifications, scan controls, and Cart Assist can use appdata settings or environment defaults.</small>
                   </div>
                   <div className="panel-action-row">
                     <button className="icon-button" onClick={testNotifications} disabled={testNotifyBusy} title="Send a test notification">
@@ -3483,7 +3720,7 @@ export default function App() {
                       </article>
                     ))}
                   </div>
-                  {renderHomeAssistantControls()}
+                  {renderNotificationControls()}
                   {renderScanControls()}
                   <div className="cart-assist-log">
                     <div className="subheading">
@@ -3686,8 +3923,17 @@ export default function App() {
                   <div className="backup-tools">
                     <div className="subheading">
                       <strong>Configuration Backup</strong>
-                      <small>Targets, release settings, and watch rules.</small>
+                      <small>Targets, watches, scan controls, notifications, and Cart Assist settings.</small>
                     </div>
+                    <label className="backup-secret-toggle">
+                      <input
+                        checked={includeSecretSettings}
+                        disabled={configBusy !== null}
+                        onChange={(event) => setIncludeSecretSettings(event.target.checked)}
+                        type="checkbox"
+                      />
+                      <span>Include saved secrets</span>
+                    </label>
                     <div className="backup-actions">
                       <button
                         className="icon-button"

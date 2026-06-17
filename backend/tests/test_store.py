@@ -165,6 +165,8 @@ def test_import_config_restores_and_updates_idempotently(tmp_path) -> None:
         "updated_targets": 0,
         "created_watches": 1,
         "updated_watches": 0,
+        "imported_settings": 0,
+        "skipped_settings": 0,
     }
     assert second == {
         "target_count": 1,
@@ -172,6 +174,8 @@ def test_import_config_restores_and_updates_idempotently(tmp_path) -> None:
         "updated_targets": 1,
         "created_watches": 0,
         "updated_watches": 1,
+        "imported_settings": 0,
+        "skipped_settings": 0,
     }
     targets = store.list_targets()
     watches = store.list_watches()
@@ -610,6 +614,62 @@ def test_app_settings_are_persisted_and_deleted(tmp_path) -> None:
 
     assert deleted == 1
     assert store.get_app_settings(["recreation_gov_username"]) == {}
+
+
+def test_export_config_redacts_saved_secret_settings_by_default(tmp_path) -> None:
+    store = Store(tmp_path / "campfinder.db")
+    store.init()
+    store.set_app_settings(
+        {
+            "scan_min_poll_interval_minutes": "45",
+            "notification_smtp_host": "smtp.example.com",
+            "notification_smtp_password": "secret",
+            "recreation_gov_password": "camp-pass",
+        }
+    )
+
+    backup = store.export_config()
+    backup_with_secrets = store.export_config(include_secrets=True)
+
+    assert backup["settings"]["app_settings"] == {
+        "notification_smtp_host": "smtp.example.com",
+        "scan_min_poll_interval_minutes": "45",
+    }
+    assert backup["settings"]["redacted_keys"] == [
+        "notification_smtp_password",
+        "recreation_gov_password",
+    ]
+    assert backup_with_secrets["settings"]["app_settings"]["notification_smtp_password"] == "secret"
+    assert backup_with_secrets["settings"]["app_settings"]["recreation_gov_password"] == "camp-pass"
+    assert backup_with_secrets["settings"]["redacted_keys"] == []
+
+
+def test_import_config_restores_allowlisted_settings_and_skips_unknown_keys(tmp_path) -> None:
+    store = Store(tmp_path / "campfinder.db")
+    store.init()
+
+    result = store.import_config(
+        {
+            "version": 1,
+            "targets": [],
+            "settings": {
+                "app_settings": {
+                    "notification_smtp_host": "smtp.example.com",
+                    "scan_api_request_delay_seconds": "2.5",
+                    "unknown_setting": "ignored",
+                }
+            },
+        }
+    )
+
+    assert result["imported_settings"] == 2
+    assert result["skipped_settings"] == 1
+    assert store.get_app_settings(
+        ["notification_smtp_host", "scan_api_request_delay_seconds", "unknown_setting"]
+    ) == {
+        "notification_smtp_host": "smtp.example.com",
+        "scan_api_request_delay_seconds": "2.5",
+    }
 
 
 def test_list_scan_runs_includes_watch_and_target_names(tmp_path) -> None:

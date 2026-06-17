@@ -1433,6 +1433,37 @@ td small {
   margin-top: 10px;
 }
 
+.notification-fieldset {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px;
+  background: #fbfdfc;
+}
+
+.notification-fieldset-heading {
+  display: grid;
+  gap: 3px;
+  margin-bottom: 10px;
+}
+
+.notification-fieldset-heading strong {
+  color: #14231f;
+  font-size: 13px;
+}
+
+.notification-fieldset-heading small {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.35;
+}
+
+.notification-config-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
 .scan-control-form label {
   display: grid;
   gap: 6px;
@@ -1500,6 +1531,11 @@ td small {
 }
 
 .scan-control-form .wide-field {
+  grid-column: 1 / -1;
+}
+
+.notification-config-grid .wide-field,
+.notification-config-form .wide-field {
   grid-column: 1 / -1;
 }
 
@@ -1627,6 +1663,20 @@ td small {
   margin-top: 10px;
 }
 
+.backup-secret-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 9px;
+  color: #465550;
+  font-size: 13px;
+  font-weight: 750;
+}
+
+.backup-secret-toggle input {
+  accent-color: var(--forest);
+}
+
 .file-picker {
   position: relative;
   min-height: 38px;
@@ -1661,7 +1711,7 @@ td small {
 }
 
 .file-picker.disabled {
-  cursor: progress;
+  cursor: not-allowed;
   opacity: 0.65;
 }
 
@@ -2423,7 +2473,8 @@ th {
 
   .watch-form,
   .cart-assist-form,
-  .scan-control-form {
+  .scan-control-form,
+  .notification-config-grid {
     grid-template-columns: 1fr;
   }
 

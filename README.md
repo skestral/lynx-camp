@@ -33,9 +33,9 @@ The app is still notification-first. It opens Recreation.gov booking links when 
 - Configure server-level Cart Assist from the dashboard or from Docker environment variables.
 - Triage availability results as opened, booked, dismissed, or active again.
 - Filter, sort, select, and bulk-update availability results from the dashboard.
-- Show notification channel status and send a test notification.
-- Notify by webhook, ntfy mobile push, and/or SMTP email when configured.
-- Export and restore target/watch configuration backups.
+- Show notification channel status, configure delivery settings, and send a test notification.
+- Notify by webhook, Home Assistant webhook, ntfy mobile push, and/or SMTP email when configured.
+- Export and restore targets, watches, scan controls, notification settings, and Cart Assist settings.
 - Run as a single Docker Compose service on your local network.
 
 ## Dashboard Workflow
@@ -184,9 +184,15 @@ CAMPFINDER_RECREATION_GOV_USERNAME=you@example.com
 CAMPFINDER_RECREATION_GOV_PASSWORD=your-password-or-app-secret
 ```
 
-You can also configure Cart Assist from the dashboard. Dashboard-saved values are stored in the SQLite database under `appdata/campfinder.db`, which makes them part of the normal server appdata backup. The dashboard only shows whether credentials are configured. It never prints the username or password, and config backups exported from the UI do not include those credentials.
+You can also configure Cart Assist from the dashboard. Dashboard-saved values are stored in the SQLite database under `appdata/campfinder.db`, which makes them part of the normal server appdata backup. The dashboard only shows whether credentials are configured. It never prints the username or password. UI config exports omit saved secrets by default; use Include saved secrets only when you intentionally need a portable backup that contains credentials or webhook secrets.
 
 Protect `appdata` the same way you would protect a `.env` file. This app does not encrypt dashboard-saved Recreation.gov credentials at rest yet; the current tradeoff is simple remote-server setup over secret-manager complexity. For now, those values make the server status read as ready and allow guarded attempt records for high-priority watches; they are not used to complete checkout.
+
+## Configuration Backups
+
+The Settings drawer can download and restore a JSON config backup. A backup includes targets, watches, target release settings, watch Cart Assist flags, scan control overrides, notification settings, and server-level Cart Assist settings. Availability results, scan logs, notification delivery history, and Cart Assist attempt history are not included.
+
+Saved secrets are redacted from downloaded backups unless Include saved secrets is checked before export. Redacted values stay on the server that created the backup, and importing a redacted backup does not erase existing saved secrets on the destination server. When Include saved secrets is checked, the JSON file contains stored Recreation.gov credentials, webhook URLs, ntfy topic/token values, and SMTP username/password values. Treat that file like a `.env` file.
 
 If GitHub Container Registry requires authentication on the server, run:
 
@@ -264,7 +270,11 @@ When a scan discovers several new site/date matches at once, Camp Finder sends o
 
 ## Notification Setup
 
-For a webhook, set:
+Notification settings can be managed from the Settings drawer. Values saved in the dashboard are stored in `appdata/campfinder.db` and override the `.env` defaults for new notifications. Secret fields such as webhook URLs, ntfy topics and tokens, SMTP username/password, and Cart Assist credentials are write-only in the form: the dashboard shows whether they are configured but does not print the saved value back into the browser.
+
+If you prefer file-managed defaults, set the same values in `appdata/config/.env` or in your local `.env`.
+
+For a Discord-compatible or generic webhook, configure Webhooks in Settings or set:
 
 ```text
 CAMPFINDER_WEBHOOK_URL=https://...
@@ -272,7 +282,7 @@ CAMPFINDER_WEBHOOK_URL=https://...
 
 Discord webhooks work because Camp Finder sends a simple `content` payload.
 
-For Home Assistant, use the Settings drawer to paste a webhook URL from a webhook-triggered automation. Dashboard-saved values live in `appdata/campfinder.db` and are not shown again after saving. If you prefer file-managed config, set:
+For Home Assistant, paste a webhook URL from a webhook-triggered automation into Settings or set:
 
 ```text
 CAMPFINDER_HOME_ASSISTANT_WEBHOOK_URL=https://homeassistant.example.com/api/webhook/...
@@ -305,7 +315,9 @@ CAMPFINDER_SMTP_FROM=you@example.com
 CAMPFINDER_SMTP_TO=you@example.com
 ```
 
-The Settings drawer shows which notification channels are configured and which environment variables are missing. Use the test button there after changing `.env` or saving a Home Assistant webhook to confirm delivery before relying on background scans.
+`CAMPFINDER_MAX_NOTIFICATION_RESULTS` can also be changed in Settings. It controls how many match examples appear in one alert when a scan finds several new sites at once.
+
+The Settings drawer shows which notification channels are configured and which values are missing. Use the test button after changing `.env` or saving dashboard values to confirm delivery before relying on background scans.
 
 ## Notes From OpenCamp
 

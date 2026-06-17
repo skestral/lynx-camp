@@ -93,6 +93,56 @@ def test_home_assistant_webhook_can_use_appdata_and_clear_to_environment(tmp_pat
     assert store.get_app_settings(["home_assistant_webhook_url"]) == {}
 
 
+def test_notification_config_can_use_appdata_smtp_settings(tmp_path) -> None:
+    store = Store(tmp_path / "campfinder.db")
+    store.init()
+    notifier = Notifier(Settings(database_path=tmp_path / "campfinder.db"), store)
+
+    saved = notifier.update_config(
+        {
+            "smtp_host": "smtp.example.com",
+            "smtp_port": 465,
+            "smtp_username": "camper@example.com",
+            "smtp_password": "secret",
+            "smtp_from": "campfinder@example.com",
+            "smtp_to": "camper@example.com",
+            "max_notification_results": 9,
+        }
+    )
+    status = notifier.status()
+    channels = {item["channel"]: item for item in status["channels"]}
+
+    assert saved["sources"]["smtp_host"] == "appdata"
+    assert saved["configured"]["smtp_password"] is True
+    assert saved["values"]["smtp_password"] == ""
+    assert saved["values"]["max_notification_results"] == 9
+    assert channels["email"]["configured"] is True
+    assert notifier._effective_config()["smtp_port"] == 465
+
+
+def test_clear_notification_secrets_preserves_non_secret_notification_settings(tmp_path) -> None:
+    store = Store(tmp_path / "campfinder.db")
+    store.init()
+    notifier = Notifier(Settings(database_path=tmp_path / "campfinder.db"), store)
+    notifier.update_config(
+        {
+            "home_assistant_webhook_url": "https://ha.example.com/api/webhook/stored",
+            "ntfy_topic": "campfinder-alerts",
+            "smtp_host": "smtp.example.com",
+        }
+    )
+
+    cleared = notifier.clear_notification_secrets()
+
+    assert cleared["configured"]["home_assistant_webhook_url"] is False
+    assert cleared["configured"]["ntfy_topic"] is False
+    assert cleared["values"]["smtp_host"] == "smtp.example.com"
+    assert store.get_app_settings(["smtp_host"]) == {}
+    assert store.get_app_settings(["notification_smtp_host"]) == {
+        "notification_smtp_host": "smtp.example.com"
+    }
+
+
 def test_home_assistant_payload_is_structured_and_bounded(tmp_path) -> None:
     notifier = Notifier(Settings(database_path=tmp_path / "db.sqlite", app_base_url="http://campfinder.local"))
 

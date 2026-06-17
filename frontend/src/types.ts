@@ -239,11 +239,29 @@ export type NotificationConfig = {
   home_assistant_webhook_configured: boolean;
   home_assistant_webhook_source: "appdata" | "environment" | "none";
   home_assistant_detail: string;
+  values: NotificationConfigValues;
+  sources: Record<keyof NotificationConfigValues, "appdata" | "environment" | "none">;
+  configured: Record<keyof NotificationConfigValues, boolean>;
+  secret_fields: Array<keyof NotificationConfigValues>;
 };
 
-export type NotificationConfigPayload = {
-  home_assistant_webhook_url?: string;
+export type NotificationConfigValues = {
+  webhook_url: string;
+  home_assistant_webhook_url: string;
+  ntfy_server: string;
+  ntfy_topic: string;
+  ntfy_token: string;
+  ntfy_priority: string;
+  smtp_host: string;
+  smtp_port: number;
+  smtp_username: string;
+  smtp_password: string;
+  smtp_from: string;
+  smtp_to: string;
+  max_notification_results: number;
 };
+
+export type NotificationConfigPayload = Partial<NotificationConfigValues>;
 
 export type NotificationTestResult = {
   results: Array<{
@@ -271,6 +289,10 @@ export type ScanAllResult = {
 export type ConfigBackup = {
   version: number;
   exported_at?: string | null;
+  settings?: {
+    app_settings: Record<string, string>;
+    redacted_keys: string[];
+  };
   targets: Array<{
     name: string;
     campground_id: string;
@@ -308,6 +330,8 @@ export type ConfigImportResult = {
   updated_targets: number;
   created_watches: number;
   updated_watches: number;
+  imported_settings?: number;
+  skipped_settings?: number;
 };
 
 export type ReleaseWindowProfile = {

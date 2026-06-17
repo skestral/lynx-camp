@@ -159,10 +159,16 @@ class ConfigTarget(TargetCreate):
     watches: list[ConfigWatch] = Field(default_factory=list)
 
 
+class ConfigSettings(BaseModel):
+    app_settings: dict[str, str] = Field(default_factory=dict)
+    redacted_keys: list[str] = Field(default_factory=list)
+
+
 class ConfigBackup(BaseModel):
     version: int = Field(default=1, ge=1)
     exported_at: str | None = None
     targets: list[ConfigTarget] = Field(default_factory=list)
+    settings: ConfigSettings = Field(default_factory=ConfigSettings)
 
 
 class ResultStatusUpdate(BaseModel):
@@ -188,7 +194,19 @@ class ScanConfigUpdate(BaseModel):
 
 
 class NotificationConfigUpdate(BaseModel):
+    webhook_url: str | None = Field(default=None, max_length=1000)
     home_assistant_webhook_url: str | None = Field(default=None, max_length=1000)
+    ntfy_server: str | None = Field(default=None, max_length=500)
+    ntfy_topic: str | None = Field(default=None, max_length=300)
+    ntfy_token: str | None = Field(default=None, max_length=1000)
+    ntfy_priority: str | None = Field(default=None, max_length=40)
+    smtp_host: str | None = Field(default=None, max_length=300)
+    smtp_port: int | None = Field(default=None, ge=1, le=65535)
+    smtp_username: str | None = Field(default=None, max_length=300)
+    smtp_password: str | None = Field(default=None, max_length=1000)
+    smtp_from: str | None = Field(default=None, max_length=300)
+    smtp_to: str | None = Field(default=None, max_length=500)
+    max_notification_results: int | None = Field(default=None, ge=1, le=100)
 
 
 class CartAttemptStatusUpdate(BaseModel):

@@ -208,8 +208,8 @@ async def import_source_definition(source_id: str) -> dict:
 
 
 @app.get("/api/config/export")
-def export_config() -> dict:
-    return store.export_config()
+def export_config(include_secrets: bool = Query(default=False)) -> dict:
+    return store.export_config(include_secrets=include_secrets)
 
 
 @app.post("/api/config/import")
@@ -334,6 +334,11 @@ def update_notification_config(payload: NotificationConfigUpdate) -> dict:
 @app.post("/api/notifications/home-assistant/clear")
 def clear_home_assistant_webhook() -> dict:
     return notifier.clear_home_assistant_webhook()
+
+
+@app.post("/api/notifications/secrets/clear")
+def clear_notification_secrets() -> dict:
+    return notifier.clear_notification_secrets()
 
 
 @app.post("/api/notifications/test")

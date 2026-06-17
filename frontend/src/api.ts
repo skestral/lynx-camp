@@ -64,6 +64,8 @@ export const api = {
     request<NotificationConfig>("/api/notifications/config", { method: "PATCH", body: JSON.stringify(payload) }),
   clearHomeAssistantWebhook: () =>
     request<NotificationConfig>("/api/notifications/home-assistant/clear", { method: "POST" }),
+  clearNotificationSecrets: () =>
+    request<NotificationConfig>("/api/notifications/secrets/clear", { method: "POST" }),
   cartAssistStatus: () => request<CartAssistStatus>("/api/cart-assist/status"),
   cartAttempts: () => request<CartAttempt[]>("/api/cart-assist/attempts"),
   updateCartAssistConfig: (payload: CartAssistConfigPayload) =>
@@ -78,7 +80,7 @@ export const api = {
   notificationStatus: () => request<NotificationStatus>("/api/notifications/status"),
   testNotifications: () =>
     request<NotificationTestResult>("/api/notifications/test", { method: "POST" }),
-  exportConfig: () => request<ConfigBackup>("/api/config/export"),
+  exportConfig: (includeSecrets = false) => request<ConfigBackup>(`/api/config/export?include_secrets=${includeSecrets}`),
   importConfig: (payload: ConfigBackup) =>
     request<ConfigImportResult>("/api/config/import", { method: "POST", body: JSON.stringify(payload) }),
   search: (query: string) => request<SearchSuggestion[]>(`/api/search?q=${encodeURIComponent(query)}`),

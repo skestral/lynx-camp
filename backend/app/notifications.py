@@ -3,17 +3,20 @@ from __future__ import annotations
 import asyncio
 import smtplib
 from email.message import EmailMessage
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import httpx
 
+from .app_settings import (
+    HOME_ASSISTANT_WEBHOOK_KEY,
+    NOTIFICATION_APP_SETTING_KEYS,
+    NOTIFICATION_CONFIG_FIELDS,
+    NOTIFICATION_SECRET_SETTING_KEYS,
+)
 from .settings import Settings
 
 if TYPE_CHECKING:
     from .db import Store
-
-
-HOME_ASSISTANT_WEBHOOK_KEY = "home_assistant_webhook_url"
 
 
 class Notifier:
@@ -22,24 +25,25 @@ class Notifier:
         self.store = store
 
     def status(self) -> dict:
-        home_assistant = self.home_assistant_config()
+        config = self._effective_config()
+        home_assistant = self.home_assistant_config(config)
         email_missing = []
-        for label, value in [
-            ("CAMPFINDER_SMTP_HOST", self.settings.smtp_host),
-            ("CAMPFINDER_SMTP_USERNAME", self.settings.smtp_username),
-            ("CAMPFINDER_SMTP_PASSWORD", self.settings.smtp_password),
-            ("CAMPFINDER_SMTP_FROM", self.settings.smtp_from),
-            ("CAMPFINDER_SMTP_TO", self.settings.smtp_to),
+        for field_name, value in [
+            ("smtp_host", config["smtp_host"]),
+            ("smtp_username", config["smtp_username"]),
+            ("smtp_password", config["smtp_password"]),
+            ("smtp_from", config["smtp_from"]),
+            ("smtp_to", config["smtp_to"]),
         ]:
             if not value:
-                email_missing.append(label)
+                email_missing.append(str(NOTIFICATION_CONFIG_FIELDS[field_name]["env_name"]))
         return {
             "channels": [
                 {
                     "channel": "webhook",
-                    "configured": bool(self.settings.webhook_url),
-                    "detail": "Configured" if self.settings.webhook_url else "Set CAMPFINDER_WEBHOOK_URL",
-                    "missing": [] if self.settings.webhook_url else ["CAMPFINDER_WEBHOOK_URL"],
+                    "configured": bool(config["webhook_url"]),
+                    "detail": self._field_detail("webhook_url", config),
+                    "missing": [] if config["webhook_url"] else ["CAMPFINDER_WEBHOOK_URL"],
                 },
                 {
                     "channel": "home_assistant",
@@ -49,15 +53,15 @@ class Notifier:
                 },
                 {
                     "channel": "email",
-                    "configured": self._smtp_enabled,
-                    "detail": self.settings.smtp_to or "Set SMTP env vars",
+                    "configured": self._smtp_enabled_for(config),
+                    "detail": config["smtp_to"] or "Set SMTP in Settings or env vars",
                     "missing": email_missing,
                 },
                 {
                     "channel": "ntfy",
-                    "configured": self._ntfy_enabled,
-                    "detail": self._ntfy_url if self._ntfy_enabled else "Set CAMPFINDER_NTFY_TOPIC",
-                    "missing": [] if self._ntfy_enabled else ["CAMPFINDER_NTFY_TOPIC"],
+                    "configured": self._ntfy_enabled_for(config),
+                    "detail": self._ntfy_url_for(config) if self._ntfy_enabled_for(config) else "Set ntfy topic in Settings or CAMPFINDER_NTFY_TOPIC",
+                    "missing": [] if self._ntfy_enabled_for(config) else ["CAMPFINDER_NTFY_TOPIC"],
                 },
             ]
         }
@@ -68,17 +72,19 @@ class Notifier:
     async def notify_results(self, results: list[dict], store: "Store", max_items: int = 5) -> None:
         if not results:
             return
+        config = self._effective_config()
+        max_items = int(config.get("max_notification_results") or max_items)
         message = self._format_results_message(results, max_items)
         click_url = results[0]["booking_url"] if len(results) == 1 else self.settings.app_base_url
-        home_assistant = self.home_assistant_config()
-        if self.settings.webhook_url:
-            await self._send_webhook(results, message, store)
+        home_assistant = self.home_assistant_config(config)
+        if config["webhook_url"]:
+            await self._send_webhook(results, message, store, config["webhook_url"])
         if home_assistant["url"]:
             await self._send_home_assistant(results, message, max_items, store, home_assistant["url"])
-        if self._smtp_enabled:
-            await asyncio.to_thread(self._send_email, results, message, store)
-        if self._ntfy_enabled:
-            await self._send_ntfy(results, message, click_url, store)
+        if self._smtp_enabled_for(config):
+            await asyncio.to_thread(self._send_email, results, message, store, config)
+        if self._ntfy_enabled_for(config):
+            await self._send_ntfy(results, message, click_url, store, config)
 
     async def send_test(self) -> dict:
         message = (
@@ -86,9 +92,10 @@ class Notifier:
             "If you received this, notifications are configured correctly."
         )
         results = []
-        home_assistant = self.home_assistant_config()
-        if self.settings.webhook_url:
-            results.append(await self._post_webhook(message))
+        config = self._effective_config()
+        home_assistant = self.home_assistant_config(config)
+        if config["webhook_url"]:
+            results.append(await self._post_webhook(message, config["webhook_url"]))
         else:
             results.append({"channel": "webhook", "status": "skipped", "message": "Webhook is not configured."})
 
@@ -113,27 +120,22 @@ class Notifier:
                 }
             )
 
-        if self._smtp_enabled:
-            results.append(await asyncio.to_thread(self._post_email, message))
+        if self._smtp_enabled_for(config):
+            results.append(await asyncio.to_thread(self._post_email, message, config))
         else:
             results.append({"channel": "email", "status": "skipped", "message": "Email is not configured."})
 
-        if self._ntfy_enabled:
-            results.append(await self._post_ntfy(message, self.settings.app_base_url))
+        if self._ntfy_enabled_for(config):
+            results.append(await self._post_ntfy(message, self.settings.app_base_url, config))
         else:
             results.append({"channel": "ntfy", "status": "skipped", "message": "ntfy is not configured."})
         return {"results": results}
 
-    def home_assistant_config(self) -> dict:
-        stored = self.store.get_app_settings([HOME_ASSISTANT_WEBHOOK_KEY]) if self.store else {}
-        stored_url = stored.get(HOME_ASSISTANT_WEBHOOK_KEY)
-        env_url = self.settings.home_assistant_webhook_url
-        url = (stored_url or env_url or "").strip()
-        source = "appdata" if stored_url is not None else "environment" if env_url else "none"
-        if url:
-            detail = f"Configured from {source}."
-        else:
-            detail = "Set in Settings or CAMPFINDER_HOME_ASSISTANT_WEBHOOK_URL."
+    def home_assistant_config(self, config: dict[str, Any] | None = None) -> dict:
+        config = config or self._effective_config()
+        url = str(config.get("home_assistant_webhook_url") or "").strip()
+        source = str(config.get("_sources", {}).get("home_assistant_webhook_url") or "none")
+        detail = self._field_detail("home_assistant_webhook_url", config)
         return {
             "configured": bool(url),
             "url": url,
@@ -142,18 +144,63 @@ class Notifier:
         }
 
     def notification_config(self) -> dict:
-        home_assistant = self.home_assistant_config()
+        config = self._effective_config()
+        home_assistant = self.home_assistant_config(config)
+        values: dict[str, Any] = {}
+        configured: dict[str, bool] = {}
+        for public_key, field in NOTIFICATION_CONFIG_FIELDS.items():
+            value = config.get(public_key)
+            configured[public_key] = bool(value)
+            if field.get("secret"):
+                values[public_key] = ""
+            else:
+                values[public_key] = value if value is not None else ""
         return {
             "home_assistant_webhook_configured": home_assistant["configured"],
             "home_assistant_webhook_source": home_assistant["source"],
             "home_assistant_detail": home_assistant["detail"],
+            "values": values,
+            "sources": config["_sources"],
+            "configured": configured,
+            "secret_fields": [
+                public_key
+                for public_key, field in NOTIFICATION_CONFIG_FIELDS.items()
+                if field.get("secret")
+            ],
         }
 
     def update_config(self, data: dict) -> dict:
-        if "home_assistant_webhook_url" in data and self.store:
-            webhook_url = str(data["home_assistant_webhook_url"] or "").strip()
-            if webhook_url:
-                self.store.set_app_settings({HOME_ASSISTANT_WEBHOOK_KEY: webhook_url})
+        if not self.store:
+            return self.notification_config()
+        updates: dict[str, str] = {}
+        deletes: list[str] = []
+        for public_key, raw_value in data.items():
+            field = NOTIFICATION_CONFIG_FIELDS.get(public_key)
+            if field is None or raw_value is None:
+                continue
+            setting_key = str(field["setting_key"])
+            if field["kind"] == "int":
+                if raw_value == "":
+                    deletes.append(setting_key)
+                    continue
+                updates[setting_key] = str(
+                    self._coerce_int(
+                        raw_value,
+                        int(getattr(self.settings, public_key)),
+                        int(field["minimum"]),
+                        int(field["maximum"]),
+                    )
+                )
+                continue
+
+            value = str(raw_value).strip()
+            if value:
+                updates[setting_key] = value
+            elif not field.get("secret"):
+                deletes.append(setting_key)
+        self.store.set_app_settings(updates)
+        if deletes:
+            self.store.delete_app_settings(deletes)
         return self.notification_config()
 
     def clear_home_assistant_webhook(self) -> dict:
@@ -161,29 +208,91 @@ class Notifier:
             self.store.delete_app_settings([HOME_ASSISTANT_WEBHOOK_KEY])
         return self.notification_config()
 
+    def clear_notification_secrets(self) -> dict:
+        if self.store:
+            self.store.delete_app_settings(NOTIFICATION_SECRET_SETTING_KEYS)
+        return self.notification_config()
+
+    def _effective_config(self) -> dict[str, Any]:
+        stored = self.store.get_app_settings(NOTIFICATION_APP_SETTING_KEYS) if self.store else {}
+        values: dict[str, Any] = {}
+        sources: dict[str, str] = {}
+        for public_key, field in NOTIFICATION_CONFIG_FIELDS.items():
+            setting_key = str(field["setting_key"])
+            default = getattr(self.settings, public_key)
+            if field["kind"] == "int":
+                default = self._coerce_int(
+                    default,
+                    int(default),
+                    int(field["minimum"]),
+                    int(field["maximum"]),
+                )
+            if setting_key in stored:
+                raw_value = stored[setting_key]
+                if field["kind"] == "int":
+                    values[public_key] = self._coerce_int(
+                        raw_value,
+                        int(default),
+                        int(field["minimum"]),
+                        int(field["maximum"]),
+                    )
+                else:
+                    values[public_key] = str(raw_value).strip()
+                sources[public_key] = "appdata"
+            else:
+                if field["kind"] == "int":
+                    values[public_key] = default
+                    sources[public_key] = "environment"
+                else:
+                    value = str(default or "").strip()
+                    values[public_key] = value
+                    sources[public_key] = "environment" if value else "none"
+        values["_sources"] = sources
+        return values
+
+    def _field_detail(self, public_key: str, config: dict[str, Any]) -> str:
+        field = NOTIFICATION_CONFIG_FIELDS[public_key]
+        source = config.get("_sources", {}).get(public_key, "none")
+        if config.get(public_key):
+            return f"Configured from {source}."
+        return f"Set in Settings or {field['env_name']}."
+
+    @staticmethod
+    def _coerce_int(raw_value: Any, default: int, minimum: int, maximum: int) -> int:
+        try:
+            value = int(raw_value)
+        except (TypeError, ValueError):
+            value = default
+        return max(minimum, min(maximum, value))
+
     @property
     def _smtp_enabled(self) -> bool:
-        return all(
-            [
-                self.settings.smtp_host,
-                self.settings.smtp_username,
-                self.settings.smtp_password,
-                self.settings.smtp_from,
-                self.settings.smtp_to,
-            ]
-        )
+        return self._smtp_enabled_for(self._effective_config())
+
+    @staticmethod
+    def _smtp_enabled_for(config: dict[str, Any]) -> bool:
+        return all([config["smtp_host"], config["smtp_username"], config["smtp_password"], config["smtp_from"], config["smtp_to"]])
 
     @property
     def _ntfy_enabled(self) -> bool:
-        return bool(self.settings.ntfy_topic)
+        return self._ntfy_enabled_for(self._effective_config())
+
+    @staticmethod
+    def _ntfy_enabled_for(config: dict[str, Any]) -> bool:
+        return bool(config["ntfy_topic"])
 
     @property
     def _ntfy_url(self) -> str:
-        topic = (self.settings.ntfy_topic or "").strip().lstrip("/")
-        return f"{self.settings.ntfy_server.rstrip('/')}/{topic}"
+        return self._ntfy_url_for(self._effective_config())
 
-    async def _send_webhook(self, results: list[dict], message: str, store: "Store") -> None:
-        result = await self._post_webhook(message)
+    @staticmethod
+    def _ntfy_url_for(config: dict[str, Any]) -> str:
+        topic = str(config.get("ntfy_topic") or "").strip().lstrip("/")
+        server = str(config.get("ntfy_server") or "https://ntfy.sh").rstrip("/")
+        return f"{server}/{topic}"
+
+    async def _send_webhook(self, results: list[dict], message: str, store: "Store", webhook_url: str) -> None:
+        result = await self._post_webhook(message, webhook_url)
         self._record_batch_notifications(results, "webhook", "sent" if result["status"] == "sent" else "error", result["message"], store)
 
     async def _send_home_assistant(
@@ -203,12 +312,12 @@ class Notifier:
             store,
         )
 
-    def _send_email(self, results: list[dict], message: str, store: "Store") -> None:
-        result = self._post_email(message)
+    def _send_email(self, results: list[dict], message: str, store: "Store", config: dict[str, Any]) -> None:
+        result = self._post_email(message, config)
         self._record_batch_notifications(results, "email", "sent" if result["status"] == "sent" else "error", result["message"], store)
 
-    async def _send_ntfy(self, results: list[dict], message: str, click_url: str, store: "Store") -> None:
-        result = await self._post_ntfy(message, click_url)
+    async def _send_ntfy(self, results: list[dict], message: str, click_url: str, store: "Store", config: dict[str, Any]) -> None:
+        result = await self._post_ntfy(message, click_url, config)
         self._record_batch_notifications(results, "ntfy", "sent" if result["status"] == "sent" else "error", result["message"], store)
 
     @staticmethod
@@ -225,10 +334,11 @@ class Notifier:
         for result in results[1:]:
             store.record_notification(result["id"], channel, "batched", "Included in bulk availability alert.")
 
-    async def _post_webhook(self, message: str) -> dict:
+    async def _post_webhook(self, message: str, webhook_url: str | None = None) -> dict:
+        webhook_url = webhook_url or str(self._effective_config().get("webhook_url") or "")
         try:
             async with httpx.AsyncClient(timeout=10) as client:
-                response = await client.post(self.settings.webhook_url or "", json={"content": message})
+                response = await client.post(webhook_url, json={"content": message})
                 response.raise_for_status()
             return {"channel": "webhook", "status": "sent", "message": "Webhook notification sent."}
         except Exception as exc:
@@ -247,33 +357,35 @@ class Notifier:
         except Exception as exc:
             return {"channel": "home_assistant", "status": "error", "message": str(exc)}
 
-    def _post_email(self, message: str) -> dict:
+    def _post_email(self, message: str, config: dict[str, Any] | None = None) -> dict:
+        config = config or self._effective_config()
         email = EmailMessage()
         email["Subject"] = "Camp Finder availability"
-        email["From"] = self.settings.smtp_from or ""
-        email["To"] = self.settings.smtp_to or ""
+        email["From"] = str(config["smtp_from"] or "")
+        email["To"] = str(config["smtp_to"] or "")
         email.set_content(message)
         try:
-            with smtplib.SMTP(self.settings.smtp_host or "", self.settings.smtp_port) as smtp:
+            with smtplib.SMTP(str(config["smtp_host"] or ""), int(config["smtp_port"])) as smtp:
                 smtp.starttls()
-                smtp.login(self.settings.smtp_username or "", self.settings.smtp_password or "")
+                smtp.login(str(config["smtp_username"] or ""), str(config["smtp_password"] or ""))
                 smtp.send_message(email)
             return {"channel": "email", "status": "sent", "message": "Email notification sent."}
         except Exception as exc:
             return {"channel": "email", "status": "error", "message": str(exc)}
 
-    async def _post_ntfy(self, message: str, click_url: str) -> dict:
+    async def _post_ntfy(self, message: str, click_url: str, config: dict[str, Any] | None = None) -> dict:
+        config = config or self._effective_config()
         headers = {
             "Title": "Camp Finder availability",
             "Tags": "camping,tent",
-            "Priority": self.settings.ntfy_priority,
+            "Priority": str(config["ntfy_priority"] or "high"),
             "Click": click_url,
         }
-        if self.settings.ntfy_token:
-            headers["Authorization"] = f"Bearer {self.settings.ntfy_token}"
+        if config["ntfy_token"]:
+            headers["Authorization"] = f"Bearer {config['ntfy_token']}"
         try:
             async with httpx.AsyncClient(timeout=10) as client:
-                response = await client.post(self._ntfy_url, content=message.encode("utf-8"), headers=headers)
+                response = await client.post(self._ntfy_url_for(config), content=message.encode("utf-8"), headers=headers)
                 response.raise_for_status()
             return {"channel": "ntfy", "status": "sent", "message": "ntfy notification sent."}
         except Exception as exc:
