@@ -261,6 +261,7 @@ function filterSummary(filters: Watch["site_filters"]) {
 }
 
 function bookingBrief(result: Result) {
+  const bookingUrl = bookingUrlWithStartDate(result.booking_url, result.arrival_date);
   return [
     "Camp Finder booking details",
     `Campground: ${result.campground_name}`,
@@ -270,10 +271,28 @@ function bookingBrief(result: Result) {
     result.campsite_type ? `Type: ${result.campsite_type}` : "",
     `Arrival: ${formatDate(result.arrival_date)}`,
     `Departure: ${formatDate(result.departure_date)}`,
-    `Recreation.gov: ${result.booking_url}`,
+    `Recreation.gov: ${bookingUrl}`,
   ]
     .filter(Boolean)
     .join("\n");
+}
+
+function bookingUrlWithStartDate(bookingUrl: string, arrivalDate: string) {
+  const startDate = arrivalDate.slice(0, 10);
+  if (!bookingUrl || !startDate) return bookingUrl;
+
+  try {
+    const url = new URL(bookingUrl);
+    url.searchParams.set("startDate", startDate);
+    return url.toString();
+  } catch {
+    const existingStartDate = /([?&]startDate=)[^&]*/;
+    if (existingStartDate.test(bookingUrl)) {
+      return bookingUrl.replace(existingStartDate, `$1${encodeURIComponent(startDate)}`);
+    }
+    const separator = bookingUrl.includes("?") ? "&" : "?";
+    return `${bookingUrl}${separator}startDate=${encodeURIComponent(startDate)}`;
+  }
 }
 
 function escapeHtml(value: string) {
@@ -1434,6 +1453,7 @@ export default function App() {
   function resultCard(result: Result) {
     const selected = selectedResultSet.has(result.id);
     const cartAttempt = cartAttemptByResultId.get(result.id);
+    const bookingUrl = bookingUrlWithStartDate(result.booking_url, result.arrival_date);
     return (
       <article className={`result-card ${selected ? "selected" : ""}`} key={result.id}>
         <label className="result-select">
@@ -1457,7 +1477,7 @@ export default function App() {
         <div className="result-actions">
           <a
             className="link-button"
-            href={result.booking_url}
+            href={bookingUrl}
             target="_blank"
             rel="noreferrer"
             onClick={() => openResultBooking(result, cartAttempt)}
@@ -2202,7 +2222,7 @@ export default function App() {
                   {nextCheckoutAttempt && (
                     <a
                       className="link-button compact"
-                      href={nextCheckoutAttempt.booking_url}
+                      href={bookingUrlWithStartDate(nextCheckoutAttempt.booking_url, nextCheckoutAttempt.arrival_date)}
                       onClick={() => openCartAttemptBooking(nextCheckoutAttempt)}
                       rel="noreferrer"
                       target="_blank"
@@ -2319,7 +2339,7 @@ export default function App() {
                           {checkoutReady && (
                             <a
                               className="link-button compact"
-                              href={attempt.booking_url}
+                              href={bookingUrlWithStartDate(attempt.booking_url, attempt.arrival_date)}
                               onClick={() => void updateCartAttemptStatus(attempt, "opened")}
                               rel="noreferrer"
                               target="_blank"
