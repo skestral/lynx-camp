@@ -703,6 +703,15 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    if (!mapElementRef.current) return;
+    const observer = new ResizeObserver(() => {
+      leafletMapRef.current?.invalidateSize();
+    });
+    observer.observe(mapElementRef.current);
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
     const map = leafletMapRef.current;
     const markerLayer = markerLayerRef.current;
     if (!map || !markerLayer) return;
@@ -2080,13 +2089,15 @@ export default function App() {
             </aside>
           </section>
 
-          <section className="panel release-panel">
-            <div className="panel-heading">
-              <div>
+          <aside className="utility-rail" aria-label="Planning and server tools">
+          <details className="panel utility-panel release-panel" open>
+            <summary className="utility-summary">
+              <span>
                 <h2>Release Planner</h2>
                 <p>Calculated from each target's configurable booking window.</p>
-              </div>
-            </div>
+              </span>
+              <ChevronDown className="utility-chevron" size={18} />
+            </summary>
             <div className="release-list">
               {latestRelease.length === 0 && <p className="empty">No future release windows calculated yet.</p>}
               {latestRelease.map((hint) => (
@@ -2102,15 +2113,16 @@ export default function App() {
                 </article>
               ))}
             </div>
-          </section>
+          </details>
 
-          <section className="panel scan-panel" id="activity">
-            <div className="panel-heading">
-              <div>
+          <details className="panel utility-panel scan-panel" id="activity" open>
+            <summary className="utility-summary">
+              <span>
                 <h2>Recent Scan Activity</h2>
                 <p>Latest background and manual scan runs.</p>
-              </div>
-            </div>
+              </span>
+              <ChevronDown className="utility-chevron" size={18} />
+            </summary>
             <div className="status-list">
               {scanRuns.length === 0 && <p className="empty">No scans have run yet.</p>}
               {scanRuns.slice(0, 6).map((run) => (
@@ -2133,14 +2145,17 @@ export default function App() {
                 </article>
               ))}
             </div>
-          </section>
+          </details>
 
-          <section className="panel notification-panel" id="settings">
-            <div className="panel-heading">
-              <div>
+          <details className="panel utility-panel notification-panel" id="settings">
+            <summary className="utility-summary">
+              <span>
                 <h2>Notifications & Server Settings</h2>
                 <p>Notification channels use environment variables; Cart Assist can use appdata settings.</p>
-              </div>
+              </span>
+              <ChevronDown className="utility-chevron" size={18} />
+            </summary>
+            <div className="panel-action-row">
               <button className="icon-button" onClick={testNotifications} disabled={testNotifyBusy} title="Send a test notification">
                 <Bell size={17} />
                 <span>Test</span>
@@ -2412,7 +2427,8 @@ export default function App() {
                 </article>
               ))}
             </div>
-          </section>
+          </details>
+          </aside>
 
           <section className="panel results-panel" id="results">
             <div className="panel-heading">

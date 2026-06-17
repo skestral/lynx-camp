@@ -546,26 +546,21 @@ small {
 
 .content-grid.lower {
   order: 6;
-  grid-template-columns: minmax(0, 1fr) minmax(300px, 360px);
-  grid-auto-flow: dense;
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 420px);
   margin-bottom: 18px;
 }
 
 .content-grid.lower .results-panel {
   grid-column: 1;
-  grid-row: 1 / span 4;
-  max-height: calc(100vh - 76px);
-  overflow: auto;
-  position: sticky;
-  top: 18px;
+  grid-row: 2;
 }
 
 .content-grid.lower .map-dashboard {
-  order: 0;
-  grid-column: 2;
+  grid-column: 1 / -1;
+  grid-row: 1;
   display: grid;
-  grid-template-columns: 1fr;
-  gap: 12px;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 360px);
+  gap: 18px;
   margin-bottom: 0;
 }
 
@@ -574,14 +569,84 @@ small {
   box-shadow: var(--shadow);
 }
 
-.content-grid.lower .map-canvas {
-  min-height: 260px;
+.content-grid.lower .map-list {
+  max-height: clamp(420px, 45vh, 560px);
+  overflow: auto;
 }
 
-.content-grid.lower .release-panel,
-.content-grid.lower .scan-panel,
-.content-grid.lower .notification-panel {
+.content-grid.lower .map-canvas {
+  min-height: clamp(420px, 45vh, 560px);
+}
+
+.utility-rail {
   grid-column: 2;
+  grid-row: 2;
+  display: grid;
+  gap: 12px;
+  align-self: start;
+  position: sticky;
+  top: 18px;
+  max-height: calc(100vh - 36px);
+  overflow: auto;
+  padding-right: 3px;
+}
+
+.utility-panel {
+  padding: 0;
+  overflow: hidden;
+}
+
+.utility-summary {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 18px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.utility-summary::-webkit-details-marker {
+  display: none;
+}
+
+.utility-summary h2 {
+  margin: 0;
+}
+
+.utility-summary p {
+  margin-top: 5px;
+  font-size: 13px;
+}
+
+.utility-chevron {
+  flex: 0 0 auto;
+  color: var(--text-muted);
+  transition: transform 160ms ease;
+}
+
+.utility-panel[open] .utility-chevron {
+  transform: rotate(180deg);
+}
+
+.utility-panel > .release-list,
+.utility-panel > .status-list,
+.utility-panel > .cart-assist-log,
+.utility-panel > .backup-tools,
+.utility-panel > .notification-log {
+  margin: 0 18px 18px;
+}
+
+.utility-panel > .cart-assist-log,
+.utility-panel > .backup-tools,
+.utility-panel > .notification-log {
+  margin-top: 13px;
+}
+
+.panel-action-row {
+  display: flex;
+  justify-content: flex-end;
+  margin: 0 18px 13px;
 }
 
 .drawer-backdrop {
@@ -1557,7 +1622,7 @@ th {
   }
 
   .content-grid.lower .results-panel {
-    order: 1;
+    order: 2;
     grid-column: auto;
     grid-row: auto;
     max-height: none;
@@ -1566,14 +1631,20 @@ th {
   }
 
   .content-grid.lower .map-dashboard {
-    order: 2;
+    order: 1;
     grid-column: auto;
+    grid-row: auto;
+    grid-template-columns: 1fr;
   }
 
-  .content-grid.lower .release-panel,
-  .content-grid.lower .scan-panel,
-  .content-grid.lower .notification-panel {
+  .utility-rail {
+    order: 3;
     grid-column: auto;
+    grid-row: auto;
+    position: static;
+    max-height: none;
+    overflow: visible;
+    padding-right: 0;
   }
 
   .setup-drawer {
