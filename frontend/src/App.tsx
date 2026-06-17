@@ -385,6 +385,24 @@ export default function App() {
   const runningScan = scanRuns.find((run) => run.status === "running" && !run.finished_at);
   const scanInProgress = scanAllBusy || scanBusyId !== null || Boolean(runningScan);
   const latestScan = scanRuns.find((run) => run.status !== "running") || scanRuns[0];
+  const runningScanRuns = scanRuns.filter((run) => run.status === "running" && !run.finished_at);
+  const activeScanTitle = runningScan
+    ? `Scanning ${runningScan.watch_name}`
+    : scanProgress?.title || (latestScan ? `Last scan: ${latestScan.watch_name}` : "No scans yet");
+  const activeScanDetail = runningScan ? (
+    <>
+      {runningScan.target_name} &middot; started {formatDateTime(runningScan.started_at)}
+    </>
+  ) : scanProgress?.detail ? (
+    scanProgress.detail
+  ) : latestScan ? (
+    <>
+      {latestScan.target_name} &middot; {latestScan.candidate_count} stays &middot; {latestScan.available_count} matches &middot;{" "}
+      {formatDateTime(latestScan.finished_at || latestScan.started_at)}
+    </>
+  ) : (
+    "Ready when watches are added."
+  );
   const watchSummary = `${activeWatches.length} active watch${activeWatches.length === 1 ? "" : "es"}`;
   const latestRelease = useMemo(
     () =>
@@ -729,6 +747,28 @@ export default function App() {
     }, 30000);
     return () => window.clearInterval(handle);
   }, [targetSettingsId, watchTarget]);
+
+  useEffect(() => {
+    if (!scanInProgress) return;
+    const pollLiveScanState = async () => {
+      if (document.visibilityState !== "visible") return;
+      try {
+        const [scanRunData, resultData, cartAttemptData] = await Promise.all([
+          api.scanRuns(),
+          api.results(),
+          api.cartAttempts()
+        ]);
+        setScanRuns(scanRunData);
+        setResults(resultData);
+        setCartAttempts(cartAttemptData);
+      } catch {
+        // The normal refresh loop and scan completion handler will surface persistent API failures.
+      }
+    };
+    void pollLiveScanState();
+    const handle = window.setInterval(pollLiveScanState, 3000);
+    return () => window.clearInterval(handle);
+  }, [scanInProgress]);
 
   useEffect(() => {
     if (!cartAssistStatus || cartAssistConfigDirty || cartAssistConfigBusy) return;
@@ -1433,26 +1473,19 @@ export default function App() {
             {scanInProgress ? <RefreshCw className="spinning" size={20} /> : <Activity size={20} />}
           </span>
           <span>
-            <strong>
-              {scanProgress?.title ||
-                (runningScan ? `Scanning ${runningScan.watch_name}` : latestScan ? `Last scan: ${latestScan.watch_name}` : "No scans yet")}
-            </strong>
-            <small>
-              {scanProgress?.detail ? (
-                scanProgress.detail
-              ) : runningScan ? (
-                <>
-                  {runningScan.target_name} &middot; started {formatDateTime(runningScan.started_at)}
-                </>
-              ) : latestScan ? (
-                <>
-                  {latestScan.target_name} &middot; {latestScan.candidate_count} stays &middot; {latestScan.available_count} matches &middot;{" "}
-                  {formatDateTime(latestScan.finished_at || latestScan.started_at)}
-                </>
-              ) : (
-                "Ready when watches are added."
-              )}
-            </small>
+            <strong>{activeScanTitle}</strong>
+            <small>{activeScanDetail}</small>
+            {runningScanRuns.length > 0 && (
+              <div className="live-scan-list" aria-label="Active scan runs">
+                {runningScanRuns.slice(0, 3).map((run) => (
+                  <span className="live-scan-pill" key={run.id}>
+                    <RefreshCw className="spinning" size={13} />
+                    <span>{run.watch_name}</span>
+                    <small>{run.target_name}</small>
+                  </span>
+                ))}
+              </div>
+            )}
           </span>
         </section>
 
@@ -1970,9 +2003,11 @@ export default function App() {
                   <span>
                     <strong>{run.watch_name}</strong>
                     <small>
-                      {run.target_name} &middot; {run.candidate_count} stays &middot; {run.available_count} matches
+                      {run.status === "running"
+                        ? `${run.target_name} \u00b7 in progress since ${formatDateTime(run.started_at)}`
+                        : `${run.target_name} \u00b7 ${run.candidate_count} stays \u00b7 ${run.available_count} matches`}
                     </small>
-                    <small>{run.message}</small>
+                    <small>{run.message || (run.status === "running" ? "Checking Recreation.gov availability now." : "")}</small>
                   </span>
                   <span>
                     <span className={`status ${statusTone(run.status === "success" && run.available_count > 0 ? "available" : run.status)}`}>

@@ -182,7 +182,7 @@ The Target Settings form includes a Detect Window action. It samples Recreation.
 
 For campgrounds with staggered releases, use View Profiles in Target Settings. It groups sampled Recreation.gov campsite metadata by loop, site type, and reservation window, which helps you decide whether a watch should filter to a specific loop and use a different day/week/month release window.
 
-The scan status strip at the top of the dashboard changes as soon as a manual scan starts. It also uses recent scan-run records, so background scans that are still marked `running` can surface after the periodic dashboard refresh. The Recent Scan Activity panel keeps the detailed history: watch name, target, candidate stays, matches, status, timestamp, and scanner message. That combination is meant to answer two different questions quickly: what is happening right now, and what happened during the last few scans.
+The scan status strip at the top of the dashboard changes as soon as a manual scan starts. While a scan is active, the dashboard refreshes scan runs, results, and Cart Assist attempts every few seconds so long Recreation.gov checks show which watch is currently running. It also uses recent scan-run records, so background scans that are still marked `running` can surface after the periodic dashboard refresh. The Recent Scan Activity panel keeps the detailed history: watch name, target, candidate stays, matches, status, timestamp, and scanner message. That combination is meant to answer two different questions quickly: what is happening right now, and what happened during the last few scans.
 
 ## Booking Assist
 

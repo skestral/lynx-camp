@@ -266,6 +266,34 @@ small {
   font-size: 13px;
 }
 
+.live-scan-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 9px;
+}
+
+.live-scan-pill {
+  min-height: 28px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid #cbe1e8;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #17332c;
+  padding: 0 9px;
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.live-scan-pill small {
+  margin: 0;
+  color: #5d6c68;
+  font-size: 11px;
+  font-weight: 650;
+}
+
 .spinning {
   animation: spin 1s linear infinite;
 }
