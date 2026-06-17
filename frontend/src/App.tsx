@@ -72,7 +72,13 @@ type MapSelection =
 type MapHover =
   | { kind: "park"; parkName: string }
   | { kind: "campground"; campgroundId: string };
+type LatLngTuple = [number, number];
 type LatLngBoundsTuple = [[number, number], [number, number]];
+type ParkRegionShape = {
+  bounds: LatLngBoundsTuple;
+  points: LatLngTuple[];
+  kind: "hull" | "corridor" | "point";
+};
 type ScanProgress = {
   title: string;
   detail: string;
@@ -335,6 +341,8 @@ type ParkSummary = {
   latitude: number;
   longitude: number;
   bounds: LatLngBoundsTuple | null;
+  regionKind: ParkRegionShape["kind"] | null;
+  regionPoints: LatLngTuple[];
   campgrounds: CampgroundMapPoint[];
 };
 
@@ -606,20 +614,126 @@ function escapeHtml(value: string) {
   });
 }
 
-function boundsForCampgrounds(campgrounds: CampgroundMapPoint[]): LatLngBoundsTuple | null {
-  if (campgrounds.length === 0) return null;
-  const latitudes = campgrounds.map((campground) => campground.latitude);
-  const longitudes = campgrounds.map((campground) => campground.longitude);
+function boundsForPoints(points: LatLngTuple[]): LatLngBoundsTuple {
+  const latitudes = points.map((point) => point[0]);
+  const longitudes = points.map((point) => point[1]);
   const minLat = Math.min(...latitudes);
   const maxLat = Math.max(...latitudes);
   const minLng = Math.min(...longitudes);
   const maxLng = Math.max(...longitudes);
-  const latPad = Math.max((maxLat - minLat) * 0.18, 0.04);
-  const lngPad = Math.max((maxLng - minLng) * 0.18, 0.04);
   return [
-    [minLat - latPad, minLng - lngPad],
-    [maxLat + latPad, maxLng + lngPad]
+    [minLat, minLng],
+    [maxLat, maxLng]
   ];
+}
+
+function uniqueCampgroundPoints(campgrounds: CampgroundMapPoint[]): LatLngTuple[] {
+  const seen = new Set<string>();
+  const points: LatLngTuple[] = [];
+  for (const campground of campgrounds) {
+    const latitude = Number(campground.latitude);
+    const longitude = Number(campground.longitude);
+    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) continue;
+    const key = `${latitude.toFixed(6)},${longitude.toFixed(6)}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    points.push([latitude, longitude]);
+  }
+  return points;
+}
+
+function cross(origin: LatLngTuple, left: LatLngTuple, right: LatLngTuple) {
+  const leftX = left[1] - origin[1];
+  const leftY = left[0] - origin[0];
+  const rightX = right[1] - origin[1];
+  const rightY = right[0] - origin[0];
+  return leftX * rightY - leftY * rightX;
+}
+
+function convexHull(points: LatLngTuple[]) {
+  const sorted = [...points].sort((left, right) => left[1] - right[1] || left[0] - right[0]);
+  if (sorted.length <= 2) return sorted;
+
+  const lower: LatLngTuple[] = [];
+  for (const point of sorted) {
+    while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], point) <= 0) {
+      lower.pop();
+    }
+    lower.push(point);
+  }
+
+  const upper: LatLngTuple[] = [];
+  for (const point of [...sorted].reverse()) {
+    while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], point) <= 0) {
+      upper.pop();
+    }
+    upper.push(point);
+  }
+
+  return lower.slice(0, -1).concat(upper.slice(0, -1));
+}
+
+function expandPolygon(points: LatLngTuple[], minimumPadding = 0.025, expansionRatio = 0.12): LatLngTuple[] {
+  const center = points.reduce(
+    (total, point) => [total[0] + point[0], total[1] + point[1]] as LatLngTuple,
+    [0, 0]
+  );
+  center[0] /= points.length;
+  center[1] /= points.length;
+
+  return points.map((point) => {
+    const latDelta = point[0] - center[0];
+    const lngDelta = point[1] - center[1];
+    const distance = Math.hypot(latDelta, lngDelta);
+    if (distance === 0) return point;
+    const padding = Math.max(distance * expansionRatio, minimumPadding);
+    const scale = (distance + padding) / distance;
+    return [center[0] + latDelta * scale, center[1] + lngDelta * scale];
+  });
+}
+
+function corridorPolygon(points: [LatLngTuple, LatLngTuple]): LatLngTuple[] {
+  const [start, end] = points;
+  const lngDelta = end[1] - start[1];
+  const latDelta = end[0] - start[0];
+  const distance = Math.hypot(lngDelta, latDelta);
+  const width = Math.max(distance * 0.08, 0.035);
+  if (distance === 0) return pointPolygon(start);
+  const normalLng = -latDelta / distance;
+  const normalLat = lngDelta / distance;
+  return [
+    [start[0] + normalLat * width, start[1] + normalLng * width],
+    [end[0] + normalLat * width, end[1] + normalLng * width],
+    [end[0] - normalLat * width, end[1] - normalLng * width],
+    [start[0] - normalLat * width, start[1] - normalLng * width]
+  ];
+}
+
+function pointPolygon(point: LatLngTuple): LatLngTuple[] {
+  const radius = 0.045;
+  return [
+    [point[0] + radius, point[1]],
+    [point[0], point[1] + radius],
+    [point[0] - radius, point[1]],
+    [point[0], point[1] - radius]
+  ];
+}
+
+function regionShapeForCampgrounds(campgrounds: CampgroundMapPoint[]): ParkRegionShape | null {
+  const points = uniqueCampgroundPoints(campgrounds);
+  if (points.length === 0) return null;
+  if (points.length === 1) {
+    const polygon = pointPolygon(points[0]);
+    return { bounds: boundsForPoints(polygon), points: polygon, kind: "point" };
+  }
+  if (points.length === 2) {
+    const polygon = corridorPolygon(points as [LatLngTuple, LatLngTuple]);
+    return { bounds: boundsForPoints(polygon), points: polygon, kind: "corridor" };
+  }
+
+  const hull = convexHull(points);
+  const polygon = hull.length >= 3 ? expandPolygon(hull) : corridorPolygon([points[0], points[points.length - 1]]);
+  return { bounds: boundsForPoints(polygon), points: polygon, kind: hull.length >= 3 ? "hull" : "corridor" };
 }
 
 async function writeClipboardText(text: string) {
@@ -952,7 +1066,9 @@ export default function App() {
   const parkSummaries = useMemo<ParkSummary[]>(() => {
     const summaries = new Map<
       string,
-      Omit<ParkSummary, "stateCodes" | "latitude" | "longitude" | "bounds"> & { stateCodeSet: Set<string> }
+      Omit<ParkSummary, "stateCodes" | "latitude" | "longitude" | "bounds" | "regionKind" | "regionPoints"> & {
+        stateCodeSet: Set<string>;
+      }
     >();
     const resultCountsByCampground = new Map<string, { resultCount: number; activeResultCount: number }>();
 
@@ -1054,6 +1170,7 @@ export default function App() {
         const longitude =
           summary.campgrounds.reduce((total, campground) => total + campground.longitude, 0) /
           Math.max(summary.campgrounds.length, 1);
+        const regionShape = regionShapeForCampgrounds(summary.campgrounds);
         return {
           parkName: summary.parkName,
           stateCodes: Array.from(summary.stateCodeSet).sort().join("/") || "US",
@@ -1063,7 +1180,9 @@ export default function App() {
           activeResultCount: summary.activeResultCount,
           latitude: Number.isFinite(latitude) ? latitude : 44.5,
           longitude: Number.isFinite(longitude) ? longitude : -118,
-          bounds: boundsForCampgrounds(summary.campgrounds),
+          bounds: regionShape?.bounds || null,
+          regionKind: regionShape?.kind || null,
+          regionPoints: regionShape?.points || [],
           campgrounds: summary.campgrounds.sort((a, b) => a.name.localeCompare(b.name))
         };
       });
@@ -1225,9 +1344,11 @@ export default function App() {
         mapHover?.kind === "campground" &&
         summary.campgrounds.some((campground) => campground.campgroundId === mapHover.campgroundId);
       const highlightedPark = selectedPark || selectedGroup || hoveredPark || hoveredCampgroundInPark;
-      if (summary.bounds) {
-        const region = L.rectangle(summary.bounds, {
-          className: `park-region-box ${selectedPark ? "selected" : ""} ${selectedGroup ? "checked" : ""} ${
+      if (summary.regionPoints.length > 0) {
+        const region = L.polygon(summary.regionPoints, {
+          className: `park-region-box park-region-${summary.regionKind || "region"} ${
+            selectedPark ? "selected" : ""
+          } ${selectedGroup ? "checked" : ""} ${
             hoveredPark ? "hovered" : ""
           } ${hoveredCampgroundInPark ? "related-hover" : ""}`,
           color: highlightedPark ? "#0f5e46" : "#2786c8",

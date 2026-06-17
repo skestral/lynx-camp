@@ -704,6 +704,15 @@ small {
   transition: opacity 150ms ease;
 }
 
+.park-region-hull {
+  stroke-dasharray: none;
+}
+
+.park-region-corridor,
+.park-region-point {
+  stroke-dasharray: 7 6;
+}
+
 .park-region-box.hovered,
 .park-region-box.checked,
 .park-region-box.selected,

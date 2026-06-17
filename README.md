@@ -53,7 +53,7 @@ Park region selection:
 - Triage availability results as opened, booked, dismissed, or active again.
 - Filter, sort, select, and bulk-update availability results from the dashboard.
 - Inspect map markers with Recreation.gov descriptions, details links, Google Maps navigation links, activity tags, notices, and images when Recreation.gov provides media.
-- Use visible park bounding boxes and Park Queue checkboxes to inspect and select campground groups directly from the map.
+- Use visible park footprint polygons and Park Queue checkboxes to inspect and select campground groups directly from the map.
 - Show notification channel status, configure delivery settings, and send a test notification.
 - Notify by webhook, Home Assistant webhook, ntfy mobile push, and/or SMTP email when configured.
 - Export and restore targets, watches, scan controls, notification settings, and Cart Assist settings.
@@ -113,7 +113,9 @@ Ready sources have Check and Import actions. Check runs the live Recreation.gov 
 
 The map is both a navigation tool and a watch builder. Click a park marker or its bounding box to see a park summary, quick campground list, result counts, and a Watch Park button. Click a campground marker to load its Recreation.gov campground details, including description text, activities, amenities, active notices, a Recreation.gov details link, a Google Maps directions link, and a campground image when Recreation.gov returns one. Some Recreation.gov campground records do not include media, so the UI shows a simple placeholder instead of guessing with stock imagery. If Recreation.gov does not return a detail record or rate-limits that lookup, Camp Finder falls back to the saved target record instead of blocking the map panel.
 
-Park regions are calculated from the visible campground coordinates in each park group. Hovering a park row, park box, campground row, or campground marker highlights the matching item on the other side of the map/list pair. The Park Queue checkbox highlights that group's map box and adds it to the selected group set. Use Watch Selected to open the watch form with the Selected park groups scope; Camp Finder then creates one ordinary watch rule per active imported target in those groups.
+Park regions are approximated from the visible campground coordinates in each park group. Camp Finder draws a convex campground footprint for groups with three or more distinct campground points, a corridor for two-point groups, and a small local footprint for one-point groups. Hovering a park row, park footprint, campground row, or campground marker highlights the matching item on the other side of the map/list pair. The Park Queue checkbox highlights that group's map footprint and adds it to the selected group set. Use Watch Selected to open the watch form with the Selected park groups scope; Camp Finder then creates one ordinary watch rule per active imported target in those groups.
+
+These local footprints are meant for watch selection, not legal park boundaries. A future boundary-source integration could use a provider such as Google Maps data-driven boundary styling, OpenStreetMap boundary data, or an official park boundary dataset, but that would need provider credentials, data licensing review, and a cache model before replacing the local campground-footprint polygons.
 
 Bulk watch scopes create ordinary watch rules behind the scenes. If you choose a park, selected park groups, state, or current map view, Camp Finder creates one watch per active imported target in that scope, using the same date pattern and filters from the watch form. Preset-only markers can be inspected from the map, but they need to be imported as targets before a recurring watch can scan them.
 
