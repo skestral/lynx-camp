@@ -451,8 +451,66 @@ def test_cart_attempts_are_logged_once_per_result(tmp_path) -> None:
     assert attempts[0]["watch_name"] == "High priority weekend"
     assert attempts[0]["target_name"] == "Kalaloch"
     assert attempts[0]["status"] == "manual_required"
+    assert attempts[0]["booking_url"] == "https://www.recreation.gov/camping/campsites/101?startDate=2026-07-03"
     assert attempts[0]["finished_at"] is None
     assert store.count_recent_cart_attempts(minutes=30) == 1
+
+
+def test_init_backfills_legacy_result_and_cart_attempt_booking_links(tmp_path) -> None:
+    store = Store(tmp_path / "campfinder.db")
+    store.init()
+    target = store.create_target(
+        {
+            "name": "Kalaloch",
+            "campground_id": "232464",
+            "park_name": "Olympic National Park",
+            "state_code": "WA",
+            "release_months": 6,
+            "release_time": "07:00",
+            "timezone": "America/Los_Angeles",
+            "poll_interval_minutes": 10,
+        }
+    )
+    watch = store.create_watch(
+        {
+            "target_id": target["id"],
+            "name": "High priority weekend",
+            "mode": "weekend",
+            "pattern": "4-2n",
+            "arrival_weekdays": [4],
+            "nights": 2,
+            "window_start": "2026-07-01",
+            "window_end": "2026-08-31",
+            "specific_ranges": [],
+            "cart_assist_enabled": True,
+        }
+    )
+    result, _created = store.upsert_result(
+        {
+            "watch_id": watch["id"],
+            "target_id": target["id"],
+            "campground_id": "232464",
+            "campground_name": "Kalaloch",
+            "campsite_id": "101",
+            "site": "A01",
+            "loop": "A",
+            "campsite_type": "Tent",
+            "arrival_date": "2026-07-03",
+            "departure_date": "2026-07-05",
+            "booking_url": "https://www.recreation.gov/camping/campsites/101",
+        }
+    )
+    attempt, _created = store.record_cart_attempt(result, "manual_required", "Ready for manual checkout.")
+
+    legacy_url = "https://www.recreation.gov/camping/campsites/101"
+    with store.connect() as conn:
+        conn.execute("UPDATE results SET booking_url = ? WHERE id = ?", (legacy_url, result["id"]))
+        conn.execute("UPDATE cart_attempts SET booking_url = ? WHERE id = ?", (legacy_url, attempt["id"]))
+
+    store.init()
+
+    assert store.list_results()[0]["booking_url"] == "https://www.recreation.gov/camping/campsites/101?startDate=2026-07-03"
+    assert store.list_cart_attempts()[0]["booking_url"] == "https://www.recreation.gov/camping/campsites/101?startDate=2026-07-03"
 
 
 def test_cart_attempt_status_updates_result_and_cooldown(tmp_path) -> None:
@@ -640,6 +698,7 @@ def test_result_status_updates_and_preserves_dismissal_on_rescan(tmp_path) -> No
     result, created = store.upsert_result(result_payload)
     assert created is True
     assert result["status"] == "available"
+    assert result["booking_url"] == "https://www.recreation.gov/camping/campsites/101?startDate=2026-07-03"
     listed = store.list_results()
     assert listed[0]["park_name"] == "Olympic National Park"
     assert listed[0]["state_code"] == "WA"
@@ -656,10 +715,17 @@ def test_result_status_updates_and_preserves_dismissal_on_rescan(tmp_path) -> No
     assert dismissed["dismissed_at"] is not None
     assert dismissed["active"] == 0
 
+    with store.connect() as conn:
+        conn.execute(
+            "UPDATE results SET booking_url = ? WHERE id = ?",
+            ("https://www.recreation.gov/camping/campsites/101", result["id"]),
+        )
+
     rescanned, created = store.upsert_result(result_payload)
     assert created is False
     assert rescanned["status"] == "dismissed"
     assert rescanned["active"] == 0
+    assert rescanned["booking_url"] == "https://www.recreation.gov/camping/campsites/101?startDate=2026-07-03"
 
     second_result, created = store.upsert_result({**result_payload, "campsite_id": "102", "site": "A02"})
     assert created is True

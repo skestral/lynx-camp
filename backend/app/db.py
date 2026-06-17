@@ -49,6 +49,10 @@ def _target_with_coordinates(target: dict[str, Any] | None) -> dict[str, Any] | 
     return target
 
 
+def _campsite_booking_url(campsite_id: Any, arrival_date: Any) -> str:
+    return f"https://www.recreation.gov/camping/campsites/{campsite_id}?startDate={arrival_date}"
+
+
 ACTIONABLE_CART_ATTEMPT_STATUSES = {"manual_required", "opened", "hold_queued", "hold_attempted"}
 FINISHED_CART_ATTEMPT_STATUSES = {"skipped", "disabled", "needs_credentials", "cooldown", "booked", "dismissed", "failed"}
 
@@ -192,12 +196,30 @@ class Store:
             self._ensure_column(conn, "results", "opened_at", "TEXT")
             self._ensure_column(conn, "results", "booked_at", "TEXT")
             self._ensure_column(conn, "results", "dismissed_at", "TEXT")
+            self._backfill_result_booking_urls(conn)
 
     @staticmethod
     def _ensure_column(conn: sqlite3.Connection, table_name: str, column_name: str, definition: str) -> None:
         columns = {row["name"] for row in conn.execute(f"PRAGMA table_info({table_name})").fetchall()}
         if column_name not in columns:
             conn.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {definition}")
+
+    @staticmethod
+    def _backfill_result_booking_urls(conn: sqlite3.Connection) -> None:
+        conn.execute(
+            """
+            UPDATE results
+            SET booking_url = 'https://www.recreation.gov/camping/campsites/' || campsite_id || '?startDate=' || arrival_date
+            WHERE booking_url NOT LIKE '%startDate=%'
+            """
+        )
+        conn.execute(
+            """
+            UPDATE cart_attempts
+            SET booking_url = 'https://www.recreation.gov/camping/campsites/' || campsite_id || '?startDate=' || arrival_date
+            WHERE booking_url NOT LIKE '%startDate=%'
+            """
+        )
 
     def list_targets(self) -> list[dict[str, Any]]:
         with self.connect() as conn:
@@ -709,6 +731,7 @@ class Store:
 
     def upsert_result(self, data: dict[str, Any]) -> tuple[dict[str, Any], bool]:
         now = utc_now()
+        booking_url = _campsite_booking_url(data["campsite_id"], data["arrival_date"])
         dedupe_key = "|".join(
             [
                 str(data["watch_id"]),
@@ -724,10 +747,10 @@ class Store:
                 conn.execute(
                     """
                     UPDATE results
-                    SET last_seen_at = ?, active = ?
+                    SET last_seen_at = ?, active = ?, booking_url = ?
                     WHERE dedupe_key = ?
                     """,
-                    (now, active, dedupe_key),
+                    (now, active, booking_url, dedupe_key),
                 )
                 row = conn.execute("SELECT * FROM results WHERE dedupe_key = ?", (dedupe_key,)).fetchone()
                 return _row_to_dict(row) or {}, False
@@ -751,7 +774,7 @@ class Store:
                     data.get("campsite_type") or "",
                     data["arrival_date"],
                     data["departure_date"],
-                    data["booking_url"],
+                    booking_url,
                     now,
                     now,
                     dedupe_key,
