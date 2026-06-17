@@ -18,6 +18,10 @@ Region watch setup:
 
 ![Camp Finder watch drawer set to current map view scope](docs/screenshots/region-watch-drawer.png)
 
+Park region selection:
+
+![Camp Finder map with selected park region groups](docs/screenshots/park-region-selection.png)
+
 ## What It Does
 
 - Add campground targets from Recreation.gov search.
@@ -27,7 +31,7 @@ Region watch setup:
 - Detect a likely release window from Recreation.gov campsite reservation-window data when available.
 - Pause and resume targets or individual watch rules without deleting them.
 - Create watch rules with one or more arrival weekdays and a stay length, such as Friday or Saturday starts for two nights.
-- Create the same watch across one campground, a park group, a state, or the active imported targets currently visible on the map.
+- Create the same watch across one campground, a park group, selected park groups, a state, or the active imported targets currently visible on the map.
 - Create exact arrival/departure date watches.
 - Edit watch names, targets, dates, day patterns, stay length, and site filters after creation.
 - Filter watch matches by campsite type, loop text, site text, and minimum people capacity.
@@ -49,6 +53,7 @@ Region watch setup:
 - Triage availability results as opened, booked, dismissed, or active again.
 - Filter, sort, select, and bulk-update availability results from the dashboard.
 - Inspect map markers with Recreation.gov descriptions, details links, activity tags, notices, and images when Recreation.gov provides media.
+- Use park bounding boxes and Park Queue checkboxes to select campground groups directly from the map.
 - Show notification channel status, configure delivery settings, and send a test notification.
 - Notify by webhook, Home Assistant webhook, ntfy mobile push, and/or SMTP email when configured.
 - Export and restore targets, watches, scan controls, notification settings, and Cart Assist settings.
@@ -61,7 +66,7 @@ The dashboard is organized around the work that usually matters first:
 1. Trip Control shows the current priority state, scan status, next release hint, and source coverage before the map and results.
 2. The sidebar opens slide-out drawers for Alerts, Activity, Targets, Watches, and Settings. These tools stay available without stretching the main dashboard.
 3. Scan state and summary counts show whether Camp Finder is idle, scanning, or showing the last completed scan.
-4. The map uses Leaflet with OpenStreetMap tiles to show saved targets plus preset park/campground options. Selecting a marker opens a detail panel with the campground overview, result counts, Recreation.gov details link, and watch actions. View Results jumps straight from the map to the working list, and Watch View creates a rule across active imported targets inside the current map bounds.
+4. The map uses Leaflet with OpenStreetMap tiles to show saved targets plus preset park/campground options. Selecting a marker or park region opens a detail panel with the campground overview, result counts, Recreation.gov details link, and watch actions. View Results jumps straight from the map to the working list, Watch View creates a rule across active imported targets inside the current map bounds, and Park Queue checkboxes can build a watch from selected park groups.
 5. Availability Results stay in the main working area so new matches are not buried below target and watch configuration.
 6. The Alerts drawer gives quick access to active matches, recent notification delivery, View Results, and Clear All.
 7. The Activity drawer shows the active scanner state, recent scan runs, recent checkpoint events, a Logs link, refresh, and Stop Scan.
@@ -106,9 +111,11 @@ Ready sources have Check and Import actions. Check runs the live Recreation.gov 
 
 ## Map and Region Watches
 
-The map is both a navigation tool and a watch builder. Click a park marker to see a park summary, quick campground list, result counts, and a Watch Park button. Click a campground marker to load its Recreation.gov campground details, including description text, activities, amenities, active notices, a Recreation.gov details link, and a campground image when Recreation.gov returns one. Some Recreation.gov campground records do not include media, so the UI shows a simple placeholder instead of guessing with stock imagery. If Recreation.gov does not return a detail record or rate-limits that lookup, Camp Finder falls back to the saved target record instead of blocking the map panel.
+The map is both a navigation tool and a watch builder. Click a park marker or its bounding box to see a park summary, quick campground list, result counts, and a Watch Park button. Click a campground marker to load its Recreation.gov campground details, including description text, activities, amenities, active notices, a Recreation.gov details link, and a campground image when Recreation.gov returns one. Some Recreation.gov campground records do not include media, so the UI shows a simple placeholder instead of guessing with stock imagery. If Recreation.gov does not return a detail record or rate-limits that lookup, Camp Finder falls back to the saved target record instead of blocking the map panel.
 
-Bulk watch scopes create ordinary watch rules behind the scenes. If you choose a park, state, or current map view, Camp Finder creates one watch per active imported target in that scope, using the same date pattern and filters from the watch form. Preset-only markers can be inspected from the map, but they need to be imported as targets before a recurring watch can scan them.
+Park regions are calculated from the visible campground coordinates in each park group. The Park Queue checkbox highlights that group's map box and adds it to the selected group set. Use Watch Selected to open the watch form with the Selected park groups scope; Camp Finder then creates one ordinary watch rule per active imported target in those groups.
+
+Bulk watch scopes create ordinary watch rules behind the scenes. If you choose a park, selected park groups, state, or current map view, Camp Finder creates one watch per active imported target in that scope, using the same date pattern and filters from the watch form. Preset-only markers can be inspected from the map, but they need to be imported as targets before a recurring watch can scan them.
 
 Use the current map view scope for practical regions that do not line up with park or state names. Pan and zoom the Washington-centered map until the campgrounds you care about are visible, click Watch View, confirm the dates and filters, then save. A freehand polygon selector is not implemented yet, but the map-bounds scope covers the common "everything in this area for Friday and Saturday" workflow without adding another drawing mode.
 
@@ -190,7 +197,7 @@ Then open `http://localhost:8080`. Local source builds use the named Docker volu
 
 1. Open the Targets drawer and import a preset pack or run a live source import.
 2. Open the map, inspect target coverage, and import any preset-only campgrounds you want to scan.
-3. Open the Watches drawer and create a watch for one campground, a park group, a state, or the current map view.
+3. Open the Watches drawer and create a watch for one campground, a park group, selected park groups, a state, or the current map view.
 4. Open Settings and confirm scan cadence, request delay, rate-limit backoff, and notification channels.
 5. Send a test notification before relying on unattended scans.
 6. Use Download in Settings to save a backup once targets, watches, and settings look right.

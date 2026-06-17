@@ -685,6 +685,10 @@ small {
   clip: rect(0 0 0 0);
 }
 
+.park-region-box {
+  cursor: pointer;
+}
+
 .leaflet-popup-content {
   color: #17332c;
   font: 13px/1.35 Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -880,23 +884,69 @@ small {
   min-width: 0;
 }
 
+.park-selection-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.park-selection-actions .icon-button {
+  width: 100%;
+  min-width: 0;
+}
+
 .park-chip {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   width: 100%;
   min-height: 58px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: #fbfdfc;
-  padding: 10px;
+  padding: 9px;
   text-align: left;
 }
 
 .park-chip.selected {
   border-color: #2786c8;
   background: #f2f9fb;
+}
+
+.park-chip.checked {
+  border-color: #0f5e46;
+  box-shadow: inset 3px 0 0 #0f5e46;
+}
+
+.park-chip-checkbox {
+  width: 30px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+}
+
+.park-chip-checkbox input {
+  width: 18px;
+  height: 18px;
+  min-height: 18px;
+  padding: 0;
+  accent-color: var(--forest);
+}
+
+.park-chip-main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+  min-height: 38px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  padding: 0;
+  text-align: left;
 }
 
 .park-chip strong,

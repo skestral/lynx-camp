@@ -65,10 +65,11 @@ type ResultSort = "newest" | "arrival" | "park";
 type DrawerMode = "alerts" | "activity" | "targets" | "watches" | "settings";
 type PageView = "monitor" | "logs";
 type UtilityTab = "release" | "activity" | "settings";
-type WatchScope = "target" | "park" | "state" | "map";
+type WatchScope = "target" | "park" | "state" | "map" | "selection";
 type MapSelection =
   | { kind: "park"; parkName: string }
   | { kind: "campground"; campgroundId: string };
+type LatLngBoundsTuple = [[number, number], [number, number]];
 type ScanProgress = {
   title: string;
   detail: string;
@@ -330,6 +331,7 @@ type ParkSummary = {
   activeResultCount: number;
   latitude: number;
   longitude: number;
+  bounds: LatLngBoundsTuple | null;
   campgrounds: CampgroundMapPoint[];
 };
 
@@ -592,6 +594,22 @@ function escapeHtml(value: string) {
   });
 }
 
+function boundsForCampgrounds(campgrounds: CampgroundMapPoint[]): LatLngBoundsTuple | null {
+  if (campgrounds.length === 0) return null;
+  const latitudes = campgrounds.map((campground) => campground.latitude);
+  const longitudes = campgrounds.map((campground) => campground.longitude);
+  const minLat = Math.min(...latitudes);
+  const maxLat = Math.max(...latitudes);
+  const minLng = Math.min(...longitudes);
+  const maxLng = Math.max(...longitudes);
+  const latPad = Math.max((maxLat - minLat) * 0.18, 0.04);
+  const lngPad = Math.max((maxLng - minLng) * 0.18, 0.04);
+  return [
+    [minLat - latPad, minLng - lngPad],
+    [maxLat + latPad, maxLng + lngPad]
+  ];
+}
+
 async function writeClipboardText(text: string) {
   if (navigator.clipboard?.writeText) {
     try {
@@ -713,6 +731,7 @@ export default function App() {
   const [pageView, setPageView] = useState<PageView>(() => (window.location.hash === "#logs" ? "logs" : "monitor"));
   const [utilityTab, setUtilityTab] = useState<UtilityTab>("release");
   const [mapSelection, setMapSelection] = useState<MapSelection | null>(null);
+  const [selectedParkGroups, setSelectedParkGroups] = useState<string[]>([]);
   const [campgroundDetails, setCampgroundDetails] = useState<Record<string, CampgroundDetails>>({});
   const [campgroundDetailsBusyId, setCampgroundDetailsBusyId] = useState<string | null>(null);
   const [campgroundDetailsErrors, setCampgroundDetailsErrors] = useState<Record<string, string>>({});
@@ -729,6 +748,7 @@ export default function App() {
   const resultListTruncated = totalResultCount > loadedResultCount;
   const isLogsPage = pageView === "logs";
   const selectedResultSet = useMemo(() => new Set(selectedResultIds), [selectedResultIds]);
+  const selectedParkGroupSet = useMemo(() => new Set(selectedParkGroups), [selectedParkGroups]);
   const selectedResults = useMemo(
     () => results.filter((result) => selectedResultSet.has(result.id)),
     [results, selectedResultSet]
@@ -918,7 +938,7 @@ export default function App() {
   const parkSummaries = useMemo<ParkSummary[]>(() => {
     const summaries = new Map<
       string,
-      Omit<ParkSummary, "stateCodes" | "latitude" | "longitude"> & { stateCodeSet: Set<string> }
+      Omit<ParkSummary, "stateCodes" | "latitude" | "longitude" | "bounds"> & { stateCodeSet: Set<string> }
     >();
     const resultCountsByCampground = new Map<string, { resultCount: number; activeResultCount: number }>();
 
@@ -1029,6 +1049,7 @@ export default function App() {
           activeResultCount: summary.activeResultCount,
           latitude: Number.isFinite(latitude) ? latitude : 44.5,
           longitude: Number.isFinite(longitude) ? longitude : -118,
+          bounds: boundsForCampgrounds(summary.campgrounds),
           campgrounds: summary.campgrounds.sort((a, b) => a.name.localeCompare(b.name))
         };
       });
@@ -1175,6 +1196,20 @@ export default function App() {
     for (const summary of parkSummaries) {
       const selectedPark =
         resultQuery === summary.parkName || (mapSelection?.kind === "park" && mapSelection.parkName === summary.parkName);
+      const selectedGroup = selectedParkGroupSet.has(summary.parkName);
+      if (summary.bounds) {
+        L.rectangle(summary.bounds, {
+          className: `park-region-box ${selectedPark ? "selected" : ""} ${selectedGroup ? "checked" : ""}`,
+          color: selectedPark || selectedGroup ? "#0f5e46" : "#2786c8",
+          fillColor: selectedGroup ? "#0f5e46" : "#2786c8",
+          fillOpacity: selectedPark || selectedGroup ? 0.13 : 0.05,
+          opacity: selectedPark || selectedGroup ? 0.8 : 0.45,
+          weight: selectedPark || selectedGroup ? 2 : 1
+        })
+          .addTo(markerLayer)
+          .bindTooltip(summary.parkName, { sticky: true })
+          .on("click", () => selectParkRegion(summary));
+      }
       const parkIcon = L.divIcon({
         className: `park-map-marker ${summary.activeResultCount ? "has-results" : ""} ${selectedPark ? "selected" : ""}`,
         html: `<strong>${summary.targetCount}</strong><small>${summary.activeResultCount}</small>`,
@@ -1189,13 +1224,11 @@ export default function App() {
             `${summary.activeResultCount} active result${summary.activeResultCount === 1 ? "" : "s"}`
         )
         .on("click", () => {
-          setMapSelection({ kind: "park", parkName: summary.parkName });
-          setResultQuery(summary.parkName);
-          setResultSort("park");
-          setResultView(summary.activeResultCount > 0 ? "active" : "all");
-          setResultGroupOpen((current) => ({ ...current, [`park:${summary.parkName}`]: true }));
+          selectParkRegion(summary);
         });
-      if (query && selectedPark) {
+      if (summary.bounds && (selectedPark || selectedGroup)) {
+        selectedBounds.extend(L.latLngBounds(summary.bounds));
+      } else if (query && selectedPark) {
         selectedBounds.extend([summary.latitude, summary.longitude]);
       }
 
@@ -1243,7 +1276,7 @@ export default function App() {
     } else {
       map.fitBounds(washingtonMapBounds, { padding: [10, 10] });
     }
-  }, [mapSelection, parkSummaries, resultQuery]);
+  }, [mapSelection, parkSummaries, resultQuery, selectedParkGroupSet]);
 
   async function refresh(options?: { silent?: boolean }) {
     if (!options?.silent) setLoadState("loading");
@@ -1724,6 +1757,8 @@ export default function App() {
       setMessage(
         watchScope === "map"
           ? "Move the map over imported active targets before creating a map-view watch."
+          : watchScope === "selection"
+          ? "Select one or more park groups with active imported targets before creating a selected-region watch."
           : "Choose at least one imported active target for this watch."
       );
       return;
@@ -2228,13 +2263,23 @@ export default function App() {
     }, 0);
   }
 
-  function focusPark(summary: ParkSummary) {
+  function selectParkRegion(summary: ParkSummary) {
     setMapSelection({ kind: "park", parkName: summary.parkName });
     setResultQuery(summary.parkName);
     setResultSort("park");
     setResultView(summary.activeResultCount > 0 ? "active" : "all");
     setResultGroupOpen((current) => ({ ...current, [`park:${summary.parkName}`]: true }));
+  }
+
+  function focusPark(summary: ParkSummary) {
+    selectParkRegion(summary);
     scrollToResults();
+  }
+
+  function toggleParkGroupSelection(parkName: string) {
+    setSelectedParkGroups((current) =>
+      current.includes(parkName) ? current.filter((item) => item !== parkName) : [...current, parkName].sort()
+    );
   }
 
   function focusCampgroundResults(campground: CampgroundMapPoint) {
@@ -2272,6 +2317,9 @@ export default function App() {
     if (watchScope === "state") {
       return activeTargets.filter((target) => (target.state_code || "US") === watchStateCode);
     }
+    if (watchScope === "selection") {
+      return activeTargets.filter((target) => selectedParkGroupSet.has(target.park_name || "Unassigned park"));
+    }
     return activeTargetsInMapView();
   }
 
@@ -2281,6 +2329,9 @@ export default function App() {
     if (watchScope === "target") return "Creates one watch for the selected campground.";
     if (watchScope === "park") return `Creates ${selected.length} watch rule${selected.length === 1 ? "" : "s"} across ${watchPark || "this park"}.`;
     if (watchScope === "state") return `Creates ${selected.length} watch rule${selected.length === 1 ? "" : "s"} across ${watchStateCode || "this state"}.`;
+    if (watchScope === "selection") {
+      return `Creates ${selected.length} watch rule${selected.length === 1 ? "" : "s"} across ${selectedParkGroups.length} selected park group${selectedParkGroups.length === 1 ? "" : "s"}.`;
+    }
     return `Creates ${selected.length} watch rule${selected.length === 1 ? "" : "s"} inside the current map view.`;
   }
 
@@ -2311,6 +2362,16 @@ export default function App() {
         ? `Map-view watch will use ${count} active imported target${count === 1 ? "" : "s"} in the current map window.`
         : "Move the map over active imported targets before creating a map-view watch."
     );
+    openDrawer("watches");
+  }
+
+  function openWatchBuilderForSelectedParks() {
+    if (selectedParkGroups.length === 0) {
+      setMessage("Select one or more park groups before creating a selected-region watch.");
+      return;
+    }
+    setWatchScope("selection");
+    setEditingWatchId(null);
     openDrawer("watches");
   }
 
@@ -2346,6 +2407,7 @@ export default function App() {
     if (selectedMapPark) {
       const activeImportedCount = selectedMapPark.campgrounds.filter((campground) => campground.imported && campground.active).length;
       const previewCampgrounds = selectedMapPark.campgrounds.slice(0, 5);
+      const selectedGroup = selectedParkGroupSet.has(selectedMapPark.parkName);
 
       return (
         <section className="map-detail" aria-label="Selected park details">
@@ -2378,6 +2440,14 @@ export default function App() {
             <button className="icon-button primary" disabled={activeImportedCount === 0} onClick={() => openWatchBuilderForPark(selectedMapPark.parkName)} type="button">
               <CalendarDays size={16} />
               <span>Watch Park</span>
+            </button>
+            <button
+              className={`icon-button ${selectedGroup ? "primary" : ""}`}
+              onClick={() => toggleParkGroupSelection(selectedMapPark.parkName)}
+              type="button"
+            >
+              <CheckCircle2 size={16} />
+              <span>{selectedGroup ? "Selected" : "Select Group"}</span>
             </button>
             <button className="icon-button" onClick={() => focusPark(selectedMapPark)} type="button">
               <ListChecks size={16} />
@@ -3410,6 +3480,7 @@ export default function App() {
                   <option value="park">Park group</option>
                   <option value="state">State</option>
                   <option value="map">Current map view</option>
+                  <option value="selection">Selected park groups</option>
                 </select>
               </label>
               {(editingWatchId || watchScope === "target") && (
@@ -4041,25 +4112,54 @@ export default function App() {
               {renderMapSelectionPanel()}
               <div className="subheading">
                 <strong>Park Queue</strong>
-                <small>{parkSummaries.length} park group{parkSummaries.length === 1 ? "" : "s"} tracked</small>
+                <small>
+                  {parkSummaries.length} park group{parkSummaries.length === 1 ? "" : "s"} tracked
+                  {selectedParkGroups.length ? ` · ${selectedParkGroups.length} selected` : ""}
+                </small>
               </div>
-              <div className="park-chip-strip">
-                {parkSummaries.map((summary) => (
-                  <button
-                    className={`park-chip ${resultQuery === summary.parkName ? "selected" : ""}`}
-                    key={summary.parkName}
-                    onClick={() => focusPark(summary)}
-                    type="button"
-                  >
-                    <span>
-                      <strong>{summary.parkName}</strong>
-                      <small>{summary.activeTargetCount}/{summary.targetCount} targets active</small>
-                    </span>
-                    <span className={`status ${summary.activeResultCount ? "success" : "quiet"}`}>
-                      {summary.activeResultCount || summary.resultCount}
-                    </span>
+              {selectedParkGroups.length > 0 && (
+                <div className="park-selection-actions">
+                  <button className="icon-button primary" onClick={openWatchBuilderForSelectedParks} type="button">
+                    <CalendarDays size={16} />
+                    <span>Watch Selected</span>
                   </button>
-                ))}
+                  <button className="icon-button" onClick={() => setSelectedParkGroups([])} type="button">
+                    <X size={16} />
+                    <span>Clear</span>
+                  </button>
+                </div>
+              )}
+              <div className="park-chip-strip">
+                {parkSummaries.map((summary) => {
+                  const selectedGroup = selectedParkGroupSet.has(summary.parkName);
+                  const activePark =
+                    resultQuery === summary.parkName ||
+                    (mapSelection?.kind === "park" && mapSelection.parkName === summary.parkName);
+                  return (
+                    <article
+                      className={`park-chip ${activePark ? "selected" : ""} ${selectedGroup ? "checked" : ""}`}
+                      key={summary.parkName}
+                    >
+                      <label className="park-chip-checkbox">
+                        <input
+                          aria-label={`Select ${summary.parkName} park group`}
+                          checked={selectedGroup}
+                          onChange={() => toggleParkGroupSelection(summary.parkName)}
+                          type="checkbox"
+                        />
+                      </label>
+                      <button className="park-chip-main" onClick={() => selectParkRegion(summary)} type="button">
+                        <span>
+                          <strong>{summary.parkName}</strong>
+                          <small>{summary.activeTargetCount}/{summary.targetCount} targets active</small>
+                        </span>
+                        <span className={`status ${summary.activeResultCount ? "success" : "quiet"}`}>
+                          {summary.activeResultCount || summary.resultCount}
+                        </span>
+                      </button>
+                    </article>
+                  );
+                })}
               </div>
             </aside>
           </section>
