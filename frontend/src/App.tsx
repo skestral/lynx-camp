@@ -33,6 +33,7 @@ import { api } from "./api";
 import type {
   CartAssistStatus,
   CartAttempt,
+  CartAttemptStatus,
   ConfigBackup,
   NotificationEvent,
   NotificationStatus,
@@ -177,7 +178,7 @@ function isActiveAvailability(result: Result) {
 }
 
 function statusTone(status: string) {
-  if (status.startsWith("error")) return "danger";
+  if (status.startsWith("error") || status === "failed") return "danger";
   if (status === "needs_credentials" || status === "cooldown" || status === "manual_required") return "warning";
   if (status === "available" || status === "booked") return "success";
   if (status === "clear" || status === "opened" || status === "running") return "calm";
@@ -269,6 +270,7 @@ export default function App() {
   const [cartAssistPassword, setCartAssistPassword] = useState("");
   const [cartAssistConfigDirty, setCartAssistConfigDirty] = useState(false);
   const [cartAssistConfigBusy, setCartAssistConfigBusy] = useState<"save" | "clear" | null>(null);
+  const [cartAttemptBusyId, setCartAttemptBusyId] = useState<number | null>(null);
   const [loadState, setLoadState] = useState<LoadState>("idle");
   const [message, setMessage] = useState("");
   const [query, setQuery] = useState("");
@@ -1137,6 +1139,20 @@ export default function App() {
       setMessage(error instanceof Error ? error.message : "Unable to clear Cart Assist credentials.");
     } finally {
       setCartAssistConfigBusy(null);
+    }
+  }
+
+  async function updateCartAttemptStatus(attempt: CartAttempt, status: CartAttemptStatus) {
+    setCartAttemptBusyId(attempt.id);
+    setMessage("");
+    try {
+      const updated = await api.updateCartAttemptStatus(attempt.id, status);
+      setMessage(`Marked Cart Assist for ${updated.site} as ${status.split("_").join(" ")}.`);
+      await refresh();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unable to update Cart Assist attempt.");
+    } finally {
+      setCartAttemptBusyId(null);
     }
   }
 
@@ -2098,21 +2114,78 @@ export default function App() {
               {cartAttempts.length === 0 ? (
                 <p className="empty compact">No cart assist attempts yet.</p>
               ) : (
-                cartAttempts.slice(0, 4).map((attempt) => (
-                  <article className="status-row" key={attempt.id}>
-                    <span>
-                      <strong>{attempt.site}</strong>
-                      <small>
-                        {attempt.target_name} &middot; {formatDate(attempt.arrival_date)} to {formatDate(attempt.departure_date)}
-                      </small>
-                      <small>{attempt.message}</small>
-                    </span>
-                    <span>
-                      <span className={`status ${statusTone(attempt.status)}`}>{attempt.status.split("_").join(" ")}</span>
-                      <small>{formatDateTime(attempt.attempted_at)}</small>
-                    </span>
-                  </article>
-                ))
+                cartAttempts.slice(0, 4).map((attempt) => {
+                  const busy = cartAttemptBusyId === attempt.id;
+                  const checkoutReady = attempt.status === "manual_required" || attempt.status === "opened";
+                  const canMakeReady = ["needs_credentials", "disabled", "failed"].includes(attempt.status);
+                  return (
+                    <article className="status-row cart-attempt-row" key={attempt.id}>
+                      <span>
+                        <strong>{attempt.site}</strong>
+                        <small>
+                          {attempt.target_name} &middot; {formatDate(attempt.arrival_date)} to {formatDate(attempt.departure_date)}
+                        </small>
+                        <small>{attempt.message}</small>
+                        {attempt.finished_at && <small>Resolved {formatDateTime(attempt.finished_at)}</small>}
+                      </span>
+                      <span>
+                        <span className={`status ${statusTone(attempt.status)}`}>{attempt.status.split("_").join(" ")}</span>
+                        <small>{formatDateTime(attempt.attempted_at)}</small>
+                        <span className="cart-attempt-actions">
+                          {checkoutReady && (
+                            <a
+                              className="link-button compact"
+                              href={attempt.booking_url}
+                              onClick={() => void updateCartAttemptStatus(attempt, "opened")}
+                              rel="noreferrer"
+                              target="_blank"
+                            >
+                              <ExternalLink size={15} /> Open
+                            </a>
+                          )}
+                          {canMakeReady && (
+                            <button
+                              className="icon-button compact"
+                              disabled={busy}
+                              onClick={() => void updateCartAttemptStatus(attempt, "manual_required")}
+                              type="button"
+                            >
+                              <RefreshCw size={15} /> Ready
+                            </button>
+                          )}
+                          {checkoutReady && (
+                            <>
+                              <button
+                                className="icon-button compact"
+                                disabled={busy}
+                                onClick={() => void updateCartAttemptStatus(attempt, "booked")}
+                                type="button"
+                              >
+                                <CheckCircle2 size={15} /> Booked
+                              </button>
+                              <button
+                                className="icon-button compact"
+                                disabled={busy}
+                                onClick={() => void updateCartAttemptStatus(attempt, "dismissed")}
+                                type="button"
+                              >
+                                <Trash2 size={15} /> Dismiss
+                              </button>
+                              <button
+                                className="icon-button compact"
+                                disabled={busy}
+                                onClick={() => void updateCartAttemptStatus(attempt, "failed")}
+                                type="button"
+                              >
+                                <X size={15} /> Failed
+                              </button>
+                            </>
+                          )}
+                        </span>
+                      </span>
+                    </article>
+                  );
+                })
               )}
             </div>
             <div className="backup-tools">

@@ -49,6 +49,10 @@ def _target_with_coordinates(target: dict[str, Any] | None) -> dict[str, Any] | 
     return target
 
 
+ACTIONABLE_CART_ATTEMPT_STATUSES = {"manual_required", "opened", "hold_queued", "hold_attempted"}
+FINISHED_CART_ATTEMPT_STATUSES = {"skipped", "disabled", "needs_credentials", "cooldown", "booked", "dismissed", "failed"}
+
+
 class Store:
     def __init__(self, database_path: Path):
         self.database_path = Path(database_path)
@@ -915,6 +919,7 @@ class Store:
 
     def record_cart_attempt(self, result: dict[str, Any], status: str, message: str) -> tuple[dict[str, Any], bool]:
         now = utc_now()
+        finished_at = now if status in FINISHED_CART_ATTEMPT_STATUSES else None
         with self.connect() as conn:
             cursor = conn.execute(
                 """
@@ -935,23 +940,77 @@ class Store:
                     status,
                     message,
                     now,
-                    now,
+                    finished_at,
                 ),
             )
             row = conn.execute("SELECT * FROM cart_attempts WHERE result_id = ?", (int(result["id"]),)).fetchone()
             return _row_to_dict(row) or {}, cursor.rowcount > 0
 
+    def update_cart_attempt_status(self, attempt_id: int, status: str, message: str | None = None) -> dict[str, Any] | None:
+        if status not in {"manual_required", "opened", "booked", "dismissed", "failed"}:
+            raise ValueError(f"unsupported cart attempt status {status}")
+
+        now = utc_now()
+        finished_at = now if status in FINISHED_CART_ATTEMPT_STATUSES else None
+        with self.connect() as conn:
+            current = conn.execute("SELECT * FROM cart_attempts WHERE id = ?", (attempt_id,)).fetchone()
+            if current is None:
+                return None
+
+            final_message = message
+            if final_message is None:
+                final_message = {
+                    "manual_required": "Marked ready for manual Recreation.gov checkout.",
+                    "opened": "Opened the Recreation.gov booking link for manual checkout.",
+                    "booked": "Marked as booked after manual checkout.",
+                    "dismissed": "Dismissed after reviewing the Cart Assist attempt.",
+                    "failed": "Marked failed after manual checkout could not continue.",
+                }[status]
+
+            conn.execute(
+                """
+                UPDATE cart_attempts
+                SET status = ?, message = ?, finished_at = ?
+                WHERE id = ?
+                """,
+                (status, final_message, finished_at, attempt_id),
+            )
+
+            result_status = {"opened": "opened", "booked": "booked", "dismissed": "dismissed"}.get(status)
+            if result_status:
+                timestamp_column = {
+                    "opened": "opened_at",
+                    "booked": "booked_at",
+                    "dismissed": "dismissed_at",
+                }[result_status]
+                active = 1 if result_status == "opened" else 0
+                conn.execute(
+                    f"""
+                    UPDATE results
+                    SET status = ?,
+                        active = ?,
+                        {timestamp_column} = COALESCE({timestamp_column}, ?)
+                    WHERE id = ?
+                    """,
+                    (result_status, active, now, int(current["result_id"])),
+                )
+
+            row = conn.execute("SELECT * FROM cart_attempts WHERE id = ?", (attempt_id,)).fetchone()
+            return _row_to_dict(row)
+
     def count_recent_cart_attempts(self, minutes: int) -> int:
         cutoff = (datetime.now(UTC).replace(microsecond=0) - timedelta(minutes=max(1, int(minutes)))).isoformat()
+        actionable_statuses = sorted(ACTIONABLE_CART_ATTEMPT_STATUSES)
+        placeholders = ", ".join(["?"] * len(actionable_statuses))
         with self.connect() as conn:
             row = conn.execute(
-                """
+                f"""
                 SELECT COUNT(*) AS count
                 FROM cart_attempts
                 WHERE attempted_at >= ?
-                  AND status NOT IN ('skipped', 'disabled', 'needs_credentials', 'cooldown')
+                  AND status IN ({placeholders})
                 """,
-                (cutoff,),
+                (cutoff, *actionable_statuses),
             ).fetchone()
             return int(row["count"] if row else 0)
 

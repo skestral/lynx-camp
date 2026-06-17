@@ -855,6 +855,25 @@ td small {
   gap: 9px;
 }
 
+.cart-attempt-row {
+  align-items: start;
+}
+
+.cart-attempt-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 7px;
+  margin-top: 8px;
+}
+
+.icon-button.compact,
+.link-button.compact {
+  min-height: 32px;
+  padding: 0 9px;
+  font-size: 12px;
+}
+
 .backup-tools {
   border-top: 1px solid var(--line);
   margin-top: 13px;
@@ -1587,6 +1606,10 @@ th {
   }
 
   .row-actions {
+    justify-content: flex-start;
+  }
+
+  .cart-attempt-actions {
     justify-content: flex-start;
   }
 

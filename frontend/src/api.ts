@@ -2,6 +2,7 @@ import type {
   CartAssistConfigPayload,
   CartAssistStatus,
   CartAttempt,
+  CartAttemptStatus,
   ConfigBackup,
   ConfigImportResult,
   NotificationEvent,
@@ -44,6 +45,11 @@ export const api = {
     request<CartAssistStatus>("/api/cart-assist/config", { method: "PATCH", body: JSON.stringify(payload) }),
   clearCartAssistCredentials: () =>
     request<CartAssistStatus>("/api/cart-assist/credentials/clear", { method: "POST" }),
+  updateCartAttemptStatus: (attemptId: number, status: CartAttemptStatus) =>
+    request<CartAttempt>(`/api/cart-assist/attempts/${attemptId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ status })
+    }),
   notificationStatus: () => request<NotificationStatus>("/api/notifications/status"),
   testNotifications: () =>
     request<NotificationTestResult>("/api/notifications/test", { method: "POST" }),

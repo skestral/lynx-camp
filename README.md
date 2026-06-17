@@ -89,6 +89,7 @@ Recreation.gov says booking windows are set by individual facilities and lists b
 - The server records at most one configured attempt per scan by default.
 - A cooldown prevents repeated attempts from piling up.
 - Credentials, if used, belong in the server `.env` file or in the dashboard-managed appdata settings, not in browser local storage.
+- Attempt records can be marked opened, booked, dismissed, failed, or ready again from the dashboard.
 - This build records readiness and manual-checkout attempts. It does not run an automated browser worker yet, does not submit payment, and does not bypass login, CAPTCHA, or any ambiguous Recreation.gov screen.
 
 The next safe step is a separate browser worker that can use one persistent Recreation.gov session, stop on any challenge or uncertainty, and hand the final checkout decision back to you. That worker should be explicitly enabled only after reviewing current Recreation.gov terms and the behavior of your account.
@@ -197,10 +198,16 @@ For high-priority trips, enable Cart Assist on the watch rule. When a new match 
 - `disabled`: the watch asked for Cart Assist, but the server feature flag is off.
 - `needs credentials`: the server flag is on, but Recreation.gov credentials are not configured.
 - `manual required`: the server is ready and the match should be handled in Recreation.gov manually.
+- `opened`: the booking link was opened from the dashboard and still needs a final decision.
+- `booked`: you successfully reserved the site.
+- `dismissed`: you reviewed the hit and decided not to pursue it.
+- `failed`: checkout could not continue or the page did not match expectations.
 - `cooldown`: a recent attempt already happened and the cooldown is still active.
 - `skipped`: the per-scan attempt cap has already been reached.
 
 These records are shown in the Notifications & Server Settings panel. They are intentionally boring and explicit, because a hold workflow needs a trustworthy log more than it needs surprises.
+
+Use Open on a ready Cart Assist record to open the Recreation.gov booking page and mark the attempt as opened. After you decide what happened, mark it Booked, Dismissed, or Failed. Booked and dismissed attempts also update the matching availability result, and resolved attempts no longer count against the cooldown. If an attempt was created before credentials were configured, use Ready after the server settings are fixed to make it an active manual-checkout task without creating a duplicate record.
 
 ## Map Provider
 

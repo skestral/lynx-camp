@@ -151,6 +151,8 @@ export type CartAttempt = {
   finished_at: string | null;
 };
 
+export type CartAttemptStatus = "manual_required" | "opened" | "booked" | "dismissed" | "failed";
+
 export type ScanRun = {
   id: number;
   watch_id: number;

@@ -17,6 +17,7 @@ from .recreation import RecreationClient
 from .scanner import Scanner, generate_trip_windows, release_hints
 from .schemas import (
     CartAssistConfigUpdate,
+    CartAttemptStatusUpdate,
     ConfigBackup,
     ResultStatusUpdate,
     TargetCreate,
@@ -291,6 +292,17 @@ def clear_cart_assist_credentials() -> dict:
 @app.get("/api/cart-assist/attempts")
 def list_cart_attempts(limit: int = Query(default=25, ge=1, le=100)) -> list[dict]:
     return store.list_cart_attempts(limit)
+
+
+@app.patch("/api/cart-assist/attempts/{attempt_id}")
+def update_cart_attempt(attempt_id: int, payload: CartAttemptStatusUpdate) -> dict:
+    try:
+        attempt = store.update_cart_attempt_status(attempt_id, payload.status, payload.message)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if attempt is None:
+        raise HTTPException(status_code=404, detail=f"cart attempt {attempt_id} not found")
+    return attempt
 
 
 if settings.static_dir.exists():

@@ -175,3 +175,8 @@ class CartAssistConfigUpdate(BaseModel):
     max_attempts_per_scan: int | None = Field(default=None, ge=1, le=25)
     username: str | None = Field(default=None, max_length=200)
     password: str | None = Field(default=None, max_length=500)
+
+
+class CartAttemptStatusUpdate(BaseModel):
+    status: Literal["manual_required", "opened", "booked", "dismissed", "failed"]
+    message: str | None = Field(default=None, max_length=500)

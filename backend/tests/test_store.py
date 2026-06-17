@@ -451,7 +451,89 @@ def test_cart_attempts_are_logged_once_per_result(tmp_path) -> None:
     assert attempts[0]["watch_name"] == "High priority weekend"
     assert attempts[0]["target_name"] == "Kalaloch"
     assert attempts[0]["status"] == "manual_required"
+    assert attempts[0]["finished_at"] is None
     assert store.count_recent_cart_attempts(minutes=30) == 1
+
+
+def test_cart_attempt_status_updates_result_and_cooldown(tmp_path) -> None:
+    store = Store(tmp_path / "campfinder.db")
+    store.init()
+    target = store.create_target(
+        {
+            "name": "Kalaloch",
+            "campground_id": "232464",
+            "park_name": "Olympic National Park",
+            "state_code": "WA",
+            "release_months": 6,
+            "release_time": "07:00",
+            "timezone": "America/Los_Angeles",
+            "poll_interval_minutes": 10,
+        }
+    )
+    watch = store.create_watch(
+        {
+            "target_id": target["id"],
+            "name": "High priority weekend",
+            "mode": "weekend",
+            "pattern": "4-2n",
+            "arrival_weekdays": [4],
+            "nights": 2,
+            "window_start": "2026-07-01",
+            "window_end": "2026-08-31",
+            "specific_ranges": [],
+            "cart_assist_enabled": True,
+        }
+    )
+    result, _created = store.upsert_result(
+        {
+            "watch_id": watch["id"],
+            "target_id": target["id"],
+            "campground_id": "232464",
+            "campground_name": "Kalaloch",
+            "campsite_id": "101",
+            "site": "A01",
+            "loop": "A",
+            "campsite_type": "Tent",
+            "arrival_date": "2026-07-03",
+            "departure_date": "2026-07-05",
+            "booking_url": "https://www.recreation.gov/camping/campsites/101",
+        }
+    )
+    attempt, _created = store.record_cart_attempt(result, "manual_required", "Ready for manual checkout.")
+
+    opened = store.update_cart_attempt_status(attempt["id"], "opened")
+
+    assert opened is not None
+    assert opened["status"] == "opened"
+    assert opened["finished_at"] is None
+    assert store.count_recent_cart_attempts(minutes=30) == 1
+    result_after_open = {item["id"]: item for item in store.list_results()}[result["id"]]
+    assert result_after_open["status"] == "opened"
+    assert result_after_open["active"] == 1
+
+    failed = store.update_cart_attempt_status(attempt["id"], "failed")
+
+    assert failed is not None
+    assert failed["status"] == "failed"
+    assert failed["finished_at"] is not None
+    assert store.count_recent_cart_attempts(minutes=30) == 0
+
+    ready = store.update_cart_attempt_status(attempt["id"], "manual_required")
+
+    assert ready is not None
+    assert ready["status"] == "manual_required"
+    assert ready["finished_at"] is None
+    assert store.count_recent_cart_attempts(minutes=30) == 1
+
+    booked = store.update_cart_attempt_status(attempt["id"], "booked")
+
+    assert booked is not None
+    assert booked["status"] == "booked"
+    assert booked["finished_at"] is not None
+    assert store.count_recent_cart_attempts(minutes=30) == 0
+    result_after_booked = {item["id"]: item for item in store.list_results()}[result["id"]]
+    assert result_after_booked["status"] == "booked"
+    assert result_after_booked["active"] == 0
 
 
 def test_app_settings_are_persisted_and_deleted(tmp_path) -> None:
