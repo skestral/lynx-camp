@@ -21,7 +21,8 @@ The app is still notification-first. It opens Recreation.gov booking links when 
 - Temporarily increase scan cadence around calculated release times.
 - Run every active watch on demand with the Scan All control.
 - See the latest scan state at the top of the dashboard, including manual scans and background scans that are still running.
-- Open Activity Diagnostics for scan run history, server checkpoint logs, and a manual Stop Scan control.
+- Open the Activity drawer for scan run history, recent checkpoint events, and a manual Stop Scan control.
+- Open the Logs page for a deeper diagnostic view of scan events, durable runs, and notification delivery.
 - Revalidate previously available matches on each successful scan and remove matches that Recreation.gov no longer returns.
 - Review recent scan activity, including candidate counts, matches, status, and messages.
 - Calculate likely release windows from a target-specific booking window, release time, and timezone.
@@ -42,16 +43,18 @@ The app is still notification-first. It opens Recreation.gov booking links when 
 The dashboard is organized around the work that usually matters first:
 
 1. Scan state and summary counts show whether Camp Finder is idle, scanning, or showing the last completed scan.
-2. Activity Diagnostics shows the active scanner state, recent scan runs, detailed server checkpoint logs, and Stop Scan.
-3. The map uses Leaflet with OpenStreetMap tiles to show saved targets plus preset park/campground options. It now takes the main dashboard width, with the park queue in a compact strip below the map. Selecting a marker or park chip filters the results list and moves you to the matching availability. View Results jumps straight from the map to the working list.
+2. The sidebar opens slide-out drawers for Alerts, Activity, Targets, Watches, and Settings. These tools stay available without stretching the main dashboard.
+3. The map uses Leaflet with OpenStreetMap tiles to show saved targets plus preset park/campground options. It takes the main dashboard width, with the park queue in a compact strip below the map. Selecting a marker or park chip filters the results list and moves you to the matching availability. View Results jumps straight from the map to the working list.
 4. Availability Results stay in the main working area so new matches are not buried below target and watch configuration.
-5. Target and watch setup live in the slide-out drawer. Use the Targets and Watches buttons in the header or sidebar to open it.
-6. Result filters let you switch between active, all, available, opened, booked, and dismissed results.
-7. Result search matches park name, campground, site, loop, campsite type, watch name, and stay dates.
-8. Sort controls support newest first, arrival date, and park/campground grouping.
-9. Select Visible lets you bulk dismiss, mark booked, or reopen the results currently in view.
+5. The Alerts drawer gives quick access to active matches, recent notification delivery, View Results, and Clear All.
+6. The Activity drawer shows the active scanner state, recent scan runs, recent checkpoint events, a Logs link, refresh, and Stop Scan.
+7. Target and watch setup live in the same slide-out drawer system. Use the Targets and Watches buttons in the header or sidebar to open them.
+8. Result filters let you switch between active, all, available, opened, booked, and dismissed results.
+9. Result search matches park name, campground, site, loop, campsite type, watch name, and stay dates.
+10. Sort controls support newest first, arrival date, and park/campground grouping.
+11. Select Visible lets you bulk dismiss, mark booked, or reopen the results currently in view.
 
-In normal use, you add or import targets, create watch rules, then spend most of your time in the map, scan status, diagnostics, and results sections. Release hints, a short scan activity summary, notifications, Cart Assist, and backups live in a full-width tabbed utility widget below Availability Results. The dock shows one workflow at a time so the main page stays scannable without burying result handling.
+In normal use, you add or import targets, create watch rules, then spend most of your time in the map, scan status, and results sections. Alerts, Activity, Targets, Watches, and Settings are slide-out drawers so the working area stays shorter. Release hints remain in a full-width planner below Availability Results, and the Logs link opens a dedicated diagnostics page when you need more detail than the Activity drawer shows.
 
 ## Preset Packs
 
@@ -186,7 +189,7 @@ For campgrounds with staggered releases, use View Profiles in Target Settings. I
 
 The scan status strip at the top of the dashboard changes as soon as a manual scan starts. While a scan is active, the dashboard refreshes scan runs, scan events, results, and Cart Assist attempts every few seconds so long Recreation.gov checks show which watch is currently running. It also uses recent scan-run records, so background scans that are still marked `running` can surface after the periodic dashboard refresh.
 
-Activity Diagnostics is the first place to look when a scan appears stuck. It shows durable scan rows plus checkpoint events such as scan start, candidate count, Recreation.gov month fetches, available-site discoveries, rate limits, errors, and cancellation requests. If the server restarts while a scan row is still marked `running`, startup marks that row `interrupted` so the dashboard does not keep showing a stale process forever.
+The Activity drawer is the first place to look when a scan appears stuck. It shows the current scanner state, recent durable scan rows, recent checkpoint events, refresh, a Logs link, and Stop Scan. The Logs page is the deeper diagnostic view. It shows the loaded checkpoint event stream beside recent scan runs and notification delivery, including events such as scan start, candidate count, Recreation.gov month fetches, available-site discoveries, rate limits, errors, and cancellation requests. If the server restarts while a scan row is still marked `running`, startup marks that row `interrupted` so the dashboard does not keep showing a stale process forever.
 
 Stop Scan asks the server to cancel the active scan at the next safe checkpoint and also marks any stale `running` rows as cancelled. It does not delete results or watch rules. A Recreation.gov request that is already in flight may take until its HTTP timeout before the scanner can stop, but the activity log records the stop request immediately.
 
@@ -211,7 +214,7 @@ For high-priority trips, enable Cart Assist on the watch rule. When a new match 
 - `cooldown`: a recent attempt already happened and the cooldown is still active.
 - `skipped`: the per-scan attempt cap has already been reached.
 
-These records are shown on the matching availability result card and in the Notifications & Server Settings panel. They are intentionally boring and explicit, because a hold workflow needs a trustworthy log more than it needs surprises.
+These records are shown on the matching availability result card and in the Settings drawer. They are intentionally boring and explicit, because a hold workflow needs a trustworthy log more than it needs surprises.
 
 The Remote hold guard row in the dashboard shows the server's current Cart Assist state before a scan creates anything. `ready` means the server flag and credentials are set and no active checkout task is inside the cooldown window. `needs credentials` means the watch can ask for Cart Assist, but the remote server still needs Recreation.gov credentials. `cooling down` means a manual-checkout task is already active inside the cooldown window, and the row shows roughly when the next attempt can be prepared. `off` means the server-level guard is disabled.
 
@@ -267,7 +270,7 @@ CAMPFINDER_SMTP_FROM=you@example.com
 CAMPFINDER_SMTP_TO=you@example.com
 ```
 
-The Notifications & Server Settings panel shows which channels are configured and which environment variables are missing. Use the test button there after changing `.env` to confirm delivery before relying on background scans.
+The Settings drawer shows which notification channels are configured and which environment variables are missing. Use the test button there after changing `.env` to confirm delivery before relying on background scans.
 
 ## Notes From OpenCamp
 

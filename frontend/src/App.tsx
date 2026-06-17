@@ -53,7 +53,8 @@ type LoadState = "idle" | "loading" | "error";
 
 type ResultView = "active" | "all" | Result["status"];
 type ResultSort = "newest" | "arrival" | "park";
-type SetupDrawerMode = "targets" | "watches";
+type DrawerMode = "alerts" | "activity" | "targets" | "watches" | "settings";
+type PageView = "monitor" | "logs";
 type UtilityTab = "release" | "activity" | "settings";
 type ScanProgress = {
   title: string;
@@ -418,8 +419,9 @@ export default function App() {
   const [filterLoop, setFilterLoop] = useState("");
   const [filterSite, setFilterSite] = useState("");
   const [filterMinPeople, setFilterMinPeople] = useState("");
-  const [setupDrawerOpen, setSetupDrawerOpen] = useState(false);
-  const [setupDrawerMode, setSetupDrawerMode] = useState<SetupDrawerMode>("targets");
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [drawerMode, setDrawerMode] = useState<DrawerMode>("targets");
+  const [pageView, setPageView] = useState<PageView>(() => (window.location.hash === "#logs" ? "logs" : "monitor"));
   const [utilityTab, setUtilityTab] = useState<UtilityTab>("release");
   const mapElementRef = useRef<HTMLDivElement | null>(null);
   const leafletMapRef = useRef<L.Map | null>(null);
@@ -432,6 +434,7 @@ export default function App() {
   const totalResultCount = resultSummary.total_count || loadedResultCount;
   const activeResultCount = resultSummary.active_count || activeResults.length;
   const resultListTruncated = totalResultCount > loadedResultCount;
+  const isLogsPage = pageView === "logs";
   const selectedResultSet = useMemo(() => new Set(selectedResultIds), [selectedResultIds]);
   const selectedResults = useMemo(
     () => results.filter((result) => selectedResultSet.has(result.id)),
@@ -718,6 +721,7 @@ export default function App() {
   }, [filteredResults]);
 
   useEffect(() => {
+    if (pageView !== "monitor") return;
     if (!mapElementRef.current || leafletMapRef.current) return;
 
     const map = L.map(mapElementRef.current, {
@@ -737,16 +741,17 @@ export default function App() {
       leafletMapRef.current = null;
       markerLayerRef.current = null;
     };
-  }, []);
+  }, [pageView]);
 
   useEffect(() => {
+    if (pageView !== "monitor") return;
     if (!mapElementRef.current) return;
     const observer = new ResizeObserver(() => {
       leafletMapRef.current?.invalidateSize();
     });
     observer.observe(mapElementRef.current);
     return () => observer.disconnect();
-  }, []);
+  }, [pageView]);
 
   useEffect(() => {
     const map = leafletMapRef.current;
@@ -877,6 +882,17 @@ export default function App() {
 
   useEffect(() => {
     refresh();
+  }, []);
+
+  useEffect(() => {
+    const syncPageFromHash = () => {
+      const nextPage = window.location.hash === "#logs" ? "logs" : "monitor";
+      setPageView(nextPage);
+      if (nextPage === "logs") setDrawerOpen(false);
+    };
+    syncPageFromHash();
+    window.addEventListener("hashchange", syncPageFromHash);
+    return () => window.removeEventListener("hashchange", syncPageFromHash);
   }, []);
 
   useEffect(() => {
@@ -1491,17 +1507,21 @@ export default function App() {
     }
   }
 
-  function openSetupDrawer(mode: SetupDrawerMode) {
-    setSetupDrawerMode(mode);
-    setSetupDrawerOpen(true);
+  function openDrawer(mode: DrawerMode) {
+    setDrawerMode(mode);
+    setDrawerOpen(true);
   }
 
   function scrollToResults() {
-    const results = document.getElementById("results");
-    if (!results) return;
-    const targetTop = results.getBoundingClientRect().top + window.scrollY;
+    setDrawerOpen(false);
+    setPageView("monitor");
     window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}#results`);
-    window.scrollTo({ top: targetTop, behavior: "auto" });
+    window.setTimeout(() => {
+      const results = document.getElementById("results");
+      if (!results) return;
+      const targetTop = results.getBoundingClientRect().top + window.scrollY;
+      window.scrollTo({ top: targetTop, behavior: "auto" });
+    }, 0);
   }
 
   function focusPark(summary: ParkSummary) {
@@ -1616,29 +1636,32 @@ export default function App() {
           <span>Camp Finder</span>
         </div>
         <nav className="nav-list" aria-label="Primary">
-          <a className="nav-item active" href="#results">
+          <button className={`nav-item ${drawerOpen && drawerMode === "alerts" ? "active" : ""}`} onClick={() => openDrawer("alerts")} type="button">
             <Bell size={18} /> Alerts
-          </a>
-          <a className={`nav-item ${utilityTab === "activity" ? "active" : ""}`} href="#activity-log" onClick={() => setUtilityTab("activity")}>
+          </button>
+          <button className={`nav-item ${drawerOpen && drawerMode === "activity" ? "active" : ""}`} onClick={() => openDrawer("activity")} type="button">
             <Timer size={18} /> Activity
+          </button>
+          <a className={`nav-item ${isLogsPage ? "active" : ""}`} href="#logs" onClick={() => setDrawerOpen(false)}>
+            <ListChecks size={18} /> Logs
           </a>
           <button
-            className={`nav-item ${setupDrawerOpen && setupDrawerMode === "targets" ? "active" : ""}`}
-            onClick={() => openSetupDrawer("targets")}
+            className={`nav-item ${drawerOpen && drawerMode === "targets" ? "active" : ""}`}
+            onClick={() => openDrawer("targets")}
             type="button"
           >
             <MapPin size={18} /> Targets
           </button>
           <button
-            className={`nav-item ${setupDrawerOpen && setupDrawerMode === "watches" ? "active" : ""}`}
-            onClick={() => openSetupDrawer("watches")}
+            className={`nav-item ${drawerOpen && drawerMode === "watches" ? "active" : ""}`}
+            onClick={() => openDrawer("watches")}
             type="button"
           >
             <CalendarDays size={18} /> Watches
           </button>
-          <a className={`nav-item ${utilityTab === "settings" ? "active" : ""}`} href="#settings" onClick={() => setUtilityTab("settings")}>
+          <button className={`nav-item ${drawerOpen && drawerMode === "settings" ? "active" : ""}`} onClick={() => openDrawer("settings")} type="button">
             <Settings size={18} /> Settings
-          </a>
+          </button>
         </nav>
         <div className="sidebar-note">
           <Timer size={18} />
@@ -1649,15 +1672,25 @@ export default function App() {
       <section className="workspace">
         <header className="topbar">
           <div>
-            <h1>Availability Monitor</h1>
-            <p>{activeTargets.length} targets &middot; {watchSummary} &middot; {activeResultCount} active matches</p>
+            <h1>{isLogsPage ? "Scan Logs" : "Availability Monitor"}</h1>
+            <p>
+              {isLogsPage
+                ? `${scanRuns.length} recent runs \u00b7 ${scanEvents.length} events \u00b7 ${notifications.length} notifications`
+                : `${activeTargets.length} targets \u00b7 ${watchSummary} \u00b7 ${activeResultCount} active matches`}
+            </p>
           </div>
           <div className="topbar-actions">
-            <button className="icon-button" onClick={() => openSetupDrawer("targets")} type="button" title="Open campground targets">
+            {isLogsPage && (
+              <a className="icon-button" href="#results" onClick={scrollToResults} title="Back to availability monitor">
+                <ListChecks size={18} />
+                <span>Monitor</span>
+              </a>
+            )}
+            <button className="icon-button" onClick={() => openDrawer("targets")} type="button" title="Open campground targets">
               <MapPin size={18} />
               <span>Targets</span>
             </button>
-            <button className="icon-button" onClick={() => openSetupDrawer("watches")} type="button" title="Open watch rules">
+            <button className="icon-button" onClick={() => openDrawer("watches")} type="button" title="Open watch rules">
               <CalendarDays size={18} />
               <span>Watches</span>
             </button>
@@ -1680,145 +1713,243 @@ export default function App() {
 
         {message && <div className="notice">{message}</div>}
         {loadState === "error" && <div className="notice danger">The API is not reachable yet.</div>}
-        <section className={`scan-status-card ${scanInProgress ? "running" : ""}`} aria-live="polite">
-          <span className="scan-status-icon">
-            {scanInProgress ? <RefreshCw className="spinning" size={20} /> : <Activity size={20} />}
-          </span>
-          <span>
-            <strong>{activeScanTitle}</strong>
-            <small>{activeScanDetail}</small>
-            {runningScanRuns.length > 0 && (
-              <div className="live-scan-list" aria-label="Active scan runs">
-                {runningScanRuns.slice(0, 3).map((run) => (
-                  <span className="live-scan-pill" key={run.id}>
-                    <RefreshCw className="spinning" size={13} />
-                    <span>{run.watch_name}</span>
-                    <small>{run.target_name}</small>
-                  </span>
-                ))}
-              </div>
-            )}
-          </span>
-        </section>
-
-        <section className="panel activity-diagnostics" id="activity-log" aria-label="Scan diagnostics">
-          <div className="panel-heading">
-            <div>
-              <h2>Activity Diagnostics</h2>
-              <p>Live scan state, recent server events, and manual stop control.</p>
-            </div>
-            <div className="panel-action-row">
-              <button className="icon-button" onClick={() => void refresh({ silent: true })} disabled={loadState === "loading"} title="Refresh diagnostics">
-                <RefreshCw size={17} />
-                <span>Refresh</span>
-              </button>
-              <button className="icon-button danger" onClick={cancelScans} disabled={!scanInProgress || scanCancelBusy} title="Stop the active scan">
-                <X size={17} />
-                <span>{scanCancelBusy ? "Stopping" : "Stop Scan"}</span>
-              </button>
-            </div>
-          </div>
-          <div className="diagnostic-grid">
-            <article className="diagnostic-card">
-              <span className={`status ${scanInProgress ? "calm" : "quiet"}`}>
-                {scanInProgress ? "running" : "idle"}
+        {!isLogsPage && (
+          <>
+            <section className={`scan-status-card ${scanInProgress ? "running" : ""}`} aria-live="polite">
+              <span className="scan-status-icon">
+                {scanInProgress ? <RefreshCw className="spinning" size={20} /> : <Activity size={20} />}
               </span>
-              <strong>{activeScanTitle}</strong>
-              <small>{activeScanDetail}</small>
-            </article>
-            <article className="diagnostic-card">
-              <span className={`status ${latestScanEvent?.level === "error" ? "danger" : latestScanEvent?.level === "warning" ? "warning" : "quiet"}`}>
-                {latestScanEvent?.event_type || "no events"}
-              </span>
-              <strong>{latestScanEvent ? latestScanEvent.watch_name || "Scanner" : "No scan events yet"}</strong>
-              <small>{latestScanEvent ? latestScanEvent.message : "The server will log scan checkpoints here once a scan starts."}</small>
-            </article>
-          </div>
-          <div className="diagnostic-columns">
-            <div>
-              <div className="subheading">
-                <strong>Recent runs</strong>
-                <small>Durable run records from the server.</small>
-              </div>
-              <div className="status-list compact-list">
-                {scanRuns.length === 0 && <p className="empty">No scans have run yet.</p>}
-                {scanRuns.slice(0, 8).map((run) => (
-                  <article className="status-row scan-row" key={run.id}>
-                    <span>
-                      <strong>{run.watch_name}</strong>
-                      <small>
-                        {run.status === "running"
-                          ? `${run.target_name} · in progress since ${formatDateTime(run.started_at)}`
-                          : `${run.target_name} · ${run.candidate_count} stays · ${run.available_count} matches`}
-                      </small>
-                      <small>{run.message || (run.status === "running" ? "Checking Recreation.gov availability now." : "")}</small>
-                    </span>
-                    <span>
-                      <span className={`status ${statusTone(run.status === "success" && run.available_count > 0 ? "available" : run.status)}`}>
-                        {run.status}
+              <span>
+                <strong>{activeScanTitle}</strong>
+                <small>{activeScanDetail}</small>
+                {runningScanRuns.length > 0 && (
+                  <div className="live-scan-list" aria-label="Active scan runs">
+                    {runningScanRuns.slice(0, 3).map((run) => (
+                      <span className="live-scan-pill" key={run.id}>
+                        <RefreshCw className="spinning" size={13} />
+                        <span>{run.watch_name}</span>
+                        <small>{run.target_name}</small>
                       </span>
-                      <small>{formatDateTime(run.finished_at || run.started_at)}</small>
-                    </span>
-                  </article>
-                ))}
-              </div>
-            </div>
-            <div>
-              <div className="subheading">
-                <strong>Event log</strong>
-                <small>Checkpoint messages from active and recent scans.</small>
-              </div>
-              <div className="scan-event-list">
-                {scanEvents.length === 0 && <p className="empty">No event log entries yet.</p>}
-                {scanEvents.slice(0, 30).map((event) => (
-                  <article className={`scan-event-row ${event.level}`} key={event.id}>
-                    <span>
-                      <strong>{event.event_type.split("_").join(" ")}</strong>
-                      <small>{event.watch_name || event.target_name || "Scanner"} · {formatDateTime(event.created_at)}</small>
-                    </span>
-                    <p>{event.message}</p>
-                  </article>
-                ))}
-              </div>
-            </div>
-          </div>
-        </section>
+                    ))}
+                  </div>
+                )}
+              </span>
+            </section>
 
-        <section className="summary-grid" aria-label="Monitor summary">
-          <SummaryMetric label="Targets" value={activeTargets.length.toString()} icon={<MapPin size={18} />} />
-          <SummaryMetric label="Active watches" value={activeWatches.length.toString()} icon={<CalendarDays size={18} />} />
-          <SummaryMetric label="Active matches" value={activeResultCount.toString()} icon={<CheckCircle2 size={18} />} />
-          <SummaryMetric label="Notifications" value={notifications.length.toString()} icon={<Bell size={18} />} />
-        </section>
+            <section className="summary-grid" aria-label="Monitor summary">
+              <SummaryMetric label="Targets" value={activeTargets.length.toString()} icon={<MapPin size={18} />} />
+              <SummaryMetric label="Active watches" value={activeWatches.length.toString()} icon={<CalendarDays size={18} />} />
+              <SummaryMetric label="Active matches" value={activeResultCount.toString()} icon={<CheckCircle2 size={18} />} />
+              <SummaryMetric label="Notifications" value={notifications.length.toString()} icon={<Bell size={18} />} />
+            </section>
+          </>
+        )}
 
-        <div className={`drawer-backdrop ${setupDrawerOpen ? "show" : ""}`} onClick={() => setSetupDrawerOpen(false)} />
-        <div className={`setup-drawer ${setupDrawerOpen ? "open" : ""}`}>
+        <div className={`drawer-backdrop ${drawerOpen ? "show" : ""}`} onClick={() => setDrawerOpen(false)} />
+        <div className={`setup-drawer ${drawerOpen ? "open" : ""}`}>
           <div className="drawer-heading">
             <div>
-              <h2>{setupDrawerMode === "targets" ? "Target Setup" : "Watch Builder"}</h2>
-              <p>{setupDrawerMode === "targets" ? "Add and maintain campground targets." : "Build date rules and scan filters."}</p>
+              <h2>
+                {drawerMode === "alerts"
+                  ? "Alert Center"
+                  : drawerMode === "activity"
+                    ? "Activity"
+                    : drawerMode === "targets"
+                      ? "Target Setup"
+                      : drawerMode === "watches"
+                        ? "Watch Builder"
+                        : "Settings"}
+              </h2>
+              <p>
+                {drawerMode === "alerts"
+                  ? "Review active availability and notification delivery."
+                  : drawerMode === "activity"
+                    ? "Watch live scan state and recent background work."
+                    : drawerMode === "targets"
+                      ? "Add and maintain campground targets."
+                      : drawerMode === "watches"
+                        ? "Build date rules and scan filters."
+                        : "Manage notifications, Cart Assist, and backups."}
+              </p>
             </div>
             <div className="drawer-controls">
               <button
-                className={`drawer-tab ${setupDrawerMode === "targets" ? "active" : ""}`}
-                onClick={() => setSetupDrawerMode("targets")}
+                className={`drawer-tab ${drawerMode === "alerts" ? "active" : ""}`}
+                onClick={() => setDrawerMode("alerts")}
+                type="button"
+              >
+                <Bell size={16} /> Alerts
+              </button>
+              <button
+                className={`drawer-tab ${drawerMode === "activity" ? "active" : ""}`}
+                onClick={() => setDrawerMode("activity")}
+                type="button"
+              >
+                <Timer size={16} /> Activity
+              </button>
+              <button
+                className={`drawer-tab ${drawerMode === "targets" ? "active" : ""}`}
+                onClick={() => setDrawerMode("targets")}
                 type="button"
               >
                 <MapPin size={16} /> Targets
               </button>
               <button
-                className={`drawer-tab ${setupDrawerMode === "watches" ? "active" : ""}`}
-                onClick={() => setSetupDrawerMode("watches")}
+                className={`drawer-tab ${drawerMode === "watches" ? "active" : ""}`}
+                onClick={() => setDrawerMode("watches")}
                 type="button"
               >
                 <CalendarDays size={16} /> Watches
               </button>
-              <button className="icon-only" onClick={() => setSetupDrawerOpen(false)} title="Close setup drawer" type="button">
+              <button
+                className={`drawer-tab ${drawerMode === "settings" ? "active" : ""}`}
+                onClick={() => setDrawerMode("settings")}
+                type="button"
+              >
+                <Settings size={16} /> Settings
+              </button>
+              <button className="icon-only" onClick={() => setDrawerOpen(false)} title="Close drawer" type="button">
                 <X size={17} />
               </button>
             </div>
           </div>
-          <section className={`panel ${setupDrawerMode === "targets" ? "" : "drawer-panel-hidden"}`} id="targets">
+          <section className={`panel ${drawerMode === "alerts" ? "" : "drawer-panel-hidden"}`} id="alerts">
+            <div className="panel-heading">
+              <div>
+                <h2>Availability Alerts</h2>
+                <p>Fast access to active matches and recent notification delivery.</p>
+              </div>
+              <div className="panel-action-row inline">
+                <a className="icon-button primary" href="#results" onClick={scrollToResults}>
+                  <ListChecks size={17} />
+                  <span>View Results</span>
+                </a>
+                <button
+                  className="icon-button"
+                  disabled={clearResultsBusy || activeResultCount === 0}
+                  onClick={() => void clearAllResults()}
+                  title="Dismiss all active availability results"
+                  type="button"
+                >
+                  <Trash2 size={17} />
+                  <span>{clearResultsBusy ? "Clearing" : "Clear All"}</span>
+                </button>
+              </div>
+            </div>
+            <div className="drawer-metrics">
+              <SummaryMetric label="Active matches" value={activeResultCount.toString()} icon={<CheckCircle2 size={18} />} />
+              <SummaryMetric label="Loaded results" value={loadedResultCount.toString()} icon={<ListChecks size={18} />} />
+              <SummaryMetric label="Notifications" value={notifications.length.toString()} icon={<Bell size={18} />} />
+            </div>
+            <div className="subheading">
+              <strong>Newest active matches</strong>
+              <small>{activeResults.length ? "Open, copy, or triage the latest availability." : "No active availability is waiting."}</small>
+            </div>
+            <div className="drawer-result-list">
+              {activeResults.length === 0 && <p className="empty">No active availability alerts right now.</p>}
+              {activeResults.slice(0, 6).map(resultCard)}
+            </div>
+            <div className="notification-log">
+              <div className="subheading">
+                <strong>Recent notifications</strong>
+                <small>{notifications.length ? "Latest delivery attempts from availability matches." : "No notification attempts yet."}</small>
+              </div>
+              {notifications.slice(0, 5).map((event) => (
+                <article className="status-row" key={event.id}>
+                  <span>
+                    <strong>{event.channel}</strong>
+                    <small>{event.message}</small>
+                  </span>
+                  <span className={`status ${event.status === "sent" ? "success" : event.status === "error" ? "danger" : "quiet"}`}>
+                    {event.status}
+                  </span>
+                </article>
+              ))}
+            </div>
+          </section>
+
+          <section className={`panel ${drawerMode === "activity" ? "" : "drawer-panel-hidden"}`} id="activity">
+            <div className="panel-heading">
+              <div>
+                <h2>Scan Activity</h2>
+                <p>Live scanner state, recent runs, and the manual stop control.</p>
+              </div>
+              <div className="panel-action-row inline">
+                <a className="icon-button" href="#logs" onClick={() => setDrawerOpen(false)} title="Open detailed logs">
+                  <ListChecks size={17} />
+                  <span>Open Logs</span>
+                </a>
+                <button className="icon-button" onClick={() => void refresh({ silent: true })} disabled={loadState === "loading"} title="Refresh activity">
+                  <RefreshCw size={17} />
+                  <span>Refresh</span>
+                </button>
+                <button className="icon-button danger" onClick={cancelScans} disabled={!scanInProgress || scanCancelBusy} title="Stop the active scan">
+                  <X size={17} />
+                  <span>{scanCancelBusy ? "Stopping" : "Stop Scan"}</span>
+                </button>
+              </div>
+            </div>
+            <div className="diagnostic-grid">
+              <article className="diagnostic-card">
+                <span className={`status ${scanInProgress ? "calm" : "quiet"}`}>
+                  {scanInProgress ? "running" : "idle"}
+                </span>
+                <strong>{activeScanTitle}</strong>
+                <small>{activeScanDetail}</small>
+              </article>
+              <article className="diagnostic-card">
+                <span className={`status ${latestScanEvent?.level === "error" ? "danger" : latestScanEvent?.level === "warning" ? "warning" : "quiet"}`}>
+                  {latestScanEvent?.event_type || "no events"}
+                </span>
+                <strong>{latestScanEvent ? latestScanEvent.watch_name || "Scanner" : "No scan events yet"}</strong>
+                <small>{latestScanEvent ? latestScanEvent.message : "The server will log scan checkpoints here once a scan starts."}</small>
+              </article>
+            </div>
+            <div className="subheading">
+              <strong>Recent runs</strong>
+              <small>Durable run records from the server.</small>
+            </div>
+            <div className="status-list compact-list">
+              {scanRuns.length === 0 && <p className="empty">No scans have run yet.</p>}
+              {scanRuns.slice(0, 8).map((run) => (
+                <article className="status-row scan-row" key={run.id}>
+                  <span>
+                    <strong>{run.watch_name}</strong>
+                    <small>
+                      {run.status === "running"
+                        ? `${run.target_name} · in progress since ${formatDateTime(run.started_at)}`
+                        : `${run.target_name} · ${run.candidate_count} stays · ${run.available_count} matches`}
+                    </small>
+                    <small>{run.message || (run.status === "running" ? "Checking Recreation.gov availability now." : "")}</small>
+                  </span>
+                  <span>
+                    <span className={`status ${statusTone(run.status === "success" && run.available_count > 0 ? "available" : run.status)}`}>
+                      {run.status}
+                    </span>
+                    <small>{formatDateTime(run.finished_at || run.started_at)}</small>
+                  </span>
+                </article>
+              ))}
+            </div>
+            <div className="subheading">
+              <strong>Recent events</strong>
+              <small>Use the Logs page for the full diagnostic view.</small>
+            </div>
+            <div className="scan-event-list compact-events">
+              {scanEvents.length === 0 && <p className="empty">No event log entries yet.</p>}
+              {scanEvents.slice(0, 8).map((event) => (
+                <article className={`scan-event-row ${event.level}`} key={event.id}>
+                  <span>
+                    <strong>{event.event_type.split("_").join(" ")}</strong>
+                    <small>{event.watch_name || event.target_name || "Scanner"} · {formatDateTime(event.created_at)}</small>
+                  </span>
+                  <p>{event.message}</p>
+                </article>
+              ))}
+            </div>
+          </section>
+
+          <section className={`panel ${drawerMode === "targets" ? "" : "drawer-panel-hidden"}`} id="targets">
             <div className="panel-heading">
               <div>
                 <h2>Campground Targets</h2>
@@ -2037,7 +2168,7 @@ export default function App() {
             )}
           </section>
 
-          <section className={`panel ${setupDrawerMode === "watches" ? "" : "drawer-panel-hidden"}`} id="watches">
+          <section className={`panel ${drawerMode === "watches" ? "" : "drawer-panel-hidden"}`} id="watches">
             <div className="panel-heading">
               <div>
                 <h2>Watch Rules</h2>
@@ -2204,8 +2335,390 @@ export default function App() {
               })}
             </div>
           </section>
+
+          <section className={`panel ${drawerMode === "settings" ? "" : "drawer-panel-hidden"}`} id="settings">
+            <div className="panel-heading">
+              <div>
+                <h2>Notifications & Server Settings</h2>
+                <p>Notification channels use environment variables; Cart Assist can use appdata settings.</p>
+              </div>
+              <div className="panel-action-row inline">
+                <button className="icon-button" onClick={testNotifications} disabled={testNotifyBusy} title="Send a test notification">
+                  <Bell size={17} />
+                  <span>{testNotifyBusy ? "Testing" : "Test"}</span>
+                </button>
+              </div>
+            </div>
+            <div className="status-list">
+              {notificationStatus.channels.length === 0 && <p className="empty">Notification channel status has not loaded yet.</p>}
+              {notificationStatus.channels.map((channel) => (
+                <article className="status-row" key={channel.channel}>
+                  <span>
+                    <strong>{channel.channel}</strong>
+                    <small>{channel.detail}</small>
+                  </span>
+                  <span className={`status ${channel.configured ? "success" : "quiet"}`}>
+                    {channel.configured ? "configured" : "missing"}
+                  </span>
+                </article>
+              ))}
+            </div>
+            <div className="cart-assist-log">
+              <div className="subheading">
+                <strong>Cart Assist</strong>
+                <small>{cartAssistStatus?.detail || "Server status has not loaded yet."}</small>
+              </div>
+              <article className="status-row">
+                <span>
+                  <strong>Remote hold guard</strong>
+                  <small>{cartAssistGuardSummary(cartAssistStatus)}</small>
+                </span>
+                <span className={`status ${cartAssistGuardTone(cartAssistStatus)}`}>
+                  {cartAssistGuardLabel(cartAssistStatus)}
+                </span>
+              </article>
+              <article className="status-row">
+                <span>
+                  <strong>Checkout queue</strong>
+                  <small>{cartAssistQueueSummary(cartAssistStatus)}</small>
+                </span>
+                <span className="cart-queue-actions">
+                  <span className={`status ${cartAssistStatus ? (cartAssistStatus.active_attempt_count ? "warning" : "success") : "quiet"}`}>
+                    {cartAssistStatus ? `${cartAssistStatus.active_attempt_count} active` : "loading"}
+                  </span>
+                  {nextCheckoutAttempt && (
+                    <a
+                      className="link-button compact"
+                      href={bookingUrlWithStartDate(nextCheckoutAttempt.booking_url, nextCheckoutAttempt.arrival_date)}
+                      onClick={() => openCartAttemptBooking(nextCheckoutAttempt)}
+                      rel="noreferrer"
+                      target="_blank"
+                    >
+                      <ExternalLink size={15} /> Open Next
+                    </a>
+                  )}
+                </span>
+              </article>
+              <form className="cart-assist-form" onSubmit={saveCartAssistConfig}>
+                <label className="toggle-field wide-field">
+                  <span>
+                    <strong>Server Cart Assist</strong>
+                    <small>Watches still opt in individually.</small>
+                  </span>
+                  <input
+                    checked={cartAssistServerEnabled}
+                    onChange={(event) => {
+                      setCartAssistServerEnabled(event.target.checked);
+                      setCartAssistConfigDirty(true);
+                    }}
+                    type="checkbox"
+                  />
+                </label>
+                <label>
+                  Cooldown minutes
+                  <input
+                    min="1"
+                    max="1440"
+                    type="number"
+                    value={cartAssistCooldown}
+                    onChange={(event) => {
+                      setCartAssistCooldown(event.target.value);
+                      setCartAssistConfigDirty(true);
+                    }}
+                  />
+                </label>
+                <label>
+                  Attempts per scan
+                  <input
+                    min="1"
+                    max="25"
+                    type="number"
+                    value={cartAssistMaxAttempts}
+                    onChange={(event) => {
+                      setCartAssistMaxAttempts(event.target.value);
+                      setCartAssistConfigDirty(true);
+                    }}
+                  />
+                </label>
+                <label>
+                  Recreation.gov email
+                  <input
+                    autoComplete="username"
+                    placeholder={cartAssistStatus?.username_configured ? "Configured; leave blank to keep" : "you@example.com"}
+                    value={cartAssistUsername}
+                    onChange={(event) => {
+                      setCartAssistUsername(event.target.value);
+                      setCartAssistConfigDirty(true);
+                    }}
+                  />
+                </label>
+                <label>
+                  Recreation.gov password
+                  <input
+                    autoComplete="current-password"
+                    placeholder={cartAssistStatus?.password_configured ? "Configured; leave blank to keep" : "Password"}
+                    type="password"
+                    value={cartAssistPassword}
+                    onChange={(event) => {
+                      setCartAssistPassword(event.target.value);
+                      setCartAssistConfigDirty(true);
+                    }}
+                  />
+                </label>
+                <div className="cart-assist-actions wide-field">
+                  <button className="icon-button" disabled={cartAssistConfigBusy !== null} type="submit">
+                    <Save size={17} />
+                    <span>{cartAssistConfigBusy === "save" ? "Saving" : "Save"}</span>
+                  </button>
+                  <button
+                    className="icon-button"
+                    disabled={cartAssistConfigBusy !== null || cartAssistStatus?.credential_source !== "appdata"}
+                    onClick={clearCartAssistCredentials}
+                    type="button"
+                  >
+                    <Trash2 size={17} />
+                    <span>{cartAssistConfigBusy === "clear" ? "Clearing" : "Clear Credentials"}</span>
+                  </button>
+                </div>
+              </form>
+              {cartAttempts.length === 0 ? (
+                <p className="empty compact">No cart assist attempts yet.</p>
+              ) : (
+                prioritizedCartAttempts.slice(0, 4).map((attempt) => {
+                  const busy = cartAttemptBusyId === attempt.id;
+                  const checkoutReady = attempt.status === "manual_required" || attempt.status === "opened";
+                  const canMakeReady = ["needs_credentials", "disabled", "failed"].includes(attempt.status);
+                  const activeAttempt = isActiveCartAttempt(attempt);
+                  return (
+                    <article className={`status-row cart-attempt-row ${activeAttempt ? "active" : ""}`} key={attempt.id}>
+                      <span>
+                        <strong>{attempt.site}</strong>
+                        <small>
+                          {attempt.target_name} &middot; {formatDate(attempt.arrival_date)} to {formatDate(attempt.departure_date)}
+                        </small>
+                        <small>{attempt.message}</small>
+                        {attempt.finished_at && <small>Resolved {formatDateTime(attempt.finished_at)}</small>}
+                      </span>
+                      <span>
+                        <span className={`status ${statusTone(attempt.status)}`}>{attempt.status.split("_").join(" ")}</span>
+                        <small>{formatDateTime(attempt.attempted_at)}</small>
+                        <span className="cart-attempt-actions">
+                          {checkoutReady && (
+                            <a
+                              className="link-button compact"
+                              href={bookingUrlWithStartDate(attempt.booking_url, attempt.arrival_date)}
+                              onClick={() => void updateCartAttemptStatus(attempt, "opened")}
+                              rel="noreferrer"
+                              target="_blank"
+                            >
+                              <ExternalLink size={15} /> Open
+                            </a>
+                          )}
+                          {canMakeReady && (
+                            <button
+                              className="icon-button compact"
+                              disabled={busy}
+                              onClick={() => void updateCartAttemptStatus(attempt, "manual_required")}
+                              type="button"
+                            >
+                              <RefreshCw size={15} /> Ready
+                            </button>
+                          )}
+                          {checkoutReady && (
+                            <>
+                              <button
+                                className="icon-button compact"
+                                disabled={busy}
+                                onClick={() => void updateCartAttemptStatus(attempt, "booked")}
+                                type="button"
+                              >
+                                <CheckCircle2 size={15} /> Booked
+                              </button>
+                              <button
+                                className="icon-button compact"
+                                disabled={busy}
+                                onClick={() => void updateCartAttemptStatus(attempt, "dismissed")}
+                                type="button"
+                              >
+                                <Trash2 size={15} /> Dismiss
+                              </button>
+                              <button
+                                className="icon-button compact"
+                                disabled={busy}
+                                onClick={() => void updateCartAttemptStatus(attempt, "failed")}
+                                type="button"
+                              >
+                                <X size={15} /> Failed
+                              </button>
+                            </>
+                          )}
+                        </span>
+                      </span>
+                    </article>
+                  );
+                })
+              )}
+            </div>
+            <div className="backup-tools">
+              <div className="subheading">
+                <strong>Configuration Backup</strong>
+                <small>Targets, release settings, and watch rules.</small>
+              </div>
+              <div className="backup-actions">
+                <button
+                  className="icon-button"
+                  onClick={downloadConfigBackup}
+                  disabled={configBusy !== null}
+                  title="Download configuration backup"
+                  type="button"
+                >
+                  <Download size={17} />
+                  <span>Download</span>
+                </button>
+                <label className={`file-picker ${configBusy !== null ? "disabled" : ""}`}>
+                  <input
+                    accept="application/json,.json"
+                    disabled={configBusy !== null}
+                    onChange={(event) => setBackupFile(event.target.files?.[0] || null)}
+                    type="file"
+                  />
+                  <Upload size={17} />
+                  <span>{backupFile ? backupFile.name : "Choose JSON"}</span>
+                </label>
+                <button
+                  className="icon-button"
+                  onClick={restoreConfigBackup}
+                  disabled={configBusy !== null || !backupFile}
+                  title="Restore configuration backup"
+                  type="button"
+                >
+                  <Upload size={17} />
+                  <span>Restore</span>
+                </button>
+              </div>
+            </div>
+          </section>
         </div>
 
+        {isLogsPage ? (
+          <section className="logs-page" id="logs" aria-label="Detailed scan logs">
+            <section className="panel logs-hero">
+              <div className="panel-heading">
+                <div>
+                  <h2>Detailed Logs</h2>
+                  <p>Scan events, durable run records, and notification history for diagnosing slow or stuck work.</p>
+                </div>
+                <div className="panel-action-row inline">
+                  <button className="icon-button" onClick={() => void refresh({ silent: true })} disabled={loadState === "loading"} title="Refresh logs">
+                    <RefreshCw size={17} />
+                    <span>Refresh</span>
+                  </button>
+                  <button className="icon-button danger" onClick={cancelScans} disabled={!scanInProgress || scanCancelBusy} title="Stop the active scan">
+                    <X size={17} />
+                    <span>{scanCancelBusy ? "Stopping" : "Stop Scan"}</span>
+                  </button>
+                </div>
+              </div>
+              <div className="logs-summary-grid">
+                <SummaryMetric label="Recent runs" value={scanRuns.length.toString()} icon={<Timer size={18} />} />
+                <SummaryMetric label="Events loaded" value={scanEvents.length.toString()} icon={<ListChecks size={18} />} />
+                <SummaryMetric label="Notifications" value={notifications.length.toString()} icon={<Bell size={18} />} />
+                <SummaryMetric label="Active matches" value={activeResultCount.toString()} icon={<CheckCircle2 size={18} />} />
+              </div>
+              <div className={`scan-status-card embedded ${scanInProgress ? "running" : ""}`} aria-live="polite">
+                <span className="scan-status-icon">
+                  {scanInProgress ? <RefreshCw className="spinning" size={20} /> : <Activity size={20} />}
+                </span>
+                <span>
+                  <strong>{activeScanTitle}</strong>
+                  <small>{activeScanDetail}</small>
+                </span>
+              </div>
+            </section>
+
+            <div className="logs-layout">
+              <section className="panel log-stream-panel">
+                <div className="panel-heading">
+                  <div>
+                    <h2>Event Log</h2>
+                    <p>Checkpoint messages emitted by active and recent scans.</p>
+                  </div>
+                </div>
+                <div className="scan-event-list log-stream">
+                  {scanEvents.length === 0 && <p className="empty">No event log entries yet.</p>}
+                  {scanEvents.map((event) => (
+                    <article className={`scan-event-row ${event.level}`} key={event.id}>
+                      <span>
+                        <strong>{event.event_type.split("_").join(" ")}</strong>
+                        <small>
+                          {event.watch_name || event.target_name || "Scanner"} &middot; {formatDateTime(event.created_at)}
+                        </small>
+                      </span>
+                      <p>{event.message}</p>
+                    </article>
+                  ))}
+                </div>
+              </section>
+
+              <aside className="logs-side-panels">
+                <section className="panel">
+                  <div className="panel-heading compact-heading">
+                    <div>
+                      <h2>Scan Runs</h2>
+                      <p>Most recent durable run rows.</p>
+                    </div>
+                  </div>
+                  <div className="status-list compact-list">
+                    {scanRuns.length === 0 && <p className="empty">No scans have run yet.</p>}
+                    {scanRuns.slice(0, 12).map((run) => (
+                      <article className="status-row scan-row" key={run.id}>
+                        <span>
+                          <strong>{run.watch_name}</strong>
+                          <small>
+                            {run.status === "running"
+                              ? `${run.target_name} · in progress since ${formatDateTime(run.started_at)}`
+                              : `${run.target_name} · ${run.candidate_count} stays · ${run.available_count} matches`}
+                          </small>
+                          <small>{run.message || (run.status === "running" ? "Checking Recreation.gov availability now." : "")}</small>
+                        </span>
+                        <span>
+                          <span className={`status ${statusTone(run.status === "success" && run.available_count > 0 ? "available" : run.status)}`}>
+                            {run.status}
+                          </span>
+                          <small>{formatDateTime(run.finished_at || run.started_at)}</small>
+                        </span>
+                      </article>
+                    ))}
+                  </div>
+                </section>
+
+                <section className="panel">
+                  <div className="panel-heading compact-heading">
+                    <div>
+                      <h2>Notification Log</h2>
+                      <p>Delivery attempts created from new matches.</p>
+                    </div>
+                  </div>
+                  <div className="notification-log flat-log">
+                    {notifications.length === 0 && <p className="empty">No notification attempts yet.</p>}
+                    {notifications.slice(0, 12).map((event) => (
+                      <article className="status-row" key={event.id}>
+                        <span>
+                          <strong>{event.channel}</strong>
+                          <small>{event.message}</small>
+                          <small>{formatDateTime(event.sent_at)}</small>
+                        </span>
+                        <span className={`status ${event.status === "sent" ? "success" : event.status === "error" ? "danger" : "quiet"}`}>
+                          {event.status}
+                        </span>
+                      </article>
+                    ))}
+                  </div>
+                </section>
+              </aside>
+            </div>
+          </section>
+        ) : (
         <div className="content-grid lower">
           <section className="map-dashboard" aria-label="Target map">
             <div className="map-panel">
@@ -2223,7 +2736,7 @@ export default function App() {
                     <X size={17} />
                     <span>Clear Filter</span>
                   </button>
-                  <button className="icon-button" onClick={() => openSetupDrawer("targets")} type="button">
+                  <button className="icon-button" onClick={() => openDrawer("targets")} type="button">
                     <Plus size={17} />
                     <span>Add Target</span>
                   </button>
@@ -2270,8 +2783,8 @@ export default function App() {
             <section className="panel utility-dock">
               <div className="utility-dock-heading">
                 <div>
-                  <h2>Utility Dock</h2>
-                  <p>Switch between planning, scan history, and server tools.</p>
+                  <h2>Release Planner</h2>
+                  <p>Upcoming release windows calculated from active watch rules.</p>
                 </div>
               </div>
               <div className="utility-tabs" role="tablist" aria-label="Utility dock views">
@@ -2347,7 +2860,7 @@ export default function App() {
                     <small>Latest background and manual scan runs.</small>
                   </div>
                   <div className="panel-action-row">
-                    <a className="link-button compact" href="#activity-log">
+                    <a className="link-button compact" href="#logs">
                       <ListChecks size={16} />
                       <span>Open Log</span>
                     </a>
@@ -2861,6 +3374,7 @@ export default function App() {
             </div>
           </section>
         </div>
+        )}
       </section>
     </main>
   );

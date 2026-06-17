@@ -736,7 +736,7 @@ small {
 }
 
 .utility-tabs {
-  display: flex;
+  display: none;
   flex-wrap: wrap;
   gap: 8px;
   padding: 0 18px;
@@ -893,6 +893,12 @@ small {
   margin: 0 18px 13px;
 }
 
+.panel-action-row.inline {
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0;
+}
+
 .drawer-backdrop {
   position: fixed;
   inset: 0;
@@ -933,9 +939,8 @@ small {
   position: sticky;
   top: -18px;
   z-index: 2;
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 14px;
   margin: -18px -18px 0;
   padding: 18px;
@@ -952,8 +957,12 @@ small {
 .drawer-controls {
   display: flex;
   flex-wrap: wrap;
-  justify-content: flex-end;
+  justify-content: flex-start;
   gap: 8px;
+}
+
+.drawer-controls .icon-only {
+  margin-left: auto;
 }
 
 .drawer-tab {
@@ -982,6 +991,94 @@ small {
 
 .setup-drawer .panel {
   box-shadow: none;
+}
+
+.setup-drawer .result-card {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.setup-drawer .result-actions {
+  justify-content: flex-start;
+}
+
+.drawer-metrics,
+.logs-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.logs-summary-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.drawer-metrics .metric,
+.logs-summary-grid .metric {
+  box-shadow: none;
+  padding: 12px;
+}
+
+.drawer-metrics .metric strong,
+.logs-summary-grid .metric strong {
+  font-size: 20px;
+}
+
+.drawer-result-list {
+  display: grid;
+  gap: 9px;
+  margin-top: 10px;
+}
+
+.compact-events {
+  max-height: 360px;
+}
+
+.logs-page {
+  order: 4;
+  display: grid;
+  gap: 18px;
+}
+
+.logs-hero {
+  display: grid;
+  gap: 14px;
+}
+
+.scan-status-card.embedded {
+  margin: 0;
+  box-shadow: none;
+}
+
+.logs-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(360px, 0.75fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.logs-side-panels {
+  display: grid;
+  gap: 18px;
+}
+
+.log-stream-panel {
+  min-height: 620px;
+}
+
+.log-stream {
+  max-height: none;
+  overflow: visible;
+  padding-right: 0;
+}
+
+.compact-heading {
+  margin-bottom: 10px;
+}
+
+.flat-log {
+  border-top: 0;
+  padding-top: 0;
 }
 
 .panel {
@@ -1859,8 +1956,11 @@ th {
   }
 
   .summary-grid,
+  .logs-summary-grid,
+  .drawer-metrics,
   .diagnostic-grid,
   .diagnostic-columns,
+  .logs-layout,
   .map-dashboard,
   .content-grid,
   .content-grid.lower {
@@ -1923,14 +2023,23 @@ th {
 
   .topbar-actions {
     width: 100%;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     justify-content: stretch;
   }
 
-  .topbar-actions .icon-button {
-    flex: 1 1 0;
+  .topbar-actions .icon-button,
+  .topbar-actions .link-button {
+    width: 100%;
+    min-width: 0;
   }
 
   .summary-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .logs-summary-grid,
+  .drawer-metrics {
     grid-template-columns: 1fr;
   }
 
