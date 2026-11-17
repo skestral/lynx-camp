@@ -4,6 +4,7 @@ from copy import deepcopy
 from typing import Any
 
 from .db import Store, utc_now
+from .goingtocamp import connection_state
 from .presets import SOURCE_SEARCH_MAX_PAGES, SOURCE_SEARCH_PAGE_SIZE, _normalize_name, _target
 
 SourceQuery = dict[str, Any]
@@ -101,9 +102,9 @@ SOURCE_DEFINITIONS: list[SourceDefinition] = [
         "region": "WA",
         "areas": ["Puget Sound", "Olympic Peninsula", "Mount Rainier", "Snoqualmie and Cascades", "Everett and North Sound"],
         "counties": ["Clallam", "Jefferson", "Kitsap", "Mason", "King", "Pierce", "Lewis", "Snohomish", "Island", "Skagit", "Thurston", "Grays Harbor"],
-        "status": "research",
-        "source_type": "reservation_directory",
-        "description": "State campsites, cabins, and yurts across Washington. GoingToCamp integration pending; not scanned.",
+        "status": "experimental",
+        "source_type": "goingtocamp",
+        "description": "Experimental direct API for Camping and Roofed stays. No browser required. Live compatibility is unverified; access denials stop requests.",
         "official_url": "https://parks.wa.gov/passes-permits/reservations/reservation-parks",
         "queries": [],
     },
@@ -153,6 +154,8 @@ def list_source_definitions(store: Store) -> list[dict[str, Any]]:
         source["discover_supported"] = _supports_discovery(source)
         source["import_supported"] = source["discover_supported"]
         source["imported_count"] = _imported_count_for_source(source, existing_targets)
+        if source["source_type"] == "goingtocamp":
+            source["connection"] = connection_state(store)
         source.pop("queries", None)
     return sources
 
@@ -166,7 +169,7 @@ async def discover_source(store: Store, client: Any, source_id: str) -> dict[str
     discovered_by_id: dict[str, dict[str, Any]] = {}
     queries = source.get("queries") or []
 
-    if source["source_type"] in {"camava", "activenet", "cedar"}:
+    if source["source_type"] in {"camava", "activenet", "cedar", "goingtocamp"}:
         discovered_by_id = {target["campground_id"]: target for target in await client.discover_external(source_id)}
     for query in queries:
         for suggestion in await _source_campgrounds(client, query):
@@ -236,6 +239,8 @@ def _get_source(source_id: str) -> SourceDefinition:
 
 
 def _supports_discovery(source: SourceDefinition) -> bool:
+    if source.get("source_type") == "goingtocamp":
+        return source.get("status") == "experimental"
     return source.get("status") == "ready" and source.get("source_type") in {"recreation_search", "camava", "activenet", "cedar"}
 
 
@@ -293,6 +298,8 @@ def _source_target(suggestion: dict[str, Any], source: SourceDefinition, query: 
 
 
 def _imported_count_for_source(source: SourceDefinition, targets: list[dict[str, Any]]) -> int:
+    if source.get("source_type") == "goingtocamp":
+        return sum(1 for target in targets if str(target.get("campground_id", "")).startswith("gtc:wa:"))
     if source.get("source_type") == "cedar":
         return sum(1 for target in targets if target.get("campground_id") == "cedar:skagit:hmsp")
     if source.get("source_type") == "activenet":

@@ -55,8 +55,9 @@ def test_source_catalog_lists_ready_and_research_sources(tmp_path) -> None:
     assert sources["pnw-national-parks-live"]["discover_supported"] is True
     assert sources["washington-national-forests-live"]["category"] == "National forests"
     assert sources["washington-recreation-gov-region"]["region"] == "WA"
-    assert sources["washington-state-parks"]["status"] == "research"
-    assert sources["washington-state-parks"]["discover_supported"] is False
+    assert sources["washington-state-parks"]["status"] == "experimental"
+    assert sources["washington-state-parks"]["discover_supported"] is True
+    assert sources["washington-state-parks"]["connection"] == {"state": "unverified"}
     assert sources["washington-dnr-campgrounds"]["status"] == "directory"
 
 

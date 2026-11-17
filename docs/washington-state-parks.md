@@ -2,23 +2,54 @@
 
 ## Status
 
-Washington State Parks is the next provider priority, ahead of additional county connectors. It is not connected to live availability yet. The Sources drawer links to the official reservation directory, but importing and scanning state-park inventory remain disabled.
+Washington State Parks now has an **experimental native API connector** in the regular Camp Finder backend. It adapts GoCamp's discovery/search workflow to the newer availability-map contract. There is no browser-console requirement, separate worker dependency, or account login. Sources exposes Check and Import, and imported targets use the existing watch, notification, and scan-log pipeline.
 
-On November 17, 2026, a normal browser request to the Washington GoingToCamp service from the development host returned a firewall denial. No workaround was attempted. Access from the production Docker host has not been verified. Retrying through another host, copying challenge cookies, or rotating browser identities is not an integration solution.
+Live compatibility is **not verified**. On November 17, 2026, the direct catalog request returned HTTP 403 from the development host, and testing stopped. Earlier normal browser access from that host also encountered a firewall denial. No workaround was attempted. Access from the production Docker host has not been verified. Retrying through another host, copying challenge cookies, or rotating browser identities is not an integration solution.
 
-The first requirement is a permitted data-access path and its usage limits. Do not enable a scanner or advertise complete coverage based only on offline fixtures.
+The remaining requirement is a permitted data-access path and validation against current responses. Passing synthetic tests proves the integration behavior, not provider access or complete campground coverage. The source is deliberately not counted among verified live sources.
 
-## Browser-Based Option
+## Setup
+
+1. Update the regular Camp Finder image using the [README installation instructions](../README.md). Existing databases require no destructive migration; connection state uses the existing app-settings table.
+2. Open **Targets > Sources > Washington state**. Washington State Parks is labeled **Experimental API**. Check requests the park and accommodation catalogs; Import discovers and saves supported targets. Neither action makes a reservation.
+3. A successful import creates separate Camping and Roofed targets per park when those categories are recognized. Day-use-only locations are excluded. A Washington regional watch with **Include future imports** enabled picks them up automatically; otherwise edit the watch's saved coverage or create a watch for the Washington State Parks group.
+4. For Friday and Saturday nights, use Friday arrival and two nights. Leave site type blank to include both categories, or use `Camping` or `Roofed`. The experimental response does not establish individual cabin/yurt type, loop, or capacity, so those detailed filters produce an explicit error instead of a misleading empty result.
+5. Existing Discord, Home Assistant, and email settings apply to new matches. Review the provider's final rules, party size, equipment, and eligibility before booking. Results are candidates, not reservations or cart holds.
+
+No new environment variable, API key, or browser profile is required. The optional browser worker can remain stopped. Do not delete the database to clear an access problem.
+
+### Access Stops and Rate Limits
+
+The connector makes serialized requests with at least five seconds between responses and subsequent requests. Scan requests also honor **Settings > Scan controls**. A complete park check may require many nested maps and two availability requests per map; completion estimates are approximate and can grow as those maps are discovered.
+
+HTTP 429 waits at least one hour, or longer when Retry-After requires it. The existing crawler also applies its provider-specific cooldown. A 401/403, redirect, or HTML challenge stops API requests until reviewed, even across a container restart. It never falls back to a browser or turns a denial into "no availability." Previously saved results remain intact on failed checks.
+
+Sources shows the saved error and earliest review time. Check and Import are disabled while stopped or cooling down. After resolving access and waiting out the cooldown, **Reset access stop** asks for confirmation. Resetting does not send a provider request, but active watches may resume requests on their next scheduled run. Pause those watches first when you want to make only a manual Check. Logs records scan errors and request stages.
+
+## Implementation and Limits
+
+- Catalog requests use `/api/resourcelocation` and `/api/resourcecategory`, require recognized Camping and Roofed category metadata, and use each location's `rootMapId`. Complete metadata is cached for 24 hours; explicit Check/Import refreshes it.
+- Searches use GET `/api/availability/map`, JSON-encoded `filterData`, booking category 0 or 1, and the requested arrival/departure. Camping uses the upstream tent-equipment default; Roofed omits camping equipment. This does not prove suitability for every RV size or party.
+- Each map is requested with full-stay and daily availability. A candidate must be open in the full-stay result and on every occupied night. Child maps are traversed completely with cycle, duplicate, and size checks. Incomplete or conflicting records raise an error.
+- Site names fall back to provider IDs; capacity, facilities, eligibility restrictions, and specific roofed type remain unknown. Party size is one in the upstream query. Booking links carry category, park, leaf map, arrival, departure, and nights, but current provider date-prefill behavior has not been verified.
+- The full-stay/nightly response shapes are assumptions from public upstream code, not captured live fixtures. Changed contracts fail visibly. Availability code zero is the only accepted positive status; nonzero codes are not emitted as matches.
+- Targets and watches are included in normal configuration exports. Runtime denial/cooldown state is not portable configuration and stays in appdata. This connector stores no account credentials or browser cookies.
+
+[Camply PR 391](https://github.com/juftin/camply/pull/391) and [PR 398](https://github.com/juftin/camply/pull/398) describe newer `rootMapId`, removed-detail-endpoint, and filter serialization changes. They inform this adapter; their authors' live checks are not Camp Finder verification. [GoCamp attribution](../third_party/gocamp/NOTICE.md) and its MIT license are included in the repository and Docker image.
+
+[Desktop source status](screenshots/washington-source.png) | [Mobile source status](screenshots/washington-source-mobile.png)
+
+## Optional Browser Diagnostics
 
 The reservation workflow was inspected in the owner's existing Edge session on November 17, 2026, after an explicit handoff. Anonymous camping and roofed results loaded there. This does not establish access from a Docker browser or identify why the development browser was denied.
 
 A browser connector is an alternative to a direct API integration where permitted. An [isolated Docker browser worker](browser-worker.md) now provides a private console and read-only inspection of a manually submitted search. Its runtime and synthetic-page checks pass; Washington access from that worker and complete live-result collection have not been verified. Do not export challenge cookies or replay browser credentials through a denied API.
 
-For unattended remote hosting, the proposed design is a dedicated browser worker alongside Camp Finder, with a separate persistent profile under appdata. It would operate the normal search UI one stay at a time, feed validated results into the existing scan pipeline, and expose waiting/error/cancel states. An authenticated, private interactive console could let the owner handle required login or human-verification steps. It must pause for those steps and stop on denial, not solve or evade them automatically. Manual completion is not a guarantee that unattended use is supported.
+The earlier browser-based proposal is not the chosen scanning architecture. The worker remains an optional diagnostic tool with a separate persistent profile and private console. It does not feed watches or notifications, solve challenges, or establish permission for unattended use.
 
 [Playwright supports Docker](https://playwright.dev/python/docs/docker), but a production crawler needs a non-root sandboxed browser and private control endpoints. Browser profiles are sensitive; [Playwright's authentication guidance](https://playwright.dev/python/docs/auth) warns against committing stored browser state. Exclude profiles from Git, image build contexts, ordinary settings exports, and diagnostic screenshots. Do not use the owner's everyday browser profile as the server profile.
 
-A local browser helper would require the owner's computer to remain available, so it does not meet the remote-only deployment requirement. A permitted API/feed remains the lighter operational option. Neither approach is connected to Washington watches or alerts in Camp Finder yet.
+A local browser helper would require the owner's computer to remain available, so it does not meet the remote-only deployment requirement. The native adapter runs with Camp Finder on the server; only its live access and compatibility remain unverified.
 
 ## Interactive Verification
 

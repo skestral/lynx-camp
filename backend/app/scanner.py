@@ -16,6 +16,7 @@ from .db import Store
 from .notifications import Notifier
 from .recreation import Campsite, RateLimitError
 from .providers import CampgroundClient
+from .goingtocamp import validate_watch_filters
 from .provider_ids import provider_key, provider_name
 
 
@@ -608,6 +609,8 @@ class Scanner:
 
         try:
             for trip_index, trip in enumerate(trips, start=1):
+                if provider == "goingtocamp":
+                    validate_watch_filters(watch.get("site_filters"))
                 self._raise_if_cancel_requested()
                 if trip_index == 1 or trip_index % 25 == 0 or trip_index == len(trips):
                     self._log_scan_event(

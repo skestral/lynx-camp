@@ -42,7 +42,7 @@ from .sources import discover_source, import_source, list_source_definitions
 
 
 store = Store(settings.database_path)
-client = CampgroundClient()
+client = CampgroundClient(store)
 notifier = Notifier(settings, store)
 cart_assistant = CartAssistant(store, settings)
 scanner = Scanner(
@@ -301,6 +301,14 @@ async def import_source_definition(source_id: str) -> dict:
         return await import_source(store, client, source_id, current_min_poll_interval_minutes())
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/sources/{source_id}/reset-access")
+async def reset_source_access(source_id: str) -> dict:
+    if source_id != "washington-state-parks":
+        raise HTTPException(status_code=400, detail="This source has no manual access stop.")
+    await client.washington.reset_access_stop()
+    return {"reset": True}
 
 
 @app.get("/api/config/export")

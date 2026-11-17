@@ -110,7 +110,13 @@ Tolt-MacDonald's map point is the address location linked by the official county
 
 Before enabling another source, verify discovery IDs, all overnight accommodation categories, full-stay rules, denial handling, date-aware booking links, and rate limits. Add fixture tests and bounded read-only live checks. Do not mark an unverified connector ready, retry through a firewall denial, or treat first-come campground directories as availability feeds.
 
-Washington State Parks is the next integration priority. Its [implementation notes](washington-state-parks.md) separate public upstream contracts from the provider access and live evidence still needed. Keep its source in `research` until that checklist passes; neither an upstream library nor a campground directory establishes live coverage.
+Washington State Parks has an experimental native adapter in `goingtocamp.py`, adapted from GoCamp's discovery/search workflow. Its [implementation notes](washington-state-parks.md) separate implemented behavior from the live evidence still needed. Keep its source `experimental`, not `ready`, until that checklist passes. Neither an upstream library nor synthetic fixtures establish live coverage.
+
+Washington target IDs are `gtc:wa:<location-id>:<booking-category>`, where 0 is Camping and 1 is Roofed. Signed 32-bit IDs are intentional. Results append the leaf map and resource IDs so dated booking links survive the store's URL normalization. Discovery uses `rootMapId`, not a join against every map. Every map is checked for both aggregate full-stay and nightly availability, including nested children. The parser rejects incomplete responses; only zero statuses across both checks become candidates. These are contract assumptions awaiting live validation, not a guaranteed current feed.
+
+The client serializes catalog and stay requests with a five-second floor, plus the scanner's configured request gate. It caches complete catalogs for 24 hours. HTTP 429 honors the longer of Retry-After and one hour; 401/403, redirects, and HTML responses set a manual access stop. The `goingtocamp_connection` app setting persists this state but is excluded from configuration exports. Resetting a stop cannot shorten the cooldown and does not itself contact the provider. Sources shows the saved state; scan failures also appear in Logs. No browser worker, login, hold, or payment endpoint is involved. Include `third_party/gocamp` in distributed images for attribution.
+
+`test_goingtocamp.py` uses synthetic HTTP responses and isolated databases to cover both accommodation categories, full and partial stays, nested maps, malformed payloads, identity validation, cancellation, persisted access stops, provider-specific cooldown, imports into regional watches, notification deduplication, and backup round trips. It does not contact Washington or send real notifications. The removed details endpoint is not called; specific accommodation types, loop, and capacity filters report an unsupported-filter error instead of silently returning no matches.
 
 Skagit County uses Cedar's public GraphQL calendar. `cedar.py` sends query operations only to a fixed endpoint with an allowlisted organization and campground. The requested fields deliberately omit customer bookings and hold details. Each page also validates the campground's current public/unarchived catalog record. Pagination requires stable totals and rules, unique venue/portion identities, and a complete final page. Missing pages, GraphQL errors, unknown rule units, contradictory date flags, or foreign IDs are errors, never empty availability.
 
@@ -166,6 +172,8 @@ Build the frontend, then run from the repository root:
 
 On Linux/macOS use `.venv/bin/python scripts/docs_demo.py --port 8093`. Open `http://localhost:8093`. This serves the real UI with synthetic targets, a four-campground regional watch, tent/cabin matches, simulated cooldown progress, and example delivery records.
 
+Add `--washington-access-stop` to show a simulated, persisted Washington API denial in Sources. This never contacts the provider. The Washington screenshots use this flag; the visible error is explicitly labeled Demo.
+
 The helper creates a temporary database, clears inherited Camp Finder environment settings in its own process, disables the scheduler and provider client, and rejects write requests. The example webhook uses `.invalid`; no alert is sent. Do not use this helper for real monitoring. Stop it with Ctrl+C when finished; the temporary database is removed. The map may still load public OpenStreetMap tiles in the browser.
 
 Capture the dashboard at 1440 x 1100 and mobile views at 390 x 844. Use the actual Settings and Watches drawers, their native scrolling, and the Logs link; do not edit rendered text to manufacture a state. Store capture work in `output/playwright/`, inspect the images, and copy approved screenshots into `docs/screenshots/`.
@@ -183,6 +191,8 @@ Current documentation images:
 | `crawl-logs.png` | Diagnostic events, run outcomes, and demo deliveries |
 | `county-sources.png` | Everett and North Sound catalog with live Snohomish and Skagit County coverage |
 | `county-sources-mobile.png` | Skagit County source controls at 390px |
+| `washington-source.png` | Experimental Washington API and a simulated access stop on desktop |
+| `washington-source-mobile.png` | Washington access status and disabled controls at 390px |
 | `saved-targets-mobile.png` | Searchable saved inventory with an expanded campground group |
 
 Never capture a real webhook input, secret-inclusive export, account credential, or private delivery error for public documentation. Describe demo data as simulated; configured channels and seeded delivery records are not live verification.

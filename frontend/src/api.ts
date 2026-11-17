@@ -142,6 +142,8 @@ export const api = {
     request<PresetSourceImportResult>(`/api/presets/${packId}/import-discovered`, { method: "POST" }),
   discoverSource: (sourceId: string) =>
     request<SourceDiscoveryResult>(`/api/sources/${sourceId}/discover`, { method: "POST" }),
+  resetSourceAccess: (sourceId: string) =>
+    request<{ reset: boolean }>(`/api/sources/${sourceId}/reset-access`, { method: "POST" }),
   importSource: (sourceId: string) =>
     request<SourceImportResult>(`/api/sources/${sourceId}/import`, { method: "POST" }),
   createWatch: (payload: Record<string, unknown>) =>

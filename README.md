@@ -109,13 +109,14 @@ Sources can be filtered to Puget Sound, Olympic Peninsula, Mount Rainier, Snoqua
 - National forests: live Recreation.gov discovery for Washington national forests such as Olympic, Mount Baker-Snoqualmie, Okanogan-Wenatchee, Gifford Pinchot, and Colville.
 - Regions: a Washington Recreation.gov state starter for federal campgrounds that are not covered by a named park or forest source yet.
 - County and regional parks: Snohomish County, King County's Tolt-MacDonald campground, and Skagit County's Howard Miller Steelhead Park have live discovery and exact-stay availability searches. Clallam, Lewis, and Tacoma Power parks have official links but their reservation connectors are not connected. Jefferson County camping is directory-only.
-- Washington state: official Washington State Parks and WA DNR entries. These are research/directory sources for now, with official links, not availability scanners.
+- Washington State Parks: an experimental native GoingToCamp API adapter, adapted from GoCamp's workflow, with Camping and Roofed targets. Live compatibility remains unverified because direct access was denied from the development host. WA DNR remains directory-only.
 
-Washington State Parks has an optional [private browser diagnostic worker](docs/browser-worker.md)
-for evaluating its normal reservation interface on a Docker server. It is not
-connected to watches or notifications; installing it does not enable state-park monitoring.
+The [Washington State Parks setup guide](docs/washington-state-parks.md) covers
+the direct API path. It runs inside the regular Camp Finder container without
+credentials, a browser console, or another service. The optional
+[browser diagnostic worker](docs/browser-worker.md) is separate and is not required.
 
-Sources labeled **Live monitoring** have Check and Import actions. Check discovers campgrounds from that provider; Import creates or updates targets by provider-qualified ID. **Not connected** and **Directory only** entries cannot be imported into the scanner. An official listing or an open park does not establish nightly campsite availability.
+Sources labeled **Live monitoring** or **Experimental API** have Check and Import actions. Check discovers campgrounds from that provider; Import creates or updates targets by provider-qualified ID. Experimental does not mean verified live coverage. Washington access denials persist across restarts, disable Check/Import, and require review before resetting in Sources. **Not connected** and **Directory only** entries cannot be imported into the scanner. An official listing or an open park does not establish nightly campsite availability.
 
 ### Snohomish County Setup
 
@@ -192,11 +193,11 @@ Source definitions describe coverage, grouping, and discovery capabilities. Prov
 - Custom Recreation.gov searches for a state, region, or keyword.
 - Washington state sources as their own provider family, not mixed into federal national-park packs.
 
-Washington State Parks uses [GoingToCamp](https://parks.wa.gov/passes-permits/reservations/making-reservations). A normal browser request from the development host returned a firewall denial during the November 17, 2026 integration review. No access workaround was attempted, and no live state-park scanning is claimed. The next integration step requires permitted access and verified campground, accommodation-category, and full-stay responses.
+Washington State Parks uses [GoingToCamp](https://parks.wa.gov/passes-permits/reservations/making-reservations). The native adapter uses a fixed provider host, serialized requests, a cached catalog, full-stay plus nightly map checks, and persisted denial/cooldown state. A direct catalog request from the development host returned HTTP 403 on November 17, 2026. No access workaround was attempted, and verified live state-park coverage is not claimed.
 
 A later read-only inspection in an existing user-operated browser confirmed anonymous camping and cabin search results. This establishes a browser workflow to evaluate, not a working Docker connector. No login, cart, reservation, or provider-notification action was submitted.
 
-Washington State Parks is the next provider priority, ahead of additional county connectors. The intended coverage includes reservable tent/RV sites and roofed stays such as cabins and yurts, using the same regional watches and notification channels. See the [state-park integration notes](docs/washington-state-parks.md) for the access blocker, implementation requirements, and verification checklist. This is planned coverage, not an enabled feature.
+The experimental Washington connector is wired into discovery, regional watches, scan diagnostics, and the existing notification channels. Its intended coverage is Camping and Roofed stays, including cabins and yurts. Until live contracts are verified, leave detailed type, loop, and capacity filters unset; unknown metadata is not invented. See the [state-park integration notes](docs/washington-state-parks.md) for setup, current limits, and the live verification checklist.
 
 [Tacoma Power Parks](https://www.mytpu.org/community-environment-parks/parks-recreation/reservations-fees/) uses its own GoingToCamp service. Its browser page loaded during the same review, but a server-style metadata request received a firewall challenge. It remains unconnected; opening an interactive page is not proof that the Docker crawler can use its API.
 

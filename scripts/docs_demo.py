@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 from contextlib import asynccontextmanager
 from datetime import UTC, date, datetime, timedelta
 import os
@@ -15,7 +16,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 
-def run(port: int) -> None:
+def run(port: int, washington_access_stop: bool = False) -> None:
     # Do not inherit personal settings or open the normal application database.
     for key in list(os.environ):
         if key.startswith("CAMPFINDER_"):
@@ -37,6 +38,13 @@ def run(port: int) -> None:
         main.client = OfflineClient()
         main.scanner.client = main.client
         main.store.init()
+        if washington_access_stop:
+            from backend.app.goingtocamp import STATE_KEY
+            main.store.set_app_settings({STATE_KEY: json.dumps({
+                "state": "access_denied", "checked_at": datetime.now(UTC).isoformat(),
+                "retry_at": (datetime.now(UTC) + timedelta(minutes=45)).isoformat(),
+                "message": "Demo: API access stopped (HTTP 403); manual review required.",
+            })})
         targets = [main.store.create_target({
             "name": name, "park_name": park, "campground_id": f"demo-{index}",
             "state_code": "WA", "latitude": lat, "longitude": lon,
@@ -100,4 +108,6 @@ def run(port: int) -> None:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--port", type=int, default=8093)
-    run(parser.parse_args().port)
+    parser.add_argument("--washington-access-stop", action="store_true", help="Show a simulated Washington API access stop.")
+    args = parser.parse_args()
+    run(args.port, args.washington_access_stop)

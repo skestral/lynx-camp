@@ -18,6 +18,7 @@ import {
   Play,
   Plus,
   RefreshCw,
+  RotateCcw,
   Save,
   Search,
   Settings,
@@ -847,6 +848,7 @@ export default function App() {
   const [presetDiscovery, setPresetDiscovery] = useState<Record<string, PresetDiscoveryResult>>({});
   const [discoveringSourceId, setDiscoveringSourceId] = useState<string | null>(null);
   const [importingSourceId, setImportingSourceId] = useState<string | null>(null);
+  const [resettingSourceId, setResettingSourceId] = useState<string | null>(null);
   const [sourceDiscovery, setSourceDiscovery] = useState<Record<string, SourceDiscoveryResult>>({});
   const [configBusy, setConfigBusy] = useState<"export" | "import" | null>(null);
   const [backupFile, setBackupFile] = useState<File | null>(null);
@@ -1064,7 +1066,7 @@ export default function App() {
       bundledTargetCount: bundledIds.size,
       importedBundledCount: importedBundledIds.size,
       sourceDefinitionCount: sources.length,
-      readySourceDefinitionCount: sources.filter((source) => source.discover_supported).length,
+      readySourceDefinitionCount: sources.filter((source) => source.status === "ready").length,
       checkedPacks,
       sourceNewCount,
       sourceMissingCount,
@@ -1793,6 +1795,7 @@ export default function App() {
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Source catalog check failed.");
     } finally {
+      await refreshSourceConnections();
       setDiscoveringSourceId(null);
     }
   }
@@ -1810,7 +1813,30 @@ export default function App() {
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Source catalog import failed.");
     } finally {
+      await refreshSourceConnections();
       setImportingSourceId(null);
+    }
+  }
+
+  async function refreshSourceConnections() {
+    try {
+      setSources(await api.sources());
+    } catch {
+      setMessage((current) => `${current} Source connection status could not be refreshed.`.trim());
+    }
+  }
+
+  async function resetSourceAccess(source: SourceDefinition) {
+    if (!window.confirm(`Reset the access stop for ${source.name}? Only continue after resolving provider access. Active watches can resume requests; this does not bypass a provider denial.`)) return;
+    setResettingSourceId(source.id);
+    try {
+      await api.resetSourceAccess(source.id);
+      setMessage(`${source.name}: access stop reset. Live compatibility remains experimental.`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Access stop could not be reset.");
+    } finally {
+      await refreshSourceConnections();
+      setResettingSourceId(null);
     }
   }
 
@@ -3512,7 +3538,7 @@ export default function App() {
             <div className="panel-heading">
               <div>
                 <h2>Campground Targets</h2>
-                <p>{targets.length} saved campgrounds &middot; {sources.filter((source) => source.import_supported).length} live sources</p>
+                <p>{targets.length} saved campgrounds &middot; {sources.filter((source) => source.status === "ready").length} live sources</p>
               </div>
             </div>
             <div className="target-tabs" role="tablist" aria-label="Target views" onKeyDown={(event) => {
@@ -3563,18 +3589,26 @@ export default function App() {
                   <summary className="source-group-heading">
                     <ChevronRight size={18} />
                     <strong>{group.category}</strong>
-                    <small>{group.items.filter((source) => source.import_supported).length} live / {group.items.length} {group.items.length === 1 ? "source" : "sources"}</small>
+                    <small>{group.items.filter((source) => source.status === "ready").length} live / {group.items.length} {group.items.length === 1 ? "source" : "sources"}</small>
                   </summary>
                   {group.items.map((source) => {
                     const discovery = sourceDiscovery[source.id];
+                    const busy = discoveringSourceId === source.id || importingSourceId === source.id || resettingSourceId === source.id;
+                    const cooling = Boolean(source.connection?.retry_at && Date.parse(source.connection.retry_at) > Date.now());
+                    const stopped = source.connection?.state === "access_denied";
                     return (
                       <article className="source-row" key={source.id}>
                         <span>
-                          <span className={`status ${source.import_supported ? "success" : "quiet"}`}>{source.import_supported ? "Live monitoring" : source.status === "directory" ? "Directory only" : "Not connected"}</span>
+                          <span className={`status ${source.status === "ready" ? "success" : "quiet"}`}>{source.status === "experimental" ? "Experimental API" : source.status === "ready" ? "Live monitoring" : source.status === "directory" ? "Directory only" : "Not connected"}</span>
+                          {stopped && <span className="status danger">Access stopped</span>}
+                          {source.connection?.state === "rate_limited" && cooling && <span className="status warning">Provider cooldown</span>}
                           <strong>{source.name}</strong>
                           <small>
                             {source.counties?.length ? source.counties.join(", ") + (source.counties.length === 1 ? " County" : " counties") : source.region} &middot; {source.description}
                           </small>
+                          {source.connection?.message && <small role="status">{source.connection.message}</small>}
+                          {source.connection?.retry_at && <small>{stopped ? "Review after" : "Retry after"} {new Date(source.connection.retry_at).toLocaleString()}</small>}
+                          {busy && <small role="status">{resettingSourceId === source.id ? "Resetting access stop..." : "Contacting source..."}</small>}
                           {discovery && (
                             <small className="preset-source-summary">
                               Source {discovery.discovered_count} &middot; {discovery.new_count} new &middot; {discovery.imported_count} already saved
@@ -3586,7 +3620,7 @@ export default function App() {
                             <button
                               className="icon-only"
                               onClick={() => discoverSource(source.id)}
-                              disabled={discoveringSourceId === source.id}
+                              disabled={busy || stopped || cooling}
                               title={`Check ${source.name}`}
                               type="button"
                             >
@@ -3597,11 +3631,17 @@ export default function App() {
                             <button
                               className="icon-only"
                               onClick={() => importSource(source.id)}
-                              disabled={importingSourceId === source.id}
+                              disabled={busy || stopped || cooling}
                               title={`Import ${source.name}`}
                               type="button"
                             >
                               <Download size={17} />
+                            </button>
+                          )}
+                          {stopped && (
+                            <button className="icon-only" type="button" onClick={() => resetSourceAccess(source)}
+                              disabled={busy || cooling} title={`Reset access stop for ${source.name}`}>
+                              <RotateCcw size={17} />
                             </button>
                           )}
                           <a className="icon-only quiet" href={source.official_url} target="_blank" rel="noreferrer" title={`Open ${source.provider} source`}>

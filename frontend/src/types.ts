@@ -469,6 +469,12 @@ export type SourceDefinition = {
   discover_supported: boolean;
   import_supported: boolean;
   imported_count: number;
+  connection?: {
+    state: "unverified" | "catalog_loaded" | "access_denied" | "rate_limited";
+    message?: string;
+    checked_at?: string;
+    retry_at?: string;
+  };
 };
 
 export type SourceDiscoveryResult = {

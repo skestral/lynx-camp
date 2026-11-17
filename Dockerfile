@@ -25,6 +25,7 @@ ENV PYTHONUNBUFFERED=1 \
 COPY backend/requirements.txt ./backend/requirements.txt
 RUN pip install --no-cache-dir -r backend/requirements.txt
 COPY backend ./backend
+COPY third_party ./third_party
 COPY --from=frontend /app/frontend/dist ./frontend/dist
 RUN printf "%s\n" "${APP_GIT_SHA}" > /app/BUILD_SHA
 VOLUME ["/data"]

@@ -200,7 +200,7 @@ def test_county_discovery_deduplicates_and_federal_pack_does_not_count_county(tm
     sources = {s["id"]: s for s in list_source_definitions(store)}
     assert sources["snohomish-county-parks"]["imported_count"] == 1
     assert sources["washington-recreation-gov-region"]["imported_count"] == 0
-    assert sources["washington-state-parks"]["import_supported"] is False
+    assert sources["washington-state-parks"]["status"] == "experimental"
 
 
 def test_new_county_import_joins_state_watch_and_notifies_in_mixed_crawl(tmp_path):
