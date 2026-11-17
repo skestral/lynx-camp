@@ -43,11 +43,12 @@ Active watches start background work as soon as the server starts. Use the read-
 | `backend/app/main.py` | FastAPI routes, application lifecycle, background scheduler |
 | `backend/app/scanner.py` | Stay windows, queued campground checks, pacing, cancellation, cooldowns, ETA |
 | `backend/app/recreation.py` | Recreation.gov client and HTTP 429/Retry-After handling |
+| `backend/app/providers.py`, `provider_ids.py`, `camava.py` | Provider routing, namespaced IDs, read-only Snohomish discovery and stay searches |
 | `backend/app/db.py` | SQLite schema, transactions, watch groups, results, logs, saved settings |
 | `backend/app/notifications.py` | Channel configuration, alert formatting, tests, delivery records |
 | `backend/app/scan_config.py` | UI/environment scan-control precedence and validation |
 | `backend/app/presets.py`, `sources.py` | Bundled targets and source discovery |
-| `frontend/src/App.tsx`, `WatchGroup.tsx` | Dashboard, drawers, logs, regional watch controls |
+| `frontend/src/App.tsx`, `WatchGroup.tsx`, `SavedTargets.tsx` | Dashboard, drawers, logs, regional watch controls, grouped target inventory |
 | `frontend/src/api.ts`, `types.ts` | Frontend API calls and response contracts |
 | `backend/tests/` | Unit and API tests with isolated databases and fake providers |
 
@@ -72,7 +73,19 @@ Watch deletion uses `Scanner.delete_watches` for both the bulk and individual en
 | `GET /api/notifications/status` | Whether channels are configured; not proof of delivery |
 | `POST /api/notifications/test` | Sends a real test to every configured channel; use deliberately |
 
-A 429 leaves the current and later checks pending. The scanner waits for the longer of the provider's Retry-After and its exponential local backoff, then resumes. Successful cycles gradually reduce adaptive spacing toward the configured minimum. ETA is based on remaining monthly requests, spacing, observed latency, and known cooldown; it is not a completion deadline.
+A 429 leaves that provider's checks pending. The scanner waits for the longer of its Retry-After and exponential local backoff, while eligible checks for other providers continue. Cooldowns survive restart. Successful cycles gradually reduce adaptive spacing toward the configured minimum. ETA counts monthly requests for Recreation.gov and full-stay searches for Snohomish, plus spacing, observed latency, and known cooldown. It is not a completion deadline.
+
+## Adding Providers
+
+Recreation.gov IDs stay unchanged. Snohomish IDs use `camava:snoco:<park-id>`; campsite IDs use the same prefix with the site ID. The namespace prevents numeric collisions without rewriting existing target/watch IDs or foreign keys. `provider_ids.py` is the allowlist for routing and booking URLs. Never accept a user-supplied provider host as an HTTP destination.
+
+`CampgroundClient` routes external discovery and full-stay searches. Recreation.gov still uses monthly maps. Snohomish uses the public campground search page with a GET request for an exact arrival/departure range. `camava.py` parses HTML with Beautiful Soup, checks echoed dates and selected park, and only accepts enabled Reserve buttons inside matching site cards. It never submits those buttons. The map JSON is deliberately not used for availability: it may contain sites from other parks. Blank pages, changed markup, and denied responses must raise errors rather than expire existing matches.
+
+The scanner caches exact county stays separately from federal months. Both paths share result filtering, persistence, notifications, cancellation, and provider-specific pacing. County release dates are not guessed from federal six-month defaults. Cart Assist remains Recreation.gov-only. Booking URLs are generated from an allowlisted provider and survive database initialization and configuration import/export; startup URL backfills only rewrite legacy federal results.
+
+Before enabling another source, verify discovery IDs, all overnight accommodation categories, full-stay rules, denial handling, date-aware booking links, and rate limits. Add fixture tests and bounded read-only live checks. Do not mark an unverified connector ready, retry through a firewall denial, or treat first-come campground directories as availability feeds.
+
+`test_county_provider.py` covers parsing, unknown responses, cross-provider IDs, notification handoff, independent cooldowns, backup restoration, and repeated database initialization. Live development checks on November 17, 2026 discovered eight county parks, returned cabin and campsite results for a Flowing Lake weekend, and recognized a closed Whitehorse stay. No reservations or real notifications were sent. Washington State Parks was firewall-denied and remains unconnected; production-host behavior is unverified.
 
 New matches are deduplicated and notified after each campground check, or before returning from a rate-limited partial check. Enabling a channel later does not resend all existing matches. Delivery failures are recorded but are not managed by a durable retry queue.
 
@@ -126,5 +139,7 @@ Current documentation images:
 | `notification-settings.png` | Configured example webhook with no credential shown |
 | `scan-controls.png` | Repeat interval, request spacing, cache, and backoff settings |
 | `crawl-logs.png` | Diagnostic events, run outcomes, and demo deliveries |
+| `county-sources.png` | Everett-area catalog with live Snohomish and unconnected Skagit coverage |
+| `saved-targets-mobile.png` | Searchable saved inventory with an expanded campground group |
 
 Never capture a real webhook input, secret-inclusive export, account credential, or private delivery error for public documentation. Describe demo data as simulated; configured channels and seeded delivery records are not live verification.

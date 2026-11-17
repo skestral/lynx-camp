@@ -20,9 +20,9 @@ USER_AGENT = (
 
 
 class RateLimitError(RuntimeError):
-    def __init__(self, retry_after_seconds: int | None = None):
+    def __init__(self, retry_after_seconds: int | None = None, provider: str = "Recreation.gov"):
         self.retry_after_seconds = retry_after_seconds
-        message = "Recreation.gov returned HTTP 429 Too Many Requests"
+        message = f"{provider} returned HTTP 429 Too Many Requests"
         if retry_after_seconds is not None:
             message = f"{message}; retry after {retry_after_seconds} seconds"
         super().__init__(message)
@@ -38,6 +38,7 @@ class Campsite:
     availabilities: dict[str, str]
     reservation_window_value: int | None = None
     reservation_window_unit: str = ""
+    booking_url: str = ""
 
     @classmethod
     def from_api(cls, payload: dict[str, Any]) -> "Campsite":

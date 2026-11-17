@@ -1577,6 +1577,61 @@ small {
   margin-top: 13px;
 }
 
+.target-tabs {
+  display: flex;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 16px;
+}
+
+.target-tabs button {
+  flex: 1;
+  border: 0;
+  border-bottom: 3px solid transparent;
+  border-radius: 0;
+  background: transparent;
+  color: #52645f;
+  padding: 12px;
+}
+
+.target-tabs button[aria-selected="true"] {
+  color: #126047;
+  border-bottom-color: #126047;
+  background: #f0f8f4;
+}
+
+.target-group {
+  margin-top: 12px;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 10px;
+}
+
+.target-group > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.target-group > summary::-webkit-details-marker { display: none; }
+.target-group > summary > svg { flex-shrink: 0; }
+.target-group[open] > summary > svg { transform: rotate(90deg); }
+.target-group > summary > strong { flex: 1; min-width: 0; font-size: 14px; overflow-wrap: anywhere; }
+.target-group > summary > small { color: #61726c; font-size: 12px; text-align: right; }
+.target-group .source-row { margin: 8px 0; }
+.saved-targets .search-box { margin-top: 12px; }
+.search-box input { width: 100%; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--text); font: inherit; }
+.search-box:focus-within { outline: 2px solid #308777; outline-offset: 2px; }
+.source-catalog .subheading label { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 12px; }
+.source-catalog select { min-width: 0; width: 100%; padding: 10px; border: 1px solid var(--line); border-radius: 4px; background: white; color: #14231f; font: inherit; }
+.saved-target-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 12px 0; border-top: 1px solid var(--line); }
+.saved-target-row > div:first-child { flex: 1 1 180px; min-width: 0; }
+.saved-target-row strong { display: block; font-size: 14px; overflow-wrap: anywhere; }
+.saved-target-row small { display: block; margin-top: 4px; font-size: 12px; color: #61726c; overflow-wrap: anywhere; }
+.saved-target-row.inactive { opacity: 0.7; }
+.source-row strong, .source-row small { overflow-wrap: anywhere; }
+
 .suggestion-row,
 .source-row,
 .preset-row,
@@ -1660,6 +1715,8 @@ td small {
   border-top: 1px solid var(--line);
   padding-top: 12px;
 }
+
+.source-catalog .source-group { display: block; margin: 0; padding: 0; border-top: 0; }
 
 .source-group-heading {
   display: flex;

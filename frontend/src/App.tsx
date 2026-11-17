@@ -33,6 +33,7 @@ import "leaflet/dist/leaflet.css";
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { RESULTS_LIMIT, api } from "./api";
 import { WatchGroup } from "./WatchGroup";
+import { SavedTargets } from "./SavedTargets";
 import type {
   CrawlStatus,
   CartAssistStatus,
@@ -165,7 +166,7 @@ const SCAN_CONTROL_FIELDS: ScanControlField[] = [
     min: 0,
     max: 60,
     step: 0.25,
-    help: "Seconds to wait between uncached Recreation.gov month requests."
+    help: "Seconds between uncached availability requests to each provider."
   },
   {
     key: "rate_limit_backoff_minutes",
@@ -173,7 +174,7 @@ const SCAN_CONTROL_FIELDS: ScanControlField[] = [
     min: 1,
     max: 1440,
     step: 1,
-    help: "Minutes to pause scans after Recreation.gov returns HTTP 429."
+    help: "Minimum minutes to pause a provider after HTTP 429."
   }
 ];
 
@@ -570,7 +571,7 @@ function bookingBrief(result: Result) {
     result.campsite_type ? `Type: ${result.campsite_type}` : "",
     `Arrival: ${formatDate(result.arrival_date)}`,
     `Departure: ${formatDate(result.departure_date)}`,
-    `Recreation.gov: ${bookingUrl}`,
+    `Booking: ${bookingUrl}`,
   ]
     .filter(Boolean)
     .join("\n");
@@ -765,6 +766,9 @@ export default function App() {
   const [targets, setTargets] = useState<Target[]>([]);
   const [presets, setPresets] = useState<PresetPack[]>([]);
   const [sources, setSources] = useState<SourceDefinition[]>([]);
+  const [targetTab, setTargetTab] = useState<"sources" | "saved">("sources");
+  const [targetSettingsOpen, setTargetSettingsOpen] = useState(false);
+  const [sourceArea, setSourceArea] = useState("");
   const [watches, setWatches] = useState<Watch[]>([]);
   const [selectedWatchIds, setSelectedWatchIds] = useState<number[]>([]);
   const [watchBulkBusy, setWatchBulkBusy] = useState(false);
@@ -845,6 +849,7 @@ export default function App() {
   const [backupFile, setBackupFile] = useState<File | null>(null);
   const [includeSecretSettings, setIncludeSecretSettings] = useState(false);
   const [targetSettingsId, setTargetSettingsId] = useState("");
+  const targetSupportsReleaseWindow = !targets.find((target) => String(target.id) === targetSettingsId)?.campground_id.includes(":");
   const [targetName, setTargetName] = useState("");
   const [targetParkName, setTargetParkName] = useState("");
   const [targetStateCode, setTargetStateCode] = useState("");
@@ -1086,14 +1091,16 @@ export default function App() {
   const sourceGroups = useMemo(() => {
     const grouped = new Map<string, SourceDefinition[]>();
     for (const source of sources) {
+      if (sourceArea && source.areas?.length && !source.areas.includes(sourceArea)) continue;
+      if (sourceArea && !source.region.includes("WA")) continue;
       const category = source.category || "Other sources";
       grouped.set(category, [...(grouped.get(category) || []), source]);
     }
     return Array.from(grouped.entries()).map(([category, items]) => ({
       category,
-      items: items.sort((a, b) => a.name.localeCompare(b.name))
+      items: items.sort((a, b) => Number(b.import_supported) - Number(a.import_supported) || a.name.localeCompare(b.name))
     }));
-  }, [sources]);
+  }, [sources, sourceArea]);
   const parkSummaries = useMemo<ParkSummary[]>(() => {
     const summaries = new Map<
       string,
@@ -2729,7 +2736,7 @@ export default function App() {
       const description =
         details?.description ||
         (selectedMapCampground.imported
-          ? "Saved campground target. Recreation.gov details will appear here when available."
+          ? "Saved campground target. Provider details will appear here when available."
           : "Preset campground option. Import it as a target before adding a recurring watch.");
       const detailUrl = details?.detail_url || selectedMapCampground.bookingUrl;
       const mapTags = Array.from(new Set([...(details?.activities || []), ...(details?.amenities || [])])).slice(0, 8);
@@ -2749,7 +2756,7 @@ export default function App() {
             ) : (
               <div className="map-detail-placeholder">
                 <TentTree size={28} />
-                <span>{loading ? "Loading Recreation.gov details" : "No campground image provided"}</span>
+                <span>{loading ? "Loading campground details" : "No campground image provided"}</span>
               </div>
             )}
           </div>
@@ -2762,7 +2769,7 @@ export default function App() {
               <small>{selectedMapCampground.imported ? "Imported target" : "Preset target"}</small>
             </span>
           </div>
-          <p className="map-detail-copy">{loading ? "Loading the latest campground overview from Recreation.gov." : description}</p>
+          <p className="map-detail-copy">{loading ? "Loading the latest campground overview." : description}</p>
           {detailError && !loading && <p className="map-detail-error">{detailError}</p>}
           <div className="map-detail-facts">
             {factRows.map((fact) => (
@@ -2821,7 +2828,7 @@ export default function App() {
           </span>
           <span>
             <strong>Select a marker</strong>
-            <small>Campground details, Recreation.gov links, and watch actions appear here.</small>
+            <small>Campground details, booking links, and watches.</small>
           </span>
         </div>
         <button className="icon-button" onClick={openWatchBuilderForMapView} type="button">
@@ -3435,7 +3442,7 @@ export default function App() {
                         ? `${run.target_name} · in progress since ${formatDateTime(run.started_at)}`
                         : `${run.target_name} · ${run.candidate_count} stays · ${run.available_count} matches`}
                     </small>
-                    <small>{run.message || (run.status === "running" ? "Checking Recreation.gov availability now." : "")}</small>
+                    <small>{run.message || (run.status === "running" ? "Checking availability now." : "")}</small>
                   </span>
                   <span>
                     <span className={`status ${statusTone(run.status === "success" && run.available_count > 0 ? "available" : run.status)}`}>
@@ -3468,9 +3475,22 @@ export default function App() {
             <div className="panel-heading">
               <div>
                 <h2>Campground Targets</h2>
-                <p>Search Recreation.gov and pin the campgrounds you care about.</p>
+                <p>{targets.length} saved campgrounds &middot; {sources.filter((source) => source.import_supported).length} live sources</p>
               </div>
             </div>
+            <div className="target-tabs" role="tablist" aria-label="Target views" onKeyDown={(event) => {
+              if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+              event.preventDefault();
+              const next = event.key === "Home" ? "sources" : event.key === "End" ? "saved" : targetTab === "sources" ? "saved" : "sources";
+              setTargetTab(next);
+              event.currentTarget.querySelector<HTMLButtonElement>(`#target-tab-${next}`)?.focus();
+            }}>
+              <button id="target-tab-sources" role="tab" aria-controls="target-sources" tabIndex={targetTab === "sources" ? 0 : -1} aria-selected={targetTab === "sources"} onClick={() => setTargetTab("sources")}>Sources</button>
+              <button id="target-tab-saved" role="tab" aria-controls="target-saved" tabIndex={targetTab === "saved" ? 0 : -1} aria-selected={targetTab === "saved"} onClick={() => setTargetTab("saved")}>Saved ({targets.length})</button>
+            </div>
+            {targetTab === "sources" && <div id="target-sources" role="tabpanel" aria-labelledby="target-tab-sources">
+            <details className="target-group">
+              <summary><ChevronRight size={18} /><strong>Recreation.gov campground search</strong></summary>
             <label className="search-box">
               <Search size={18} />
               <input
@@ -3491,26 +3511,32 @@ export default function App() {
                 </button>
               ))}
             </div>
+            </details>
             <div className="source-catalog">
               <div className="subheading">
-                <strong>Source catalog</strong>
-                <small>Refreshable v2 sources grouped by park, forest, region, and Washington state research.</small>
+                <label>Region
+                  <select value={sourceArea} onChange={(event) => setSourceArea(event.target.value)}>
+                    <option value="">All regions</option>
+                    {["Puget Sound", "Olympic Peninsula", "Mount Rainier", "Snoqualmie and Cascades", "Everett and North Sound"].map((area) => <option key={area}>{area}</option>)}
+                  </select>
+                </label>
               </div>
               {sourceGroups.map((group) => (
-                <div className="source-group" key={group.category}>
-                  <div className="source-group-heading">
+                <details className="source-group target-group" key={`${group.category}:${sourceArea}`}>
+                  <summary className="source-group-heading">
+                    <ChevronRight size={18} />
                     <strong>{group.category}</strong>
-                    <small>{group.items.length} source{group.items.length === 1 ? "" : "s"}</small>
-                  </div>
+                    <small>{group.items.filter((source) => source.import_supported).length} live / {group.items.length} {group.items.length === 1 ? "source" : "sources"}</small>
+                  </summary>
                   {group.items.map((source) => {
                     const discovery = sourceDiscovery[source.id];
                     return (
                       <article className="source-row" key={source.id}>
                         <span>
-                          <span className={`status ${statusTone(source.status)}`}>{source.status}</span>
+                          <span className={`status ${source.import_supported ? "success" : "quiet"}`}>{source.import_supported ? "Live monitoring" : source.status === "directory" ? "Directory only" : "Not connected"}</span>
                           <strong>{source.name}</strong>
                           <small>
-                            {source.provider} &middot; {source.region} &middot; {source.query_count || 0} quer{source.query_count === 1 ? "y" : "ies"} &middot; {source.description}
+                            {source.counties?.length ? source.counties.join(", ") + (source.counties.length === 1 ? " County" : " counties") : source.region} &middot; {source.description}
                           </small>
                           {discovery && (
                             <small className="preset-source-summary">
@@ -3548,14 +3574,11 @@ export default function App() {
                       </article>
                     );
                   })}
-                </div>
+                </details>
               ))}
             </div>
-            <div className="preset-packs">
-              <div className="subheading">
-                <strong>Preset packs</strong>
-                <small>Import a starting list, then trim it to your actual targets.</small>
-              </div>
+            <details className="preset-packs target-group">
+              <summary><ChevronRight size={18} /><strong>Bundled park packs</strong><small>{presets.length} packs</small></summary>
               {presets.map((pack) => {
                 const discovery = presetDiscovery[pack.id];
                 return (
@@ -3598,38 +3621,13 @@ export default function App() {
                   </article>
                 );
               })}
-            </div>
-            <div className="target-list">
-              {targets.length === 0 && <p className="empty">No targets yet. Add a campground to start watching dates.</p>}
-              {targets.map((target) => (
-                <article className={`target-row ${target.active ? "" : "inactive"}`} key={target.id}>
-                  <span className="target-icon"><Waves size={18} /></span>
-                  <span>
-                    <strong>{target.name}</strong>
-                    <small>
-                      {target.park_name || "Campground"} &middot; {target.campground_id} &middot;{" "}
-                      {target.release_window_value || target.release_months} {(target.release_window_unit || "Months").toLowerCase()} @ {target.release_time}
-                    </small>
-                  </span>
-                  <span className="row-actions">
-                    <span className={`status ${statusTone(target.active ? target.last_status : "paused")}`}>
-                      {target.active ? target.last_status : "paused"}
-                    </span>
-                    <button
-                      className="icon-only"
-                      onClick={() => updateTargetActive(target, !target.active)}
-                      title={`${target.active ? "Pause" : "Resume"} ${target.name}`}
-                    >
-                      {target.active ? <Pause size={16} /> : <Play size={16} />}
-                    </button>
-                    <button className="icon-only quiet" onClick={() => deleteTarget(target.id)} title={`Delete ${target.name}`}>
-                      <Trash2 size={16} />
-                    </button>
-                  </span>
-                </article>
-              ))}
-            </div>
+            </details>
+            </div>}
+            {targetTab === "saved" && <div id="target-saved" role="tabpanel" aria-labelledby="target-tab-saved"><SavedTargets targets={targets} onActive={updateTargetActive} onDelete={deleteTarget}
+              onEdit={(target) => { loadTargetSettings(target); setTargetSettingsOpen(true); }} /></div>}
             {targets.length > 0 && (
+              <details className="target-group" open={targetSettingsOpen} onToggle={(event) => setTargetSettingsOpen(event.currentTarget.open)}>
+              <summary><ChevronRight size={18} /><strong>Target settings</strong></summary>
               <form className="target-settings-form" onSubmit={saveTargetSettings}>
                 <div className="subheading">
                   <strong>Target settings</strong>
@@ -3665,7 +3663,7 @@ export default function App() {
                   Booking URL
                   <input value={targetBookingUrl} onChange={(event) => setTargetBookingUrl(event.target.value)} />
                 </label>
-                <label>
+                {targetSupportsReleaseWindow && <><label>
                   Release window
                   <input
                     min="0"
@@ -3690,6 +3688,7 @@ export default function App() {
                   Release time
                   <input type="time" value={targetReleaseTime} onChange={(event) => setTargetReleaseTime(event.target.value)} />
                 </label>
+                </>}
                 <label>
                   Timezone
                   <input value={targetTimezone} onChange={(event) => setTargetTimezone(event.target.value)} />
@@ -3708,11 +3707,11 @@ export default function App() {
                   <Save size={18} />
                   <span>Save Target</span>
                 </button>
-                <button className="icon-button" type="button" onClick={detectReleaseWindow} disabled={detectReleaseBusy}>
+                <button className="icon-button" type="button" onClick={detectReleaseWindow} disabled={detectReleaseBusy || !targetSupportsReleaseWindow}>
                   <RefreshCw size={18} />
                   <span>Detect Window</span>
                 </button>
-                <button className="icon-button" type="button" onClick={loadReleaseProfiles} disabled={profileBusy}>
+                <button className="icon-button" type="button" onClick={loadReleaseProfiles} disabled={profileBusy || !targetSupportsReleaseWindow}>
                   <Timer size={18} />
                   <span>View Profiles</span>
                 </button>
@@ -3740,6 +3739,7 @@ export default function App() {
                   </div>
                 )}
               </form>
+              </details>
             )}
           </section>
 
@@ -3890,8 +3890,8 @@ export default function App() {
               </label>
               <label className="toggle-field wide-field">
                 <span>
-                  <strong>Cart Assist</strong>
-                  <small>High-priority hits create one guarded server-side hold attempt record.</small>
+                  <strong>Cart Assist (Recreation.gov)</strong>
+                  <small>Manual checkout required. No automatic holds.</small>
                 </span>
                 <input
                   checked={cartAssistEnabled}
@@ -4329,7 +4329,7 @@ export default function App() {
                               ? `${run.target_name} · in progress since ${formatDateTime(run.started_at)}`
                               : `${run.target_name} · ${run.candidate_count} stays · ${run.available_count} matches`}
                           </small>
-                          <small>{run.message || (run.status === "running" ? "Checking Recreation.gov availability now." : "")}</small>
+                          <small>{run.message || (run.status === "running" ? "Checking availability now." : "")}</small>
                         </span>
                         <span>
                           <span className={`status ${statusTone(run.status === "success" && run.available_count > 0 ? "available" : run.status)}`}>
@@ -4409,7 +4409,7 @@ export default function App() {
                   <div className="map-empty">
                     <MapPin size={28} />
                     <strong>No target parks yet</strong>
-                    <small>Open Targets to import a preset pack or search Recreation.gov.</small>
+                    <small>No imported campgrounds.</small>
                   </div>
                 )}
               </div>
@@ -4579,7 +4579,7 @@ export default function App() {
                               ? `${run.target_name} \u00b7 in progress since ${formatDateTime(run.started_at)}`
                               : `${run.target_name} \u00b7 ${run.candidate_count} stays \u00b7 ${run.available_count} matches`}
                           </small>
-                          <small>{run.message || (run.status === "running" ? "Checking Recreation.gov availability now." : "")}</small>
+                          <small>{run.message || (run.status === "running" ? "Checking availability now." : "")}</small>
                         </span>
                         <span>
                           <span className={`status ${statusTone(run.status === "success" && run.available_count > 0 ? "available" : run.status)}`}>
@@ -4891,7 +4891,7 @@ export default function App() {
             <div className="panel-heading">
               <div>
                 <h2>Availability Results</h2>
-                <p>New matches are stored once and linked directly to Recreation.gov.</p>
+                <p>Matches from connected reservation providers.</p>
               </div>
               <button
                 className="icon-button"

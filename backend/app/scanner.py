@@ -14,7 +14,9 @@ from dateutil.relativedelta import relativedelta
 from .cart_assist import CartAssistant
 from .db import Store
 from .notifications import Notifier
-from .recreation import Campsite, RateLimitError, RecreationClient
+from .recreation import Campsite, RateLimitError
+from .providers import CampgroundClient
+from .provider_ids import provider_key, provider_name
 
 
 PATTERNS: dict[str, tuple[set[int], int]] = {
@@ -135,6 +137,8 @@ def compute_release_at(arrival_date: date, target: dict) -> datetime:
 
 
 def release_hints(watch: dict, limit: int = 5) -> list[dict]:
+    if provider_key(watch.get("campground_id", "")) != "recreation":
+        return []
     now = datetime.now(UTC)
     upcoming = []
     already_open = []
@@ -166,6 +170,8 @@ def release_scan_delay_minutes(
     boost_interval_minutes: int = 2,
 ) -> int:
     normal_interval = max(int(normal_interval_minutes or 10), min_poll_interval_minutes)
+    if provider_key(watch.get("campground_id", "")) != "recreation":
+        return normal_interval
     if before_minutes <= 0 or after_minutes <= 0 or boost_interval_minutes <= 0:
         return normal_interval
 
@@ -197,7 +203,7 @@ class Scanner:
     def __init__(
         self,
         store: Store,
-        client: RecreationClient,
+        client: CampgroundClient,
         notifier: Notifier,
         min_poll_interval_minutes: int,
         cart_assistant: CartAssistant | None = None,
@@ -222,6 +228,9 @@ class Scanner:
         self.rate_limit_backoff_minutes = max(1, int(rate_limit_backoff_minutes))
         self.max_notification_results = max(1, int(max_notification_results))
         self._availability_cache: dict[tuple[str, date], tuple[datetime, dict[str, Campsite]]] = {}
+        self._trip_cache: dict[tuple[str, date, date], tuple[datetime, list[Campsite]]] = {}
+        self._provider_backoffs: dict[str, dict] = {}
+        self._provider_last_request: dict[str, datetime] = {}
         self._api_backoff_until: datetime | None = None
         self._last_api_request_at: datetime | None = None
         self._lock = asyncio.Lock()
@@ -246,6 +255,7 @@ class Scanner:
         self._crawl_paused = bool(state.get("crawl_paused", False))
         self._adaptive_delay = float(state.get("adaptive_delay", 0))
         self._rate_limit_streak = int(state.get("rate_limit_streak", 0))
+        self._provider_backoffs = state.get("provider_backoffs") or {}
         until = state.get("backoff_until")
         self._api_backoff_until = datetime.fromisoformat(until) if until else None
         if self._sweep.get("status") == "running":
@@ -257,6 +267,7 @@ class Scanner:
             "crawl_paused": self._crawl_paused,
             "rate_limit_streak": self._rate_limit_streak,
             "backoff_until": self._api_backoff_until.isoformat() if self._api_backoff_until else None,
+            "provider_backoffs": self._provider_backoffs,
         })})
 
     @property
@@ -268,11 +279,28 @@ class Scanner:
         return self._sweep.get("status") in {"queued", "running", "waiting"}
 
     def scan_status(self) -> dict:
-        cooldown = max(0, math.ceil((self._api_backoff_until - datetime.now(UTC)).total_seconds())) if self._api_backoff_until else 0
         pending = self._sweep.get("pending", [])
+        providers = self._sweep.get("providers", {})
+        pending_providers = {providers.get(str(watch_id), "recreation") for watch_id in pending} or {"recreation", *self._provider_backoffs}
+        remaining = {key: self._rate_limit_remaining_seconds(key) for key in pending_providers}
+        waiting = all(remaining.values()) if pending else any(remaining.values())
+        cooldown = min(value for value in remaining.values() if value > 0) if waiting else 0
+        retry_at = (datetime.now(UTC) + timedelta(seconds=cooldown)).isoformat() if cooldown else None
         months = self._sweep.get("months", {})
-        requests = max(0, sum(months.get(str(watch_id), 0) for watch_id in pending) - self._current_months_loaded)
-        estimate = math.ceil(requests * (self.effective_request_delay + self._request_seconds) + cooldown) if self.full_scan_pending else None
+        work = {key: 0 for key in pending_providers}
+        for watch_id in pending:
+            loaded = self._current_months_loaded if watch_id == self._active_watch_id else 0
+            work[providers.get(str(watch_id), "recreation")] += max(0, months.get(str(watch_id), 0) - loaded)
+        requests = sum(work.values())
+        delay = max([self.effective_request_delay] + [self._provider_backoffs.get(key, {}).get("delay", 0) for key in pending_providers])
+        # Other providers can use a cooldown to make progress, but it still sets
+        # a lower bound on when the final blocked provider can finish.
+        durations = {key: count * ((self.effective_request_delay if key == "recreation" else
+                     max(self.api_request_delay_seconds, self._provider_backoffs.get(key, {}).get("delay", 0)))
+                     + self._request_seconds) for key, count in work.items()}
+        estimate = math.ceil(max(sum(durations.values()), max(
+            (remaining[key] + duration for key, duration in durations.items()), default=0
+        ))) if self.full_scan_pending else None
         return {
             "status": "waiting" if cooldown and self.full_scan_pending else self._sweep.get("status", "idle"),
             "crawl_paused": self._crawl_paused,
@@ -282,9 +310,9 @@ class Scanner:
             "skipped_count": self._sweep.get("skipped_count", 0),
             "remaining_count": len(pending),
             "current_target": self._sweep.get("current_target"),
-            "retry_at": self._api_backoff_until.isoformat() if cooldown else None,
+            "retry_at": retry_at,
             "cooldown_seconds": cooldown,
-            "effective_request_delay_seconds": self.effective_request_delay,
+            "effective_request_delay_seconds": delay,
             "estimated_remaining_seconds": estimate,
             "estimated_requests_remaining": requests,
         }
@@ -295,9 +323,11 @@ class Scanner:
         self._sweep = {"status": "queued", "pending": [w["id"] for w in watches],
                        "total_count": len(watches), "completed_count": 0, "failed_count": 0,
                        "skipped_count": 0, "available_count": 0, "missing_count": 0,
-                       "months": {str(w["id"]): len({month for trip in generate_trip_windows(w)
+                       "providers": {str(w["id"]): provider_key(w["campground_id"]) for w in watches},
+                       "months": {str(w["id"]): (len([t for t in generate_trip_windows(w) if t.arrival_date >= date.today()])
+                                  if provider_key(w["campground_id"]) != "recreation" else len({month for trip in generate_trip_windows(w)
                                   if trip.arrival_date >= date.today()
-                                  for month in months_for_trip(trip.arrival_date, trip.departure_date)}) for w in watches}}
+                                  for month in months_for_trip(trip.arrival_date, trip.departure_date)})) for w in watches}}
         self._save_runtime()
 
     def start_full_scan(self) -> dict:
@@ -403,7 +433,7 @@ class Scanner:
 
         if self.is_busy or self.full_scan_pending:
             raise ValueError("A background crawl is pending; wait or stop it before scanning one campground.")
-        backoff = self._rate_limit_remaining_minutes()
+        backoff = self._rate_limit_remaining_minutes(provider_key(watch["campground_id"]))
         if backoff:
             return {"status": "rate_limited", "message": f"Waiting for provider cooldown, about {backoff} minutes remaining.", "candidate_count": 0, "available_count": 0}
         async with self._lock:
@@ -417,14 +447,20 @@ class Scanner:
 
     async def _continue_full_scan(self) -> dict:
         summaries = []
-        if self._rate_limit_remaining_minutes() is not None:
-            self._sweep["status"] = "waiting"
-            self._save_runtime()
-            return {**self.scan_status(), "watch_count": 0, "available_count": self._sweep.get("available_count", 0), "summaries": []}
         self._sweep["status"] = "running"
         while self._sweep["pending"]:
-            watch_id = self._sweep["pending"][0]
-            watch = self.store.get_watch(watch_id)
+            # Keep throttled work queued while unrelated providers make progress.
+            watch_id = None
+            for candidate in self._sweep["pending"]:
+                watch = self.store.get_watch(candidate)
+                if not watch or self._rate_limit_remaining_minutes(provider_key(watch["campground_id"])) is None:
+                    watch_id = candidate
+                    break
+            if watch_id is None:
+                self._sweep["status"] = "waiting"
+                self._sweep["current_target"] = None
+                self._save_runtime()
+                break
             self._current_months_loaded = 0
             self._sweep["current_target"] = watch.get("target_name") if watch else None
             try:
@@ -435,12 +471,16 @@ class Scanner:
             if result["status"] == "cancelled" and not self._crawl_paused and (not latest or not latest.get("active")):
                 result["status"] = "skipped"
             summaries.append({"watch_id": watch_id, "watch_name": watch.get("name") if watch else "Removed watch", **result})
-            if result["status"] in {"rate_limited", "cancelled"} or self._sweep["status"] == "cancelled":
+            if result["status"] == "rate_limited":
+                self._current_months_loaded = 0
+                self._save_runtime()
+                continue
+            if result["status"] == "cancelled" or self._sweep["status"] == "cancelled":
                 self._sweep["status"] = "waiting" if result["status"] == "rate_limited" else "cancelled"
                 self._current_months_loaded = 0
                 self._save_runtime()
                 break
-            self._sweep["pending"].pop(0)
+            self._sweep["pending"].remove(watch_id)
             key = "completed_count" if result["status"] == "success" else "skipped_count" if result["status"] == "skipped" else "failed_count"
             self._sweep[key] += 1
             self._sweep["available_count"] += result.get("available_count", 0)
@@ -452,6 +492,9 @@ class Scanner:
             if self._sweep["status"] == "completed":
                 self._rate_limit_streak = 0
                 self._adaptive_delay = max(self.api_request_delay_seconds, round(self._adaptive_delay * 0.8, 2))
+                for state in self._provider_backoffs.values():
+                    state["streak"] = 0
+                    state["delay"] = max(self.api_request_delay_seconds, round(state.get("delay", 0) * 0.8, 2))
             self._save_runtime()
         return {
             **self.scan_status(),
@@ -519,6 +562,8 @@ class Scanner:
         if not current or not current.get("active") or not current.get("target_active"):
             return {"status": "skipped", "candidate_count": 0, "available_count": 0}
         watch = current
+        provider = provider_key(watch["campground_id"])
+        provider_label = provider_name(watch["campground_id"])
         run_id = self.store.start_scan_run(watch)
         self._cancel_requested = False
         self._active_run_id = run_id
@@ -546,9 +591,9 @@ class Scanner:
         seen_dedupe_keys: set[str] = set()
         monthly_cache: dict[date, dict[str, Campsite]] = {}
 
-        backoff_minutes = self._rate_limit_remaining_minutes()
+        backoff_minutes = self._rate_limit_remaining_minutes(provider)
         if backoff_minutes is not None:
-            message = f"Recreation.gov rate limit active; retrying in about {backoff_minutes} minute(s)."
+            message = f"{provider_label} rate limit active; retrying in about {backoff_minutes} minute(s)."
             self.store.finish_scan_run(run_id, "rate_limited", message, 0, 0)
             self.store.update_target_scan_status(watch["target_id"], "rate_limited")
             self.store.schedule_next_scan(watch["id"], backoff_minutes)
@@ -576,7 +621,7 @@ class Scanner:
                         ),
                     )
                 month_maps = []
-                for month in months_for_trip(trip.arrival_date, trip.departure_date):
+                for month in (months_for_trip(trip.arrival_date, trip.departure_date) if provider == "recreation" else []):
                     self._raise_if_cancel_requested()
                     if month not in monthly_cache:
                         self._log_scan_event(
@@ -597,9 +642,16 @@ class Scanner:
                         )
                     month_maps.append(monthly_cache[month])
 
+                if provider == "recreation":
+                    matching_sites = find_available_sites(month_maps, trip.arrival_date, trip.departure_date)
+                else:
+                    self._log_scan_event(run_id, watch, "info", "fetch", f"Searching {provider_label}: {trip.arrival_date} to {trip.departure_date}.")
+                    matching_sites = await self._trip_availability(watch["campground_id"], trip)
+                    self._current_months_loaded = trip_index
+                self._raise_if_cancel_requested()
                 sites = [
                     site
-                    for site in find_available_sites(month_maps, trip.arrival_date, trip.departure_date)
+                    for site in matching_sites
                     if site_matches_filters(site, watch.get("site_filters"))
                 ]
                 for site in sites:
@@ -615,7 +667,7 @@ class Scanner:
                             "campsite_type": site.campsite_type,
                             "arrival_date": trip.arrival_date.isoformat(),
                             "departure_date": trip.departure_date.isoformat(),
-                            "booking_url": campsite_booking_url(site.campsite_id, trip.arrival_date),
+                            "booking_url": site.booking_url or campsite_booking_url(site.campsite_id, trip.arrival_date),
                         }
                     )
                     seen_dedupe_keys.add(result["dedupe_key"])
@@ -641,7 +693,7 @@ class Scanner:
             )
 
             if new_results:
-                if self.cart_assistant:
+                if self.cart_assistant and provider == "recreation":
                     cart_attempts = await self.cart_assistant.handle_new_results(watch, new_results)
                     cart_attempt_count = len(cart_attempts)
                     if cart_attempts:
@@ -710,9 +762,9 @@ class Scanner:
                 "missing_count": missing_count,
             }
         except RateLimitError as exc:
-            self._start_rate_limit_backoff(exc)
-            backoff_minutes = self._rate_limit_remaining_minutes() or self.rate_limit_backoff_minutes
-            message = f"Recreation.gov returned HTTP 429; pausing scans for about {backoff_minutes} minute(s)."
+            self._start_rate_limit_backoff(exc, provider)
+            backoff_minutes = self._rate_limit_remaining_minutes(provider) or self.rate_limit_backoff_minutes
+            message = f"{provider_label} returned HTTP 429; pausing this provider for about {backoff_minutes} minute(s)."
             self.store.finish_scan_run(run_id, "rate_limited", message, len(trips), available_count)
             self.store.update_target_scan_status(watch["target_id"], "rate_limited")
             self.store.schedule_next_scan(watch["id"], backoff_minutes)
@@ -757,20 +809,41 @@ class Scanner:
         self._availability_cache[key] = (datetime.now(UTC), campsites)
         return campsites
 
-    async def _wait_for_api_slot(self) -> None:
-        if self.effective_request_delay <= 0:
+    async def _trip_availability(self, campground_id: str, trip: TripWindow) -> list[Campsite]:
+        key = (campground_id, trip.arrival_date, trip.departure_date)
+        cached = self._trip_cache.get(key)
+        if cached and self.availability_cache_minutes > 0 and datetime.now(UTC) - cached[0] <= timedelta(minutes=self.availability_cache_minutes):
+            return cached[1]
+        provider = provider_key(campground_id)
+        await self._wait_for_api_slot(provider)
+        started = clock.monotonic()
+        try:
+            sites = await self.client.trip_availability(campground_id, trip.arrival_date, trip.departure_date)
+        finally:
+            self._provider_last_request[provider] = datetime.now(UTC)
+            self._request_seconds = 0.8 * self._request_seconds + 0.2 * (clock.monotonic() - started)
+        self._trip_cache[key] = (datetime.now(UTC), sites)
+        return sites
+
+    async def _wait_for_api_slot(self, provider: str = "recreation") -> None:
+        delay = self.effective_request_delay if provider == "recreation" else max(self.api_request_delay_seconds, self._provider_backoffs.get(provider, {}).get("delay", 0))
+        if delay <= 0:
             return
         self._raise_if_cancel_requested()
         now = datetime.now(UTC)
-        if self._last_api_request_at is not None:
-            elapsed = (now - self._last_api_request_at).total_seconds()
-            remaining = self.effective_request_delay - elapsed
+        last_request = self._last_api_request_at if provider == "recreation" else self._provider_last_request.get(provider)
+        if last_request is not None:
+            elapsed = (now - last_request).total_seconds()
+            remaining = delay - elapsed
             while remaining > 0:
                 await asyncio.sleep(min(remaining, 1))
                 self._raise_if_cancel_requested()
-                remaining = self.effective_request_delay - (datetime.now(UTC) - self._last_api_request_at).total_seconds()
+                remaining = delay - (datetime.now(UTC) - last_request).total_seconds()
         self._raise_if_cancel_requested()
-        self._last_api_request_at = datetime.now(UTC)
+        if provider == "recreation":
+            self._last_api_request_at = datetime.now(UTC)
+        else:
+            self._provider_last_request[provider] = datetime.now(UTC)
 
     def _raise_if_cancel_requested(self) -> None:
         if self._cancel_requested:
@@ -794,21 +867,32 @@ class Scanner:
     ) -> None:
         self.store.log_scan_event(run_id, watch["id"], watch["target_id"], level, event_type, message)
 
-    def _start_rate_limit_backoff(self, exc: RateLimitError) -> None:
+    def _start_rate_limit_backoff(self, exc: RateLimitError, provider: str = "recreation") -> None:
+        if provider != "recreation":
+            state = self._provider_backoffs.setdefault(provider, {})
+            state["streak"] = state.get("streak", 0) + 1
+            state["delay"] = min(60, max(5, self.api_request_delay_seconds, state.get("delay", 0)) * 2)
+            seconds = max(exc.retry_after_seconds or 0, min(86400, self.rate_limit_backoff_minutes * 60 * 2 ** min(state["streak"] - 1, 8)))
+            state["until"] = (datetime.now(UTC) + timedelta(seconds=seconds)).isoformat()
+            self._save_runtime()
+            return
         self._rate_limit_streak += 1
         self._adaptive_delay = min(60, max(5, self.effective_request_delay * 2))
         seconds = max(exc.retry_after_seconds or 0, min(86400, self.rate_limit_backoff_minutes * 60 * 2 ** min(self._rate_limit_streak - 1, 8)))
         self._api_backoff_until = datetime.now(UTC) + timedelta(seconds=seconds)
         self._save_runtime()
 
-    def _rate_limit_remaining_minutes(self) -> int | None:
-        if self._api_backoff_until is None:
-            return None
-        remaining = self._api_backoff_until - datetime.now(UTC)
-        if remaining.total_seconds() <= 0:
-            self._api_backoff_until = None
-            return None
-        return max(1, math.ceil(remaining.total_seconds() / 60))
+    def _rate_limit_remaining_minutes(self, provider: str = "recreation") -> int | None:
+        seconds = self._rate_limit_remaining_seconds(provider)
+        return max(1, math.ceil(seconds / 60)) if seconds else None
+
+    def _rate_limit_remaining_seconds(self, provider: str) -> int:
+        if provider != "recreation":
+            until = self._provider_backoffs.get(provider, {}).get("until")
+            deadline = datetime.fromisoformat(until) if until else None
+        else:
+            deadline = self._api_backoff_until
+        return max(0, math.ceil((deadline - datetime.now(UTC)).total_seconds())) if deadline else 0
 
 
 class ScanCancelled(Exception):

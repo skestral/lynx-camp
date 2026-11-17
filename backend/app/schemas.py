@@ -4,6 +4,7 @@ from datetime import date
 from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
+from .provider_ids import provider_key
 
 
 class DateRange(BaseModel):
@@ -34,6 +35,12 @@ class TargetCreate(BaseModel):
     timezone: str = "America/Los_Angeles"
     poll_interval_minutes: int = Field(default=10, ge=1, le=1440)
     active: bool = True
+
+    @field_validator("campground_id")
+    @classmethod
+    def known_provider(cls, value: str) -> str:
+        provider_key(value)
+        return value
 
 
 class TargetUpdate(BaseModel):

@@ -15,7 +15,10 @@ from .cart_assist import CartAssistant
 from .db import Store
 from .notifications import Notifier
 from .presets import discover_preset_pack, import_discovered_preset_pack, import_preset_pack, list_preset_packs
-from .recreation import RateLimitError, RecreationClient
+from .recreation import RateLimitError
+from .providers import CampgroundClient
+from .provider_ids import provider_key, provider_name
+from .camava import ProviderResponseError
 from .scan_config import reset_scan_config, scan_config, update_scan_config
 from .scanner import Scanner, generate_trip_windows, release_hints
 from .schemas import (
@@ -38,7 +41,7 @@ from .sources import discover_source, import_source, list_source_definitions
 
 
 store = Store(settings.database_path)
-client = RecreationClient()
+client = CampgroundClient()
 notifier = Notifier(settings, store)
 cart_assistant = CartAssistant(store, settings)
 scanner = Scanner(
@@ -104,6 +107,17 @@ app.add_middleware(
 )
 
 
+@app.exception_handler(ProviderResponseError)
+async def provider_response_error(request, exc):
+    return JSONResponse(status_code=502, content={"detail": str(exc)})
+
+
+@app.exception_handler(RateLimitError)
+async def provider_rate_limit(request, exc):
+    return JSONResponse(status_code=429, content={"detail": str(exc)},
+                        headers={"Retry-After": str(exc.retry_after_seconds or 3600)})
+
+
 @app.get("/api/health")
 def health() -> dict:
     with store.connect() as conn:
@@ -151,6 +165,8 @@ async def detect_target_release_window(target_id: int) -> dict:
     target = store.get_target(target_id)
     if target is None:
         raise HTTPException(status_code=404, detail=f"target {target_id} not found")
+    if provider_key(target["campground_id"]) != "recreation":
+        raise HTTPException(status_code=400, detail="This provider publishes booking dates on its reservation site; automatic window detection is not supported.")
     detected = await client.detect_release_window(target["campground_id"])
     if detected is None:
         raise HTTPException(status_code=404, detail="No reservation window data found for this target")
@@ -170,6 +186,8 @@ async def target_release_window_profiles(target_id: int) -> dict:
     target = store.get_target(target_id)
     if target is None:
         raise HTTPException(status_code=404, detail=f"target {target_id} not found")
+    if provider_key(target["campground_id"]) != "recreation":
+        raise HTTPException(status_code=400, detail="Release profiles are not supported by this provider.")
     return await client.release_window_profiles(target["campground_id"])
 
 
@@ -205,7 +223,7 @@ def _saved_target_campground_details(target: dict, description: str | None = Non
         "park_name": target.get("park_name") or "",
         "state_code": target.get("state_code") or "",
         "description": description
-        or "Recreation.gov does not currently return a campground details record for this saved target.",
+        or f"{provider_name(campground_id)} campground. Open the booking page for current facilities, photos, and reservation policies.",
         "overview": "",
         "facilities": "",
         "natural_features": "",

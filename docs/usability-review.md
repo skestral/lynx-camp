@@ -58,3 +58,11 @@ Production logs confirmed `sqlite3.OperationalError: database is locked` on a se
 The local WAL/concurrency tests do not prove that production's underlying lock cause is resolved. Production deployment and post-deployment checks remain operator-controlled. Stop the container and back up the full appdata directory before updating. Never remove SQLite journal files to force a lock clear.
 
 Regional membership is a creation-time snapshot. Existing ungrouped rules are preserved, and newly imported campgrounds are not silently enrolled in existing watches. A future explicit membership editor would make changing an established region easier.
+
+### County monitoring and target catalog (2026-11-17)
+
+- Split Targets into Sources and Saved tabs. Source packs start collapsed; saved campgrounds have search and expandable park/county groups. Checked keyboard tab switching, filtering, expanded rows, and desktop/mobile layouts at 1440 x 1100 and 390 x 844.
+- Added an Everett/Puget Sound live provider for Snohomish County. Read-only live checks discovered eight parks and returned Flowing Lake cabin and campsite matches for a full weekend. A closed Whitehorse search returned no matches. No reservation, cart, or notification action was sent.
+- Added visible coverage entries for Washington State Parks and nearby county/regional systems. Only verified connectors have import actions. State Parks was denied by the provider firewall and remains unconnected; other county directories are not claimed as live feeds.
+- Backend suite: 123 tests passed, including mixed-provider cooldowns, ETA with a blocked provider, date/park validation, denial handling, exact-stay caching, cancellation, notification handoff, and backup compatibility. Frontend production build passed.
+- Refreshed catalog and saved-target screenshots with the isolated, read-only demo. The browser had no console errors; synthetic UI verification does not establish production deployment, external alert delivery, or continuous live provider reliability.

@@ -447,6 +447,8 @@ export type PresetSourceImportResult = {
 };
 
 export type SourceDefinition = {
+  areas?: string[];
+  counties?: string[];
   id: string;
   name: string;
   provider: string;

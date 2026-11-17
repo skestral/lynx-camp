@@ -1,6 +1,6 @@
 # Camp Finder
 
-Camp Finder is a local-network web app for monitoring Recreation.gov campground availability. It is designed to run in Docker, persist its data in SQLite, and notify you when a configured campground/date rule has availability.
+Camp Finder is a local-network web app for monitoring campground availability across supported reservation providers. Recreation.gov and Snohomish County Parks are currently connected. It runs in Docker, persists its data in SQLite, and notifies you when a configured campground/date rule has availability.
 
 The app is still notification-first. It opens Recreation.gov booking links when a match appears, and it can flag selected watches as high priority for Cart Assist logging. The current Cart Assist implementation is a guarded audit trail and readiness check; it does not automatically click Add to Cart, submit payment, or try to get around Recreation.gov login or CAPTCHA checks.
 
@@ -25,6 +25,8 @@ Current dashboard with grouped availability and a crawl waiting through a provid
 ## What It Does
 
 - Add campground targets from Recreation.gov search.
+- Discover and monitor Snohomish County campgrounds, including cabins and yurts, alongside federal campgrounds.
+- Browse sources by region and manage saved campgrounds in collapsible park/county groups.
 - Import preset target packs for Pacific Northwest, Northern Rockies, Greater Yellowstone, or California national parks, then trim targets you do not want.
 - Check preset packs against live Recreation.gov campground search and optionally import the discovered source list.
 - Edit target display names, park/state labels, booking links, and day/week/month release-window settings.
@@ -80,7 +82,7 @@ The app currently ships with static park packs that were built from Recreation.g
 - Individual park packs: Olympic, Mount Rainier, Crater Lake, North Cascades, Glacier, Yellowstone, and Grand Teton.
 - California National Parks: Yosemite, Sequoia/Kings Canyon, and Joshua Tree starter campgrounds.
 
-Preset targets use campground IDs verified through Recreation.gov search results and include facilities whose Recreation.gov parent is the named park. Some parks also have concession-run or non-reservable campgrounds outside Recreation.gov, so those cannot be scanned by this Recreation.gov-backed app yet. The release settings still remain editable at the target level in the database model, because Recreation.gov booking windows can vary by facility.
+Preset targets use campground IDs verified through Recreation.gov search results and include facilities whose Recreation.gov parent is the named park. A park pack does not include concession-run or non-reservable campgrounds outside that provider. The release settings remain editable because Recreation.gov booking windows can vary by facility. Bundled packs are under a collapsed section in Targets > Sources; they are fallback lists, not additional copies of saved targets.
 
 The target drawer has three ways to use each preset:
 
@@ -94,14 +96,33 @@ Paused targets and watch rules are skipped by the background crawl and manual fu
 
 ## Source Catalog
 
-The Targets drawer also includes a source catalog. This is the v2 path for dynamic campground discovery. Source entries are grouped by what they represent rather than by a hand-maintained import list:
+The Targets drawer separates **Sources** from **Saved** campgrounds. Source groups and bundled packs start collapsed. Saved campgrounds are searchable and grouped by their park or county; expanding a group exposes the existing edit, pause, open, and delete controls. Nothing is deleted or hidden from scanning by this layout change.
+
+[Regional source catalog](docs/screenshots/county-sources.png) | [Grouped saved campgrounds on mobile](docs/screenshots/saved-targets-mobile.png)
+
+Sources can be filtered to Puget Sound, Olympic Peninsula, Mount Rainier, Snoqualmie and Cascades, or Everett and North Sound. This filter narrows the source catalog, not a provider's import footprint. For example, Washington State Parks is a statewide source. Coverage is explicit:
 
 - National parks: live Recreation.gov discovery for the requested Olympic, Rainier, Crater Lake, North Cascades, Glacier, Yellowstone, and Grand Teton set.
 - National forests: live Recreation.gov discovery for Washington national forests such as Olympic, Mount Baker-Snoqualmie, Okanogan-Wenatchee, Gifford Pinchot, and Colville.
 - Regions: a Washington Recreation.gov state starter for federal campgrounds that are not covered by a named park or forest source yet.
+- County and regional parks: Snohomish County has live discovery and exact-stay availability searches. King, Clallam, Skagit, Lewis, and Tacoma Power parks have official links but their reservation connectors are not connected. Jefferson County camping is directory-only.
 - Washington state: official Washington State Parks and WA DNR entries. These are research/directory sources for now, with official links, not availability scanners.
 
-Ready sources have Check and Import actions. Check runs the live Recreation.gov search and reports how many campgrounds came back and how many are not imported yet. Import creates or updates campground targets from that live source response. Research and directory sources only link to the official source because the app does not yet have a safe availability connector for those systems.
+Sources labeled **Live monitoring** have Check and Import actions. Check discovers campgrounds from that provider; Import creates or updates targets by provider-qualified ID. **Not connected** and **Directory only** entries cannot be imported into the scanner. An official listing or an open park does not establish nightly campsite availability.
+
+### Snohomish County Setup
+
+1. Open Targets > Sources > County and regional parks.
+2. Import Snohomish County Parks. The live directory currently includes Flowing Lake, Kayak Point, River Meadows, Squire Creek, Wenberg, Whitehorse, Lake Roesiger Group Camp, and Evergreen State Fairgrounds RV Park.
+3. Create a park-group watch for **Snohomish County Parks**, or include those targets in a Washington or selected-groups watch. Friday arrival plus two nights covers Friday and Saturday.
+4. Leave site type blank for all accommodation types, or enter `cabin` or `yurt`. Results use the county's site-type labels; utility campsites may allow tents without having "tent" in their type name.
+5. Configure Discord or another alert channel in Settings. County matches use the same results, grouping, dismissal, and notification workflow as federal matches. Booking links retain the campground and both stay dates; select the named site on the county page to complete booking.
+
+The county connector makes read-only searches without account credentials, and checks the full stay rather than combining individual open nights. It respects provider minimum stays, closures, and booking windows through the returned search results. It does not submit a Reserve button, hold a site, or use Recreation.gov credentials. Cart Assist and automatic release-window detection are not supported for county targets. See the county's [campground directory](https://www.snohomishcountywa.gov/1082/Campgrounds) and [reservation policies](https://snohomishcountywa.gov/1263/Rules-Policies-Regulations).
+
+Each provider has a separate persisted cooldown. A Recreation.gov 429 leaves its checks pending while eligible county checks continue. County searches are paced and cached using the UI scan controls, and imported county targets default to hourly repeat scans. Missing, denied, or unrecognized provider responses are errors, not evidence that previous matches are booked.
+
+Some county directory coordinates are rounded to whole degrees. Those coordinates are omitted instead of placing a misleading marker. Campgrounds without coordinates still participate in county park-group and state watches, but not map-view watches. County details currently link to the provider page; local photo and amenities enrichment is not connected.
 
 ## Map and Region Watches
 
@@ -123,25 +144,27 @@ Use the current map view scope for practical regions that do not line up with pa
 
 Camp Finder should keep treating Recreation.gov as the first-class source for federal campground targets. Recreation.gov publishes RIDB/API data for federal recreation areas, facilities, campsites, tours, and permits, and its own "Use Our Data" page encourages apps to consume those records and credit Recreation.gov. The current source-check buttons are the first version of that idea: they query Recreation.gov live, compare the response with bundled fallback targets, and can import the discovered campground list.
 
-For v2, the target source model is moving from hand-maintained park packs to saved source definitions. A source definition says what it covers, how it is grouped, and how it refreshes. The first groupings are:
+Source definitions describe coverage, grouping, and discovery capabilities. Provider-qualified campground IDs allow new reservation systems without renumbering existing targets or watches. Further expansion includes:
 
 - National parks by parent park name.
 - National forests and other federal lands by managing agency, recreation area, state, and region.
 - Custom Recreation.gov searches for a state, region, or keyword.
 - Washington state sources as their own provider family, not mixed into federal national-park packs.
 
-Washington needs a staged approach. Washington State Parks publishes reservation guidance, a reservable-park list, and sends reservations through `washington.goingtocamp.com`; no public availability API is documented in the app yet. The first Washington State Parks phase should therefore be a source directory with official reservation links and park metadata, followed by an availability connector only after the reservation system can be reviewed safely. Washington DNR is different: DNR publishes campground GIS data through the Washington geospatial open-data portals, which can seed maps and target directories, but those records do not by themselves mean a site is reservable or scannable.
+Washington State Parks uses [GoingToCamp](https://parks.wa.gov/passes-permits/reservations/making-reservations). A normal browser request from the development host returned a firewall denial during the November 17, 2026 integration review. No access workaround was attempted, and no live state-park scanning is claimed. The next integration step requires permitted access and verified campground, accommodation-category, and full-stay responses.
+
+Washington DNR publishes [campground GIS records](https://gis.dnr.wa.gov/site2/rest/services/Recreation/DNR_Recreation_Sites/MapServer/2), but [most DNR camping is first-come, first-served](https://dnr.wa.gov/recreation/find-your-campsite). County coverage also varies: [Jefferson's directory](https://jeffersoncountywa.myrec.com/info/facilities/default.aspx) includes first-come camping, while [Kitsap County does not permit overnight camping in its county parks](https://www.kitsap.gov/parks/Pages/FAQRules.aspx). State parks within Kitsap remain relevant through the state provider. Regional coverage must not manufacture availability for these directories.
 
 ## Watch Filters
 
 Watch filters are optional. If left blank, Camp Finder reports every campsite that is available for the requested stay. If set, all populated filters must match:
 
-- Site type: case-insensitive contains match against Recreation.gov campsite type.
+- Site type: case-insensitive contains match against the provider's campsite type.
 - Loop: case-insensitive contains match against loop name.
 - Site text: case-insensitive contains match against site label.
 - Minimum people: excludes known sites with lower max occupancy.
 
-Leave Site type blank to include cabins as well as tent, RV, and other site types returned by Recreation.gov. Enter `cabin` for a cabin-only watch or `tent` for tent-only results. Cabins must belong to an imported, active campground/facility covered by the watch; this does not search every lodging provider or hotel. A type filter is one substring, not a comma-separated list.
+Leave Site type blank to include cabins as well as tent, RV, and other site types returned by connected providers. Enter `cabin` for a cabin-only watch. `tent` matches type labels containing that word; it does not infer tent compatibility from a utility campsite's amenities. Cabins must belong to an imported, active campground/facility covered by the watch; this does not search every lodging provider or hotel. A type filter is one substring, not a comma-separated list.
 
 For a Friday-and-Saturday stay, select Friday as the arrival day and set two nights (Sunday checkout). Selecting both Friday and Saturday creates alternate starts, not a requirement to stay both nights.
 
@@ -442,6 +465,6 @@ On Unraid, `/mnt/user/appdata/...` is a user-share view over local storage, not 
 1. Add filters for equipment, max vehicle length, accessible sites, and electric/water hookups when the API exposes them consistently.
 2. Persist source definitions and last source-check results in SQLite instead of keeping the catalog code-defined.
 3. Add custom source creation for a Recreation.gov parent area, state, region, or keyword.
-4. Add a Washington State Parks directory importer once park metadata and reservation links can be normalized safely.
+4. Connect Washington State Parks live availability through permitted provider access, then add the remaining county reservation systems. Verify full-stay tent and cabin coverage before enabling each source.
 5. Add notification channels such as Pushover, Telegram, or richer email templates.
 6. Add the guarded browser worker for Cart Assist, using one persistent Recreation.gov session and stopping on login challenges, CAPTCHA, unexpected pages, or any payment step.

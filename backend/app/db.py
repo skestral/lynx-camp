@@ -11,6 +11,7 @@ from uuid import uuid4
 
 from .app_settings import EXPORTABLE_APP_SETTING_KEYS, SECRET_APP_SETTING_KEYS
 from .coordinates import CAMPGROUND_COORDINATES
+from .provider_ids import campground_url, provider_key
 
 
 def utc_now() -> str:
@@ -249,6 +250,7 @@ class Store:
             UPDATE results
             SET booking_url = 'https://www.recreation.gov/camping/campsites/' || campsite_id || '?startDate=' || arrival_date
             WHERE booking_url NOT LIKE '%startDate=%'
+              AND campground_id NOT LIKE '%:%'
             """
         )
         conn.execute(
@@ -256,6 +258,7 @@ class Store:
             UPDATE cart_attempts
             SET booking_url = 'https://www.recreation.gov/camping/campsites/' || campsite_id || '?startDate=' || arrival_date
             WHERE booking_url NOT LIKE '%startDate=%'
+              AND campsite_id NOT LIKE '%:%'
             """
         )
 
@@ -308,7 +311,7 @@ class Store:
                     merged.get("state_code") or "",
                     latitude,
                     longitude,
-                    merged.get("booking_url") or f"https://www.recreation.gov/camping/campgrounds/{merged['campground_id']}",
+                    merged.get("booking_url") or campground_url(merged['campground_id']),
                     int(merged.get("release_months") or 6),
                     int(merged.get("release_window_value") or 6),
                     merged["release_window_unit"],
@@ -335,7 +338,8 @@ class Store:
     def create_target(self, data: dict[str, Any], min_poll_interval_minutes: int = 10) -> dict[str, Any]:
         now = utc_now()
         poll_interval = max(int(data.get("poll_interval_minutes") or 10), min_poll_interval_minutes)
-        booking_url = data.get("booking_url") or f"https://www.recreation.gov/camping/campgrounds/{data['campground_id']}"
+        provider_key(data["campground_id"])
+        booking_url = data.get("booking_url") or campground_url(data['campground_id'])
         release_window_value = int(data.get("release_window_value") or data.get("release_months") or 6)
         release_window_unit = _normalize_release_window_unit(data.get("release_window_unit") or "Months")
         release_months = release_window_value if release_window_unit == "Months" else int(data.get("release_months") or 6)
@@ -640,7 +644,7 @@ class Store:
                 "latitude": target_config.get("latitude"),
                 "longitude": target_config.get("longitude"),
                 "booking_url": target_config.get("booking_url")
-                or f"https://www.recreation.gov/camping/campgrounds/{campground_id}",
+                or campground_url(campground_id),
                 "release_months": target_config.get("release_months", 6),
                 "release_window_value": target_config.get(
                     "release_window_value", target_config.get("release_months", 6)
@@ -947,7 +951,11 @@ class Store:
 
     def upsert_result(self, data: dict[str, Any]) -> tuple[dict[str, Any], bool]:
         now = utc_now()
-        booking_url = _campsite_booking_url(data["campsite_id"], data["arrival_date"])
+        booking_url = (
+            _campsite_booking_url(data["campsite_id"], data["arrival_date"])
+            if provider_key(data["campground_id"]) == "recreation"
+            else campground_url(data["campground_id"], data["arrival_date"], data["departure_date"])
+        )
         dedupe_key = "|".join(
             [
                 str(data["watch_id"]),

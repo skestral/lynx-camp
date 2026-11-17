@@ -64,14 +64,30 @@ SOURCE_DEFINITIONS: list[SourceDefinition] = [
         ],
     },
     {
+        "id": "snohomish-county-parks",
+        "name": "Snohomish County Parks",
+        "provider": "Snohomish County Parks",
+        "category": "County and regional parks",
+        "region": "WA",
+        "areas": ["Puget Sound", "Everett and North Sound", "Snoqualmie and Cascades"],
+        "counties": ["Snohomish"],
+        "status": "ready",
+        "source_type": "camava",
+        "description": "Live campground discovery and exact-stay searches, including cabins and yurts. Reservations remain on the county website.",
+        "official_url": "https://reservations.snocoparks.org/reservation/camping/",
+        "queries": [],
+    },
+    {
         "id": "washington-state-parks",
         "name": "Washington State Parks",
         "provider": "Washington State Parks",
         "category": "Washington state",
         "region": "WA",
+        "areas": ["Puget Sound", "Olympic Peninsula", "Mount Rainier", "Snoqualmie and Cascades", "Everett and North Sound"],
+        "counties": ["Clallam", "Jefferson", "Kitsap", "Mason", "King", "Pierce", "Lewis", "Snohomish", "Island", "Skagit", "Thurston", "Grays Harbor"],
         "status": "research",
         "source_type": "reservation_directory",
-        "description": "Official reservation links and reservable-park research. Availability scanning is not enabled until the reservation system is reviewed safely.",
+        "description": "State campsites, cabins, and yurts across Washington. GoingToCamp integration pending; not scanned.",
         "official_url": "https://parks.wa.gov/passes-permits/reservations/reservation-parks",
         "queries": [],
     },
@@ -89,13 +105,42 @@ SOURCE_DEFINITIONS: list[SourceDefinition] = [
     },
 ]
 
+# These providers are visible coverage gaps, not silent additions to scan queues.
+for source_id, name, counties, areas, url, description in [
+    ("king-county-parks", "King County Parks", ["King"], ["Puget Sound", "Snoqualmie and Cascades"],
+     "https://kingcounty.gov/en/dept/dnrp/nature-recreation/parks-recreation/king-county-parks/parks/tolt-macdonald",
+     "Tolt-MacDonald camping and yurts in the Snoqualmie Valley. Reservation connector pending; not scanned."),
+    ("clallam-county-parks", "Clallam County Parks", ["Clallam"], ["Olympic Peninsula"],
+     "https://www.clallamcountywa.gov/297/Camping",
+     "Salt Creek and Dungeness recreation areas. Reservation connector pending; not scanned."),
+    ("jefferson-county-parks", "Jefferson County Parks", ["Jefferson"], ["Olympic Peninsula", "Puget Sound"],
+     "https://jeffersoncountywa.myrec.com/info/facilities/default.aspx",
+     "Quilcene, Lake Leland, and Oak Bay campgrounds. First-come camping directory; no live nightly availability."),
+    ("tacoma-power-parks", "Tacoma Power Parks", ["Pierce", "Lewis"], ["Mount Rainier", "Puget Sound"],
+     "https://www.mytpu.org/community-environment-parks/parks-recreation/",
+     "Alder Lake, Mayfield Lake, Mossyrock, and Taidnapam. Reservation connector pending; not scanned."),
+    ("skagit-county-parks", "Skagit County Parks", ["Skagit"], ["Everett and North Sound", "Snoqualmie and Cascades"],
+     "https://www.explore.skagitcounty.org/skagitcounty/discover/facility/e43b2789-e411-426f-9d75-b53a499c11ba",
+     "Howard Miller Steelhead Park campground. Reservation connector pending; not scanned."),
+    ("lewis-county-parks", "Lewis County Parks", ["Lewis"], ["Mount Rainier"],
+     "https://lewiscountywa.gov/departments/parks-recreation/parks-venues/",
+     "County park and fairground camping. Reservation connector pending; not scanned."),
+]:
+    SOURCE_DEFINITIONS.append({
+        "id": source_id, "name": name, "provider": name, "category": "County and regional parks",
+        "region": "WA", "areas": areas, "counties": counties,
+        "status": "directory" if source_id == "jefferson-county-parks" else "research",
+        "source_type": "reservation_directory", "official_url": url,
+        "description": description, "queries": [],
+    })
+
 
 def list_source_definitions(store: Store) -> list[dict[str, Any]]:
     existing_targets = store.list_targets()
     sources = deepcopy(SOURCE_DEFINITIONS)
     for source in sources:
         source["query_count"] = len(source.get("queries") or [])
-        source["discover_supported"] = source.get("status") == "ready" and source.get("source_type") == "recreation_search"
+        source["discover_supported"] = _supports_discovery(source)
         source["import_supported"] = source["discover_supported"]
         source["imported_count"] = _imported_count_for_source(source, existing_targets)
         source.pop("queries", None)
@@ -111,6 +156,8 @@ async def discover_source(store: Store, client: Any, source_id: str) -> dict[str
     discovered_by_id: dict[str, dict[str, Any]] = {}
     queries = source.get("queries") or []
 
+    if source["source_type"] == "camava":
+        discovered_by_id = {target["campground_id"]: target for target in await client.discover_external(source_id)}
     for query in queries:
         for suggestion in await _source_campgrounds(client, query):
             campground_id = str(suggestion.get("campground_id") or "").strip()
@@ -129,7 +176,7 @@ async def discover_source(store: Store, client: Any, source_id: str) -> dict[str
         "category": source["category"],
         "region": source["region"],
         "status": source["status"],
-        "source": "Recreation.gov campground search",
+        "source": f"{source['provider']} campground search",
         "checked_at": utc_now(),
         "source_queries": [query["query"] for query in queries],
         "discovered_count": len(targets),
@@ -179,7 +226,7 @@ def _get_source(source_id: str) -> SourceDefinition:
 
 
 def _supports_discovery(source: SourceDefinition) -> bool:
-    return source.get("status") == "ready" and source.get("source_type") == "recreation_search"
+    return source.get("status") == "ready" and source.get("source_type") in {"recreation_search", "camava"}
 
 
 async def _source_campgrounds(client: Any, query: SourceQuery) -> list[dict[str, Any]]:
@@ -236,12 +283,16 @@ def _source_target(suggestion: dict[str, Any], source: SourceDefinition, query: 
 
 
 def _imported_count_for_source(source: SourceDefinition, targets: list[dict[str, Any]]) -> int:
+    if source.get("source_type") == "camava":
+        return sum(1 for target in targets if str(target.get("campground_id", "")).startswith("camava:snoco:"))
     queries = source.get("queries") or []
     if not queries:
         return 0
 
     imported_ids: set[str] = set()
     for target in targets:
+        if ":" in str(target.get("campground_id", "")):
+            continue
         suggestion_like = {
             "park_name": target.get("park_name"),
             "state_code": target.get("state_code"),
