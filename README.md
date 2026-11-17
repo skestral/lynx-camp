@@ -190,6 +190,8 @@ Source definitions describe coverage, grouping, and discovery capabilities. Prov
 
 Washington State Parks uses [GoingToCamp](https://parks.wa.gov/passes-permits/reservations/making-reservations). A normal browser request from the development host returned a firewall denial during the November 17, 2026 integration review. No access workaround was attempted, and no live state-park scanning is claimed. The next integration step requires permitted access and verified campground, accommodation-category, and full-stay responses.
 
+Washington State Parks is the next provider priority, ahead of additional county connectors. The intended coverage includes reservable tent/RV sites and roofed stays such as cabins and yurts, using the same regional watches and notification channels. See the [state-park integration notes](docs/washington-state-parks.md) for the access blocker, implementation requirements, and verification checklist. This is planned coverage, not an enabled feature.
+
 [Tacoma Power Parks](https://www.mytpu.org/community-environment-parks/parks-recreation/reservations-fees/) uses its own GoingToCamp service. Its browser page loaded during the same review, but a server-style metadata request received a firewall challenge. It remains unconnected; opening an interactive page is not proof that the Docker crawler can use its API.
 
 Washington DNR publishes [campground GIS records](https://gis.dnr.wa.gov/site2/rest/services/Recreation/DNR_Recreation_Sites/MapServer/2), but [most DNR camping is first-come, first-served](https://dnr.wa.gov/recreation/find-your-campsite). County coverage also varies: [Jefferson's directory](https://jeffersoncountywa.myrec.com/info/facilities/default.aspx) includes first-come camping, while [Kitsap County does not permit overnight camping in its county parks](https://www.kitsap.gov/parks/Pages/FAQRules.aspx). State parks within Kitsap remain relevant through the state provider. Regional coverage must not manufacture availability for these directories.
@@ -503,9 +505,9 @@ On Unraid, `/mnt/user/appdata/...` is a user-share view over local storage, not 
 
 ## Next Useful Phases
 
-1. Add filters for equipment, max vehicle length, accessible sites, and electric/water hookups when the API exposes them consistently.
-2. Persist source definitions and last source-check results in SQLite instead of keeping the catalog code-defined.
-3. Add custom source creation for a Recreation.gov parent area, state, region, or keyword.
-4. Connect Washington State Parks live availability through permitted provider access, then add the remaining county reservation systems. Verify full-stay tent and cabin coverage before enabling each source.
+1. Connect Washington State Parks live availability through permitted provider access, then add the remaining county reservation systems. Verify full-stay tent and cabin coverage before enabling each source.
+2. Add filters for equipment, max vehicle length, accessible sites, and electric/water hookups when the API exposes them consistently.
+3. Persist source definitions and last source-check results in SQLite instead of keeping the catalog code-defined.
+4. Add custom source creation for a Recreation.gov parent area, state, region, or keyword.
 5. Add notification channels such as Pushover, Telegram, or richer email templates.
 6. Add the guarded browser worker for Cart Assist, using one persistent Recreation.gov session and stopping on login challenges, CAPTCHA, unexpected pages, or any payment step.
