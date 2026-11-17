@@ -18,7 +18,7 @@ from .presets import discover_preset_pack, import_discovered_preset_pack, import
 from .recreation import RateLimitError
 from .providers import CampgroundClient
 from .provider_ids import provider_key, provider_name
-from .camava import ProviderResponseError
+from .provider_errors import ProviderResponseError
 from .scan_config import reset_scan_config, scan_config, update_scan_config
 from .scanner import Scanner, generate_trip_windows, release_hints
 from .schemas import (

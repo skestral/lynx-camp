@@ -815,10 +815,15 @@ class Scanner:
         if cached and self.availability_cache_minutes > 0 and datetime.now(UTC) - cached[0] <= timedelta(minutes=self.availability_cache_minutes):
             return cached[1]
         provider = provider_key(campground_id)
-        await self._wait_for_api_slot(provider)
+        async def before_request(stage: str = "Checking stay availability") -> None:
+            await self._wait_for_api_slot(provider)
+            if self._active_run_id is not None:
+                self.store.log_scan_event(self._active_run_id, self._active_watch_id, self._active_target_id,
+                                          "info", "provider_request", f"{provider_name(campground_id)}: {stage}.")
         started = clock.monotonic()
         try:
-            sites = await self.client.trip_availability(campground_id, trip.arrival_date, trip.departure_date)
+            sites = await self.client.trip_availability(campground_id, trip.arrival_date, trip.departure_date,
+                                                        before_request=before_request)
         finally:
             self._provider_last_request[provider] = datetime.now(UTC)
             self._request_seconds = 0.8 * self._request_seconds + 0.2 * (clock.monotonic() - started)
@@ -826,10 +831,10 @@ class Scanner:
         return sites
 
     async def _wait_for_api_slot(self, provider: str = "recreation") -> None:
+        self._raise_if_cancel_requested()
         delay = self.effective_request_delay if provider == "recreation" else max(self.api_request_delay_seconds, self._provider_backoffs.get(provider, {}).get("delay", 0))
         if delay <= 0:
             return
-        self._raise_if_cancel_requested()
         now = datetime.now(UTC)
         last_request = self._last_api_request_at if provider == "recreation" else self._provider_last_request.get(provider)
         if last_request is not None:

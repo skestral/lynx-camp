@@ -1,8 +1,8 @@
 # Camp Finder
 
-Camp Finder is a local-network web app for monitoring campground availability across supported reservation providers. Recreation.gov and Snohomish County Parks are currently connected. It runs in Docker, persists its data in SQLite, and notifies you when a configured campground/date rule has availability.
+Camp Finder is a local-network web app for monitoring campground availability across supported reservation providers. Recreation.gov, Snohomish County Parks, and King County's Tolt-MacDonald campground are currently connected. It runs in Docker, persists its data in SQLite, and notifies you when a configured campground/date rule has availability.
 
-The app is still notification-first. It opens Recreation.gov booking links when a match appears, and it can flag selected watches as high priority for Cart Assist logging. The current Cart Assist implementation is a guarded audit trail and readiness check; it does not automatically click Add to Cart, submit payment, or try to get around Recreation.gov login or CAPTCHA checks.
+The app is still notification-first. Matches link to the reservation provider, and Recreation.gov watches can be flagged as high priority for Cart Assist logging. The current Cart Assist implementation is a guarded audit trail and readiness check; it does not automatically click Add to Cart, submit payment, or try to get around login or CAPTCHA checks.
 
 ## Screenshots
 
@@ -26,6 +26,7 @@ Current dashboard with grouped availability and a crawl waiting through a provid
 
 - Add campground targets from Recreation.gov search.
 - Discover and monitor Snohomish County campgrounds, including cabins and yurts, alongside federal campgrounds.
+- Monitor King County's Tolt-MacDonald tent, RV, yurt, camping-container, and group sites as one campground target.
 - Browse sources by region and manage saved campgrounds in collapsible park/county groups.
 - Import preset target packs for Pacific Northwest, Northern Rockies, Greater Yellowstone, or California national parks, then trim targets you do not want.
 - Check preset packs against live Recreation.gov campground search and optionally import the discovered source list.
@@ -105,7 +106,7 @@ Sources can be filtered to Puget Sound, Olympic Peninsula, Mount Rainier, Snoqua
 - National parks: live Recreation.gov discovery for the requested Olympic, Rainier, Crater Lake, North Cascades, Glacier, Yellowstone, and Grand Teton set.
 - National forests: live Recreation.gov discovery for Washington national forests such as Olympic, Mount Baker-Snoqualmie, Okanogan-Wenatchee, Gifford Pinchot, and Colville.
 - Regions: a Washington Recreation.gov state starter for federal campgrounds that are not covered by a named park or forest source yet.
-- County and regional parks: Snohomish County has live discovery and exact-stay availability searches. King, Clallam, Skagit, Lewis, and Tacoma Power parks have official links but their reservation connectors are not connected. Jefferson County camping is directory-only.
+- County and regional parks: Snohomish County and King County's Tolt-MacDonald campground have live discovery and exact-stay availability searches. Clallam, Skagit, Lewis, and Tacoma Power parks have official links but their reservation connectors are not connected. Jefferson County camping is directory-only.
 - Washington state: official Washington State Parks and WA DNR entries. These are research/directory sources for now, with official links, not availability scanners.
 
 Sources labeled **Live monitoring** have Check and Import actions. Check discovers campgrounds from that provider; Import creates or updates targets by provider-qualified ID. **Not connected** and **Directory only** entries cannot be imported into the scanner. An official listing or an open park does not establish nightly campsite availability.
@@ -123,6 +124,18 @@ The county connector makes read-only searches without account credentials, and c
 Each provider has a separate persisted cooldown. A Recreation.gov 429 leaves its checks pending while eligible county checks continue. County searches are paced and cached using the UI scan controls, and imported county targets default to hourly repeat scans. Missing, denied, or unrecognized provider responses are errors, not evidence that previous matches are booked.
 
 Some county directory coordinates are rounded to whole degrees. Those coordinates are omitted instead of placing a misleading marker. Campgrounds without coordinates still participate in county park-group and state watches, but not map-view watches. County details currently link to the provider page; local photo and amenities enrichment is not connected.
+
+### King County Setup
+
+1. Open Targets > Sources, select Puget Sound or Snoqualmie and Cascades, and expand County and regional parks.
+2. Import King County Parks. Tolt-MacDonald appears as one target; its individual tent, RV, yurt, container, and group sites are discovered from the live provider catalog rather than added as separate targets.
+3. Create a King County park-group watch or include the target in a Washington/map-view watch. Use Friday arrival and two nights for a Friday/Saturday weekend. Existing regional watches do not gain newly imported targets automatically.
+4. Use `yurt`, `tent`, `RV`, `container`, or `group` as the optional site-type filter. A camping container is not labeled as a cabin or yurt. Leave the filter blank for every overnight type.
+5. An alert opens the site's campground section on King County's reservation map. Re-enter the arrival/departure dates there and choose the named site. The map does not preserve dates in the verified URL format. Sign-in and checkout remain on the county website; Camp Finder does not place a hold.
+
+The [published camping policy](https://kingcounty.gov/en/dept/dnrp/nature-recreation/parks-recreation/king-county-parks/rentals/camping) requires two to seven nights and describes an April-October camping season. Camp Finder also checks each candidate site's current reservation-system restrictions. Those may be stricter than the general page: during development, the container's reservation record required ten days' notice while the general page said five. Resident and non-resident windows must both permit the stay; account-specific exceptions are not assumed. Partially available stays are not reported as matches.
+
+The first eligible scan can take several minutes while site rules are checked. Catalog and rule responses are cached for 24 hours in memory. Availability uses the normal stay cache setting. King County requests are serialized with at least five seconds between requests, and a higher UI request-delay setting still applies. Logs identify catalog, availability, and rule-check requests. ETA is approximate and can be less accurate during this initial metadata load. No account credentials are needed for monitoring.
 
 ## Map and Region Watches
 
@@ -152,6 +165,8 @@ Source definitions describe coverage, grouping, and discovery capabilities. Prov
 - Washington state sources as their own provider family, not mixed into federal national-park packs.
 
 Washington State Parks uses [GoingToCamp](https://parks.wa.gov/passes-permits/reservations/making-reservations). A normal browser request from the development host returned a firewall denial during the November 17, 2026 integration review. No access workaround was attempted, and no live state-park scanning is claimed. The next integration step requires permitted access and verified campground, accommodation-category, and full-stay responses.
+
+[Tacoma Power Parks](https://www.mytpu.org/community-environment-parks/parks-recreation/reservations-fees/) uses its own GoingToCamp service. Its browser page loaded during the same review, but a server-style metadata request received a firewall challenge. It remains unconnected; opening an interactive page is not proof that the Docker crawler can use its API.
 
 Washington DNR publishes [campground GIS records](https://gis.dnr.wa.gov/site2/rest/services/Recreation/DNR_Recreation_Sites/MapServer/2), but [most DNR camping is first-come, first-served](https://dnr.wa.gov/recreation/find-your-campsite). County coverage also varies: [Jefferson's directory](https://jeffersoncountywa.myrec.com/info/facilities/default.aspx) includes first-come camping, while [Kitsap County does not permit overnight camping in its county parks](https://www.kitsap.gov/parks/Pages/FAQRules.aspx). State parks within Kitsap remain relevant through the state provider. Regional coverage must not manufacture availability for these directories.
 

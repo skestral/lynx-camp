@@ -125,7 +125,9 @@ class CountyClient:
         self.calls.append(("recreation", campground_id))
         raise RateLimitError(120)
 
-    async def trip_availability(self, campground_id, arrival, departure):
+    async def trip_availability(self, campground_id, arrival, departure, before_request=None):
+        if before_request:
+            await before_request()
         self.calls.append(("snohomish", campground_id))
         return [Campsite("camava:snoco:3", "Cabin 3", "", "Cabin", 5, {},
                          booking_url=campground_url(campground_id, arrival.isoformat(), departure.isoformat()))]
@@ -283,7 +285,7 @@ def test_provider_error_does_not_expire_existing_match(tmp_path):
     scanner = Scanner(store, provider, Recorder(), 60, api_request_delay_seconds=0, availability_cache_minutes=0)
     asyncio.run(scanner.scan_watch(watch["id"]))
 
-    async def changed(*args):
+    async def changed(*args, **kwargs):
         raise ProviderResponseError("Provider page changed")
     provider.trip_availability = changed
     with pytest.raises(ProviderResponseError):
@@ -301,8 +303,8 @@ def test_stop_after_county_request_does_not_save_unprocessed_results(tmp_path):
     scanner = Scanner(store, provider, recorder, 60, api_request_delay_seconds=0)
     original = provider.trip_availability
 
-    async def stop(*args):
-        sites = await original(*args)
+    async def stop(*args, **kwargs):
+        sites = await original(*args, **kwargs)
         scanner.cancel_current_scan()
         return sites
     provider.trip_availability = stop

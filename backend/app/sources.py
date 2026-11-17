@@ -78,6 +78,14 @@ SOURCE_DEFINITIONS: list[SourceDefinition] = [
         "queries": [],
     },
     {
+        "id": "king-county-parks", "name": "King County Parks", "provider": "King County Parks",
+        "category": "County and regional parks", "region": "WA", "counties": ["King"],
+        "areas": ["Puget Sound", "Snoqualmie and Cascades"], "status": "ready", "source_type": "activenet",
+        "description": "Live Tolt-MacDonald overnight searches: tent, RV, yurt, container, and group sites. Two to seven nights; manual booking.",
+        "official_url": "https://kingcounty.gov/en/dept/dnrp/nature-recreation/parks-recreation/king-county-parks/rentals/camping",
+        "queries": [],
+    },
+    {
         "id": "washington-state-parks",
         "name": "Washington State Parks",
         "provider": "Washington State Parks",
@@ -107,9 +115,6 @@ SOURCE_DEFINITIONS: list[SourceDefinition] = [
 
 # These providers are visible coverage gaps, not silent additions to scan queues.
 for source_id, name, counties, areas, url, description in [
-    ("king-county-parks", "King County Parks", ["King"], ["Puget Sound", "Snoqualmie and Cascades"],
-     "https://kingcounty.gov/en/dept/dnrp/nature-recreation/parks-recreation/king-county-parks/parks/tolt-macdonald",
-     "Tolt-MacDonald camping and yurts in the Snoqualmie Valley. Reservation connector pending; not scanned."),
     ("clallam-county-parks", "Clallam County Parks", ["Clallam"], ["Olympic Peninsula"],
      "https://www.clallamcountywa.gov/297/Camping",
      "Salt Creek and Dungeness recreation areas. Reservation connector pending; not scanned."),
@@ -156,7 +161,7 @@ async def discover_source(store: Store, client: Any, source_id: str) -> dict[str
     discovered_by_id: dict[str, dict[str, Any]] = {}
     queries = source.get("queries") or []
 
-    if source["source_type"] == "camava":
+    if source["source_type"] in {"camava", "activenet"}:
         discovered_by_id = {target["campground_id"]: target for target in await client.discover_external(source_id)}
     for query in queries:
         for suggestion in await _source_campgrounds(client, query):
@@ -226,7 +231,7 @@ def _get_source(source_id: str) -> SourceDefinition:
 
 
 def _supports_discovery(source: SourceDefinition) -> bool:
-    return source.get("status") == "ready" and source.get("source_type") in {"recreation_search", "camava"}
+    return source.get("status") == "ready" and source.get("source_type") in {"recreation_search", "camava", "activenet"}
 
 
 async def _source_campgrounds(client: Any, query: SourceQuery) -> list[dict[str, Any]]:
@@ -283,6 +288,8 @@ def _source_target(suggestion: dict[str, Any], source: SourceDefinition, query: 
 
 
 def _imported_count_for_source(source: SourceDefinition, targets: list[dict[str, Any]]) -> int:
+    if source.get("source_type") == "activenet":
+        return sum(1 for target in targets if target.get("campground_id") == "activenet:king:66")
     if source.get("source_type") == "camava":
         return sum(1 for target in targets if str(target.get("campground_id", "")).startswith("camava:snoco:"))
     queries = source.get("queries") or []

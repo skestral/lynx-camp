@@ -30,7 +30,7 @@ export function SavedTargets({ targets, onActive, onDelete, onEdit }: Props) {
       <summary><ChevronRight size={18} /><strong>{name}</strong><small>{items.length} campgrounds</small></summary>
       <div className="target-group-items">
         {items.map((target) => <article className={`saved-target-row ${target.active ? "" : "inactive"}`} key={target.id}>
-          <div><strong>{target.name}</strong><small>{target.campground_id.includes(":") ? "Snohomish County Parks" : "Recreation.gov"} &middot; {target.active ? target.last_status : "Paused"}</small></div>
+          <div><strong>{target.name}</strong><small>{target.campground_id.startsWith("activenet:king:") ? "King County Parks" : target.campground_id.startsWith("camava:snoco:") ? "Snohomish County Parks" : "Recreation.gov"} &middot; {target.active ? target.last_status : "Paused"}</small></div>
           <div className="row-actions">
             <a className="icon-only quiet" href={target.booking_url} target="_blank" rel="noreferrer" title={`Open ${target.name}`}><ExternalLink size={16} /></a>
             <button className="icon-only quiet" onClick={() => onEdit(target)} title={`Edit ${target.name}`}><Pencil size={16} /></button>

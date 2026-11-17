@@ -66,3 +66,12 @@ Regional membership is a creation-time snapshot. Existing ungrouped rules are pr
 - Added visible coverage entries for Washington State Parks and nearby county/regional systems. Only verified connectors have import actions. State Parks was denied by the provider firewall and remains unconnected; other county directories are not claimed as live feeds.
 - Backend suite: 123 tests passed, including mixed-provider cooldowns, ETA with a blocked provider, date/park validation, denial handling, exact-stay caching, cancellation, notification handoff, and backup compatibility. Frontend production build passed.
 - Refreshed catalog and saved-target screenshots with the isolated, read-only demo. The browser had no console errors; synthetic UI verification does not establish production deployment, external alert delivery, or continuous live provider reliability.
+
+### King County integration (2026-11-17)
+
+- Added Tolt-MacDonald as one live King County target covering all three camping sections. The provider catalog returned 53 overnight sites across tents, RVs, yurts, the camping container, and groups. No picnic or day-use facilities were imported.
+- A full read-only search for June 4-6, 2027 returned 49 matches after per-site reservation-rule checks, including six yurts. The uncached run used 54 requests with at least five seconds between requests. A smaller browser search agreed with the west-section availability response. No Reserve button was submitted and no alert was sent.
+- The reservation system's current lead-time restrictions were stricter than the general county camping page. The connector now validates each candidate's rules and caches the successful response, instead of treating an Available map marker alone as a bookable stay.
+- Added provider-request checkpoints to diagnostic logs. A cancellation test exposed that zero configured request spacing skipped the cancellation check; cancellation now runs regardless of spacing.
+- Backend: 149 tests passed. Frontend production build passed. Desktop and 390px mobile checks confirmed King County in the Puget Sound source group, readable controls, no horizontal overflow, and no browser console errors. Refreshed the regional catalog screenshot with synthetic dashboard data.
+- Tacoma Power's interactive page loaded, but its direct API challenged a server-style request. No access workaround was attempted. Washington State Parks, Tacoma Power, and the other unconnected county systems remain outside live scan coverage. Production Docker deployment was not changed.

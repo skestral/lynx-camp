@@ -954,7 +954,7 @@ class Store:
         booking_url = (
             _campsite_booking_url(data["campsite_id"], data["arrival_date"])
             if provider_key(data["campground_id"]) == "recreation"
-            else campground_url(data["campground_id"], data["arrival_date"], data["departure_date"])
+            else campground_url(data["campground_id"], data["arrival_date"], data["departure_date"], campsite_id=data["campsite_id"])
         )
         dedupe_key = "|".join(
             [

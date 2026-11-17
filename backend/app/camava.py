@@ -9,14 +9,11 @@ import httpx
 from bs4 import BeautifulSoup
 
 from .provider_ids import campground_url
+from .provider_errors import ProviderResponseError
 from .recreation import Campsite, RateLimitError, _retry_after_seconds
 
 
 SEARCH_URL = "https://reservations.snocoparks.org/reservation/camping/index.asp"
-
-
-class ProviderResponseError(RuntimeError):
-    pass
 
 
 def _soup(html: str) -> BeautifulSoup:
