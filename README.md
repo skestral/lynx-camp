@@ -10,7 +10,7 @@ Current dashboard with grouped availability and a crawl waiting through a provid
 
 ![Dashboard showing pending crawl checks, estimated time, and grouped campsite matches](docs/screenshots/dashboard-overview.png)
 
-[Mobile crawl status](docs/screenshots/crawl-mobile.png) | [Regional watches](docs/screenshots/regional-watch-demo.png) | [Notification settings](docs/screenshots/notification-settings.png) | [Scan controls](docs/screenshots/scan-controls.png) | [Logs](docs/screenshots/crawl-logs.png)
+[Mobile crawl status](docs/screenshots/crawl-mobile.png) | [Regional watches](docs/screenshots/regional-watch-demo.png) | [Regional coverage](docs/screenshots/regional-coverage.png) | [Notification settings](docs/screenshots/notification-settings.png) | [Scan controls](docs/screenshots/scan-controls.png) | [Logs](docs/screenshots/crawl-logs.png)
 
 ## Quick Links
 
@@ -28,6 +28,7 @@ Current dashboard with grouped availability and a crawl waiting through a provid
 - Discover and monitor Snohomish County campgrounds, including cabins and yurts, alongside federal campgrounds.
 - Monitor King County's Tolt-MacDonald tent, RV, yurt, camping-container, and group sites as one campground target.
 - Browse sources by region and manage saved campgrounds in collapsible park/county groups.
+- Opt regional watches into future imports so new matching campgrounds join the same date and filter rules across connected providers.
 - Import preset target packs for Pacific Northwest, Northern Rockies, Greater Yellowstone, or California national parks, then trim targets you do not want.
 - Check preset packs against live Recreation.gov campground search and optionally import the discovered source list.
 - Edit target display names, park/state labels, booking links, and day/week/month release-window settings.
@@ -129,7 +130,7 @@ Some county directory coordinates are rounded to whole degrees. Those coordinate
 
 1. Open Targets > Sources, select Puget Sound or Snoqualmie and Cascades, and expand County and regional parks.
 2. Import King County Parks. Tolt-MacDonald appears as one target; its individual tent, RV, yurt, container, and group sites are discovered from the live provider catalog rather than added as separate targets.
-3. Create a King County park-group watch or include the target in a Washington/map-view watch. Use Friday arrival and two nights for a Friday/Saturday weekend. Existing regional watches do not gain newly imported targets automatically.
+3. Create a King County park-group watch or include the target in a Washington/map-view watch. Use Friday arrival and two nights for a Friday/Saturday weekend. Existing regional watches only gain new imports when Include future imports is enabled for the matching area.
 4. Use `yurt`, `tent`, `RV`, `container`, or `group` as the optional site-type filter. A camping container is not labeled as a cabin or yurt. Leave the filter blank for every overnight type.
 5. An alert opens the site's campground section on King County's reservation map. Re-enter the arrival/departure dates there and choose the named site. The map does not preserve dates in the verified URL format. Sign-in and checkout remain on the county website; Camp Finder does not place a hold.
 
@@ -147,11 +148,19 @@ These local footprints are meant for watch selection, not legal park boundaries.
 
 Park, selected-park, state, and map-view watches appear as one regional listing. Expand Campgrounds to inspect individual scan schedules, run a campground check, or pause a member. The group controls edit the shared dates and filters, select all members, pause/resume the region, or delete it after confirmation. A group edit applies to every remaining member. Creation and shared edits are atomic: a failed request does not save half a region.
 
-Membership is the set of active imported targets selected when the regional watch is created, not a live geographic subscription. Importing another campground later does not automatically add it to existing watches. Preset-only markers must be imported before they can be watched. Existing ungrouped watches are left unchanged rather than guessing which ones belong together. Group IDs survive configuration export/import. The scanner still keeps a separate schedule and history for each campground, while dashboard watch counts represent regional listings.
+By default, membership is the set of active imported targets selected when the watch is created. Check **Include future imports** to save a state, exact park-group names, or the current map bounds with the watch. When an active matching target is imported or updated later, it joins the same group and inherits its dates, filters, and Cart Assist setting. The selector is provider-independent: a Washington watch can include federal, Snohomish, and King County targets. Preset-only markers and unconnected source directories are not monitored until a supported target is imported.
+
+To upgrade an existing regional watch, open its group edit button, choose State, Park group, Selected park groups, or Current map view, enable Include future imports, and save. Saving also adds already imported active targets that match the chosen area. Existing members are retained if you change the inclusion area; remove individual members you no longer want. A saved map area does not move when you pan the dashboard map later. Map membership needs valid coordinates; state and park-group membership do not.
+
+New members stay paused when all existing group members are paused. If only some members are paused, additions follow the enabled members. Deleting a member records an exclusion so reimporting the same campground does not undo that choice. Deleting the last member or the entire group removes the saved coverage. Turning Include future imports off keeps current members but clears that group's coverage and exclusion list. Turning it on again starts a fresh inclusion rule.
+
+Group IDs, saved coverage, and exclusions survive configuration export/import. Old databases and old backups stay fixed-membership until you opt in. Ungrouped watches are unchanged. For automatically expanding groups, edit dates and filters through the group editor; individual pause/resume and deletion remain available. Logs record each automatic addition. The scanner still keeps a separate schedule and history for each campground, while dashboard watch counts represent regional listings. Newly added members enter normal background scheduling and respect their provider's pacing and cooldown.
 
 Availability Results appears above the map and park queue on desktop and mobile. Existing watches and bulk actions appear before the collapsible Add Watch form in the Watches drawer.
 
 Use the current map view scope for practical regions that do not line up with park or state names. Pan and zoom the Washington-centered map until the campgrounds you care about are visible, click Watch View, confirm the dates and filters, then save. A freehand polygon selector is not implemented yet, but the map-bounds scope covers the common "everything in this area for Friday and Saturday" workflow without adding another drawing mode.
+
+Clallam County's official [Dungeness](https://www.clallamcountywa.gov/301/Dungeness-Recreation-Area) and [Salt Creek](https://www.clallamcountywa.gov/588/Salt-Creek-Recreation-Area) pages link to CampLife. A November 17, 2026 check found that availability required an account and a normal server request was denied. That connector remains disabled; saving an Olympic Peninsula map watch does not imply live Clallam coverage. Provider authorization and a verified supported integration are still needed.
 
 ## Source Roadmap
 
@@ -286,9 +295,11 @@ After upgrading, refresh the browser, confirm the crawl status and notification 
 
 Existing databases receive the watch/history deletion indexes automatically during startup. No database reset, export/import, or manual SQL is required. The migration preserves targets, watches, results, and saved settings, including notification secrets. The first startup can take longer on a large database while indexes are built; allow it to finish before retrying dashboard actions. Keep a stopped-container appdata backup as described above.
 
+The saved regional coverage table is also created automatically. Existing watches remain fixed-membership until Include future imports is explicitly enabled in their group editor.
+
 ## Configuration Backups
 
-The Settings drawer can download and restore a JSON config backup. A backup includes targets, watches, target release settings, watch Cart Assist flags, scan control overrides, notification settings, and server-level Cart Assist settings. Availability results, scan logs, notification delivery history, Cart Assist attempt history, and the runtime crawl queue are not included. A stopped-container appdata backup preserves those records and the saved cooldown/pause state as well.
+The Settings drawer can download and restore a JSON config backup. A backup includes targets, watches, saved regional coverage and exclusions, target release settings, watch Cart Assist flags, scan control overrides, notification settings, and server-level Cart Assist settings. Availability results, scan logs, notification delivery history, Cart Assist attempt history, and the runtime crawl queue are not included. A stopped-container appdata backup preserves those records and the saved cooldown/pause state as well.
 
 Saved secrets are redacted from downloaded backups unless Include saved secrets is checked before export. Redacted values stay on the server that created the backup, and importing a redacted backup does not erase existing saved secrets on the destination server. When Include saved secrets is checked, the JSON file contains stored Recreation.gov credentials, webhook URLs, ntfy topic/token values, and SMTP username/password values. Treat that file like a `.env` file.
 

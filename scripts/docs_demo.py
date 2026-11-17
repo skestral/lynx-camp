@@ -53,7 +53,7 @@ def run(port: int) -> None:
             "arrival_weekdays": [4], "nights": 2,
             "window_start": f"{year}-07-01", "window_end": f"{year}-08-31",
             "site_filters": {}, "specific_ranges": [],
-        })
+        }, region_scope={"kind": "state", "state_code": "WA"})
         for index, watch in enumerate(watches[:2]):
             for day in (2, 9):
                 result, _ = main.store.upsert_result({

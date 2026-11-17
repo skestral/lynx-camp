@@ -3,8 +3,9 @@ from __future__ import annotations
 from datetime import date
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from .provider_ids import provider_key
+from .regions import RegionScope
 
 
 class DateRange(BaseModel):
@@ -116,6 +117,7 @@ class WatchCreate(BaseModel):
 class WatchGroupCreate(BaseModel):
     target_ids: list[int] = Field(min_length=1, max_length=500)
     watch: WatchCreate
+    region_scope: RegionScope | None = None
 
 
 class WatchUpdate(BaseModel):
@@ -143,6 +145,16 @@ class WatchUpdate(BaseModel):
         if any(day < 0 or day > 6 for day in unique):
             raise ValueError("arrival_weekdays values must be 0 through 6")
         return unique
+
+
+class WatchGroupUpdate(WatchUpdate):
+    region_scope: RegionScope | None = None
+
+
+class ConfigRegion(BaseModel):
+    group_id: str = Field(min_length=1, max_length=64)
+    scope: RegionScope
+    excluded_campgrounds: list[str] = Field(default_factory=list, max_length=10000)
 
 
 class ConfigWatch(BaseModel):
@@ -194,6 +206,20 @@ class ConfigBackup(BaseModel):
     exported_at: str | None = None
     targets: list[ConfigTarget] = Field(default_factory=list)
     settings: ConfigSettings = Field(default_factory=ConfigSettings)
+    regions: list[ConfigRegion] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def consistent_regions(self):
+        seen = set()
+        for region in self.regions:
+            if region.group_id in seen:
+                raise ValueError("Backup contains duplicate regional coverage definitions")
+            seen.add(region.group_id)
+            members = [watch for target in self.targets for watch in target.watches if watch.group_id == region.group_id]
+            rules = [watch.model_dump(exclude={"active"}) for watch in members]
+            if not rules or any(rule != rules[0] for rule in rules):
+                raise ValueError("Saved region requires members with the same watch criteria")
+        return self
 
 
 class ResultStatusUpdate(BaseModel):

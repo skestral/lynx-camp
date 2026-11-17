@@ -117,7 +117,7 @@ SOURCE_DEFINITIONS: list[SourceDefinition] = [
 for source_id, name, counties, areas, url, description in [
     ("clallam-county-parks", "Clallam County Parks", ["Clallam"], ["Olympic Peninsula"],
      "https://www.clallamcountywa.gov/297/Camping",
-     "Salt Creek and Dungeness recreation areas. Reservation connector pending; not scanned."),
+     "Salt Creek and Dungeness recreation areas. CampLife requires an account; server access not connected. Not scanned."),
     ("jefferson-county-parks", "Jefferson County Parks", ["Jefferson"], ["Olympic Peninsula", "Puget Sound"],
      "https://jeffersoncountywa.myrec.com/info/facilities/default.aspx",
      "Quilcene, Lake Leland, and Oak Bay campgrounds. First-come camping directory; no live nightly availability."),

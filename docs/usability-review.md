@@ -57,7 +57,7 @@ Production logs confirmed `sqlite3.OperationalError: database is locked` on a se
 
 The local WAL/concurrency tests do not prove that production's underlying lock cause is resolved. Production deployment and post-deployment checks remain operator-controlled. Stop the container and back up the full appdata directory before updating. Never remove SQLite journal files to force a lock clear.
 
-Regional membership is a creation-time snapshot. Existing ungrouped rules are preserved, and newly imported campgrounds are not silently enrolled in existing watches. A future explicit membership editor would make changing an established region easier.
+Regional membership was initially a creation-time snapshot. The opt-in coverage update below adds saved state, park-group, and map-area selectors while preserving that default for existing watches.
 
 ### County monitoring and target catalog (2026-11-17)
 
@@ -75,3 +75,12 @@ Regional membership is a creation-time snapshot. Existing ungrouped rules are pr
 - Added provider-request checkpoints to diagnostic logs. A cancellation test exposed that zero configured request spacing skipped the cancellation check; cancellation now runs regardless of spacing.
 - Backend: 149 tests passed. Frontend production build passed. Desktop and 390px mobile checks confirmed King County in the Puget Sound source group, readable controls, no horizontal overflow, and no browser console errors. Refreshed the regional catalog screenshot with synthetic dashboard data.
 - Tacoma Power's interactive page loaded, but its direct API challenged a server-style request. No access workaround was attempted. Washington State Parks, Tacoma Power, and the other unconnected county systems remain outside live scan coverage. Production Docker deployment was not changed.
+
+### Saved Regional Coverage (2026-11-17)
+
+- Added Include future imports to the regional watch editor. Saved selectors apply across connected providers; existing groups remain fixed until explicitly opted in. Group listings identify automatic coverage, and Logs record new members.
+- Verified migration without a database reset, duplicate imports, inactive targets, paused groups, removed-member exclusions, full group deletion, rollback, and backup round trips. A 601-member group exercised deletion across parameter batches. A mixed-provider test enrolled a new county target into a state watch and delivered its fake match while federal requests were cooling down.
+- On an isolated local server, created a Washington watch through the browser, added a synthetic county target, and observed the group grow from two to three members. Turning expansion off prevented the next target from joining. Clear All Watches removed all three member rules and preserved all five targets. No provider requests, real alerts, or production mutations were made by this verification server.
+- Reviewed desktop and 390px mobile views, including the saved coverage label and group edit controls. No horizontal overflow or browser console errors. Refreshed screenshots from synthetic data.
+- Backend suite: 179 tests passed. Frontend production build passed. These checks do not establish production storage performance or live alert delivery.
+- Clallam's CampLife search required an account and its direct server endpoint returned 403. Its source remains explicitly unconnected; broad regional selectors do not imply unsupported provider coverage. Production Docker deployment remains unverified.

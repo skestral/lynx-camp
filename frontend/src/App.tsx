@@ -41,6 +41,7 @@ import type {
   CartAttemptStatus,
   CampgroundDetails,
   ConfigBackup,
+  RegionScope,
   NotificationEvent,
   NotificationConfig,
   NotificationConfigValues,
@@ -68,7 +69,7 @@ type ResultSort = "newest" | "arrival" | "park";
 type DrawerMode = "alerts" | "activity" | "targets" | "watches" | "settings";
 type PageView = "monitor" | "logs";
 type UtilityTab = "release" | "activity" | "settings";
-type WatchScope = "target" | "park" | "state" | "map" | "selection";
+type WatchScope = "target" | "park" | "state" | "map" | "selection" | "members";
 type MapSelection =
   | { kind: "park"; parkName: string }
   | { kind: "campground"; campgroundId: string };
@@ -813,6 +814,8 @@ export default function App() {
   const [watchEditorOpen, setWatchEditorOpen] = useState(false);
   const [watchName, setWatchName] = useState("");
   const [watchScope, setWatchScope] = useState<WatchScope>("target");
+  const [includeFutureImports, setIncludeFutureImports] = useState(false);
+  const [savedWatchBounds, setSavedWatchBounds] = useState<Extract<RegionScope, { kind: "bounds" }> | null>(null);
   const [watchPark, setWatchPark] = useState("");
   const [watchStateCode, setWatchStateCode] = useState("");
   const [watchMode, setWatchMode] = useState<"weekend" | "specific">("weekend");
@@ -1677,14 +1680,22 @@ export default function App() {
     setWatchEditorOpen(false);
     setWatchName("");
     setWatchScope("target");
+    setIncludeFutureImports(false);
+    setSavedWatchBounds(null);
     setCartAssistEnabled(false);
   }
 
   function editWatch(watch: Watch, groupId: string | null = null) {
+    if (watch.region_scope) groupId = watch.group_id;
     setEditingGroupId(groupId);
     setEditingWatchId(watch.id);
     setWatchName(watch.name);
-    setWatchScope("target");
+    const scope = groupId ? watch.region_scope : null;
+    setWatchScope(scope?.kind === "state" ? "state" : scope?.kind === "parks" ? "selection" : scope?.kind === "bounds" ? "map" : groupId ? "members" : "target");
+    setIncludeFutureImports(Boolean(scope));
+    setSavedWatchBounds(scope?.kind === "bounds" ? scope : null);
+    if (scope?.kind === "state") setWatchStateCode(scope.state_code);
+    if (scope?.kind === "parks") setSelectedParkGroups(scope.park_names);
     setWatchTarget(String(watch.target_id));
     setWatchMode(watch.mode);
     setSelectedWeekdays(watch.arrival_weekdays?.length ? watch.arrival_weekdays : [4]);
@@ -1952,6 +1963,11 @@ export default function App() {
       return;
     }
     const baseName = watchName.trim() || generatedWatchName(isSpecific);
+    const regionScope = includeFutureImports && watchScope !== "target" ? watchRegionScope() : null;
+    if (includeFutureImports && watchScope !== "target" && !regionScope) {
+      setMessage("Choose a state, park group, or map area for future imports.");
+      return;
+    }
     const payload = {
       target_id: selectedTargets[0].id,
       name: baseName,
@@ -1976,7 +1992,7 @@ export default function App() {
     try {
     if (editingGroupId) {
       const { target_id: _targetId, ...groupPayload } = payload;
-      await api.updateWatchGroup(editingGroupId, groupPayload);
+      await api.updateWatchGroup(editingGroupId, { ...groupPayload, region_scope: regionScope });
       setMessage(`Updated regional watch ${baseName}.`);
       resetWatchForm();
     } else if (editingWatchId) {
@@ -1984,8 +2000,8 @@ export default function App() {
       setMessage(`Updated ${updated.name}.`);
       resetWatchForm();
     } else if (watchScope !== "target") {
-      await api.createWatchGroup(selectedTargets.map((target) => target.id), payload);
-      setMessage(`Added ${baseName} across ${selectedTargets.length} campgrounds.`);
+      const created = await api.createWatchGroup(selectedTargets.map((target) => target.id), payload, regionScope);
+      setMessage(`Added ${baseName} across ${created.length} campgrounds.`);
       setWatchName("");
       setCartAssistEnabled(false);
     } else {
@@ -2547,10 +2563,23 @@ export default function App() {
     if (!map) return [];
     const bounds = map.getBounds();
     return activeTargets.filter((target) => {
+      if (target.latitude === null || target.longitude === null) return false;
       const latitude = Number(target.latitude);
       const longitude = Number(target.longitude);
       return Number.isFinite(latitude) && Number.isFinite(longitude) && bounds.contains([latitude, longitude]);
     });
+  }
+
+  function watchRegionScope(): RegionScope | null {
+    if (watchScope === "state" && /^[A-Z]{2}$/.test(watchStateCode)) return { kind: "state", state_code: watchStateCode };
+    if (watchScope === "park" && watchPark) return { kind: "parks", park_names: [watchPark] };
+    if (watchScope === "selection" && selectedParkGroups.length) return { kind: "parks", park_names: selectedParkGroups };
+    if (watchScope === "map") {
+      if (savedWatchBounds) return savedWatchBounds;
+      const bounds = leafletMapRef.current?.getBounds();
+      if (bounds) return { kind: "bounds", south: bounds.getSouth(), west: bounds.getWest(), north: bounds.getNorth(), east: bounds.getEast() };
+    }
+    return null;
   }
 
   function selectedWatchTargets() {
@@ -2588,6 +2617,8 @@ export default function App() {
   }
 
   function openWatchBuilderForPark(parkName: string) {
+    setIncludeFutureImports(false);
+    setSavedWatchBounds(null);
     setEditingGroupId(null);
     setWatchEditorOpen(true);
     setWatchScope("park");
@@ -2597,6 +2628,8 @@ export default function App() {
   }
 
   function openWatchBuilderForCampground(campground: CampgroundMapPoint) {
+    setIncludeFutureImports(false);
+    setSavedWatchBounds(null);
     setEditingGroupId(null);
     setWatchEditorOpen(true);
     if (!campground.targetId) {
@@ -2610,6 +2643,8 @@ export default function App() {
   }
 
   function openWatchBuilderForMapView() {
+    setIncludeFutureImports(false);
+    setSavedWatchBounds(null);
     setEditingGroupId(null);
     setWatchEditorOpen(true);
     setWatchScope("map");
@@ -2624,6 +2659,8 @@ export default function App() {
   }
 
   function openWatchBuilderForSelectedParks() {
+    setIncludeFutureImports(false);
+    setSavedWatchBounds(null);
     setEditingGroupId(null);
     setWatchEditorOpen(true);
     if (selectedParkGroups.length === 0) {
@@ -3760,15 +3797,20 @@ export default function App() {
               <label>
                 Scope
                 <select
-                  disabled={Boolean(editingWatchId)}
-                  value={editingGroupId ? "region" : editingWatchId ? "target" : watchScope}
-                  onChange={(event) => setWatchScope(event.target.value as WatchScope)}
+                  disabled={Boolean(editingWatchId) && !editingGroupId}
+                  value={watchScope}
+                  onChange={(event) => {
+                    const value = event.target.value as WatchScope;
+                    setWatchScope(value);
+                    setSavedWatchBounds(null);
+                    if (value === "target" || value === "members") setIncludeFutureImports(false);
+                  }}
                 >
-                  <option value="target">One campground</option>
-                  {editingGroupId && <option value="region">Regional watch</option>}
+                  {!editingGroupId && <option value="target">One campground</option>}
+                  {editingGroupId && <option value="members">Existing campgrounds</option>}
                   <option value="park">Park group</option>
                   <option value="state">State</option>
-                  <option value="map">Current map view</option>
+                  <option value="map">{savedWatchBounds ? "Saved map area" : "Current map view"}</option>
                   <option value="selection">Selected park groups</option>
                 </select>
               </label>
@@ -3782,7 +3824,7 @@ export default function App() {
                   </select>
                 </label>
               )}
-              {!editingWatchId && watchScope === "park" && (
+              {(!editingWatchId || editingGroupId) && watchScope === "park" && (
                 <label>
                   Park group
                   <select value={watchPark} onChange={(event) => setWatchPark(event.target.value)}>
@@ -3794,7 +3836,7 @@ export default function App() {
                   </select>
                 </label>
               )}
-              {!editingWatchId && watchScope === "state" && (
+              {(!editingWatchId || editingGroupId) && watchScope === "state" && (
                 <label>
                   State
                   <select value={watchStateCode} onChange={(event) => setWatchStateCode(event.target.value)}>
@@ -3810,6 +3852,12 @@ export default function App() {
                 <MapPinned size={17} />
                 <span>{watchScopeSummary()}</span>
               </div>
+              {watchScope !== "target" && watchScope !== "members" && (
+                <label className="toggle-field wide-field">
+                  <span><strong>Include future imports</strong></span>
+                  <input type="checkbox" checked={includeFutureImports} onChange={(event) => setIncludeFutureImports(event.target.checked)} />
+                </label>
+              )}
               <label>
                 Mode
                 <select value={watchMode} onChange={(event) => setWatchMode(event.target.value as "weekend" | "specific")}>

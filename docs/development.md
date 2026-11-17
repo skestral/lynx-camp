@@ -56,6 +56,20 @@ Active watches start background work as soon as the server starts. Use the read-
 
 The background scheduler selects due active watches and processes one campground check at a time. A regional watch has a shared group ID but a separate schedule and scan history for each member. Completion schedules the next check using the watch/target interval and global minimum. Finished members are not rechecked within the same pending cycle.
 
+## Regional Coverage
+
+`regions.py` validates provider-independent selectors: a two-letter state code, exact park-group names, or ordered map bounds. `watch_regions` stores opt-in selectors and excluded campground IDs, keyed by the existing watch group ID. The table is created at startup on existing databases without changing any old watch's membership. No live provider discovery or network request runs during enrollment.
+
+Target creation/update enrolls active matching targets within the same database transaction. A group/target membership check prevents duplicate watches on repeated imports. New members copy the group's shared watch criteria and are enabled only if at least one existing member is enabled. Individual criteria edits on automatic groups are rejected; group edits keep the template consistent. The saved bounding box never tracks later map panning, and missing coordinates cannot match it.
+
+Deleting members records stable campground-ID exclusions; deleting the last member or its target removes the orphaned selector. Bulk deletion keeps the existing 500-ID transaction batches and scanner lock. Turning expansion off removes the selector and exclusions, not the current member watches. Changing a selector is additive: existing members outside the new area remain until explicitly removed. Enrollment emits a `region_expanded` diagnostic event.
+
+`POST /api/watch-groups` accepts optional `region_scope`. `PATCH /api/watch-groups/{id}` preserves it when omitted, clears it on `null`, and reconciles currently imported targets when set. The PATCH database work runs in a worker thread. JSON configuration backups carry an optional `regions` list; old backups remain accepted. Restore defers enrollment until target active flags, member criteria, and exclusions have been restored. A restored automatic group's criteria also apply to retained local members that were imported after the backup.
+
+`test_regional_coverage.py` covers old-database migration, opt-in compatibility, state/park/map membership, inactive targets, duplicate imports, pause/delete behavior, exclusions, rollback, chunked deletion, and backup restoration. The county suite also verifies that importing Snohomish after creating a state watch enrolls the new target and delivers a fake notification while Recreation.gov is cooling down.
+
+## Queue and Recovery
+
 The `scanner_runtime` app setting stores the queue, counters, pause state, adaptive delay, and cooldown deadline. It is deliberately excluded from configuration JSON exports. A full appdata backup preserves it. On restart, an in-progress queue becomes eligible to resume, while abandoned scan-run rows are marked interrupted. In-memory month-response caches are not persisted.
 
 Watch deletion uses `Scanner.delete_watches` for both the bulk and individual endpoints. It holds the scanner lock while a worker thread performs the SQLite transaction, then prunes and persists the pending queue. Request cancellation does not release that lock while the worker is still running. Do not replace this with a direct synchronous store call inside an async route, or remove the lock when offloading work.
@@ -93,7 +107,9 @@ Before enabling another source, verify discovery IDs, all overnight accommodatio
 
 `test_county_provider.py` covers parsing, unknown responses, cross-provider IDs, notification handoff, independent cooldowns, backup restoration, and repeated database initialization. Live development checks on November 17, 2026 discovered eight county parks, returned cabin and campsite results for a Flowing Lake weekend, and recognized a closed Whitehorse stay. No reservations or real notifications were sent. Washington State Parks was firewall-denied and remains unconnected; production-host behavior is unverified.
 
-`test_king_county.py` covers paginated overnight discovery, per-site restrictions, partial/unknown responses, cache behavior, denial handling, cancellation between rule checks, import/scan/notification handoff, and backup compatibility. A paced read-only development scan on November 17, 2026 discovered 53 Tolt-MacDonald sites and returned 49 validated matches for June 4-6, 2027, including six yurts. That cold-cache run made 54 catalog, availability, and rule requests. These are point-in-time results, not reserved inventory. The current backend suite has 149 tests; none sends a real notification or submits a reservation.
+`test_king_county.py` covers paginated overnight discovery, per-site restrictions, partial/unknown responses, cache behavior, denial handling, cancellation between rule checks, import/scan/notification handoff, and backup compatibility. A paced read-only development scan on November 17, 2026 discovered 53 Tolt-MacDonald sites and returned 49 validated matches for June 4-6, 2027, including six yurts. That cold-cache run made 54 catalog, availability, and rule requests. These are point-in-time results, not reserved inventory. Tests do not send real notifications or submit reservations.
+
+Clallam research on the same date confirmed the official Salt Creek and Dungeness CampLife links. The normal browser availability response required registration/login; a plain server request to the observed map endpoint returned HTTP 403. No credentials, browser challenge tokens, alternate routes, or access workarounds were used. Leave this source unconnected until there is an authorized, verified integration path.
 
 New matches are deduplicated and notified after each campground check, or before returning from a rate-limited partial check. Enabling a channel later does not resend all existing matches. Delivery failures are recorded but are not managed by a durable retry queue.
 
@@ -144,6 +160,7 @@ Current documentation images:
 | `dashboard-overview.png` | Crawl cooldown, progress, and grouped results with dismissal controls |
 | `crawl-mobile.png` | Mobile crawl status and summary |
 | `regional-watch-demo.png` | Mobile regional watch and member campgrounds |
+| `regional-coverage.png` | State watch editor with future-import coverage enabled |
 | `notification-settings.png` | Configured example webhook with no credential shown |
 | `scan-controls.png` | Repeat interval, request spacing, cache, and backoff settings |
 | `crawl-logs.png` | Diagnostic events, run outcomes, and demo deliveries |

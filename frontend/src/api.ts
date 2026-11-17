@@ -18,6 +18,7 @@ import type {
   ReleaseWindowProfileResult,
   Result,
   ResultSummary,
+  RegionScope,
   ScanCancelResult,
   ScanConfig,
   ScanConfigPayload,
@@ -64,8 +65,8 @@ export const api = {
   presets: () => request<PresetPack[]>("/api/presets"),
   sources: () => request<SourceDefinition[]>("/api/sources"),
   watches: () => request<Watch[]>("/api/watches"),
-  createWatchGroup: (target_ids: number[], watch: Record<string, unknown>) =>
-    request<Watch[]>("/api/watch-groups", { method: "POST", body: JSON.stringify({ target_ids, watch }) }),
+  createWatchGroup: (target_ids: number[], watch: Record<string, unknown>, region_scope: RegionScope | null = null) =>
+    request<Watch[]>("/api/watch-groups", { method: "POST", body: JSON.stringify({ target_ids, watch, region_scope }) }),
   updateWatchGroup: (id: string, payload: Record<string, unknown>) =>
     request<Watch[]>(`/api/watch-groups/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(payload) }),
   bulkWatches: (watch_ids: number[], action: "pause" | "resume" | "delete") =>

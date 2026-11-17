@@ -12,6 +12,7 @@ from uuid import uuid4
 from .app_settings import EXPORTABLE_APP_SETTING_KEYS, SECRET_APP_SETTING_KEYS
 from .coordinates import CAMPGROUND_COORDINATES
 from .provider_ids import campground_url, provider_key
+from .regions import RegionScope, matches_region
 
 
 def utc_now() -> str:
@@ -58,6 +59,8 @@ def _campsite_booking_url(campsite_id: Any, arrival_date: Any) -> str:
 
 ACTIONABLE_CART_ATTEMPT_STATUSES = {"manual_required", "opened", "hold_queued", "hold_attempted"}
 FINISHED_CART_ATTEMPT_STATUSES = {"skipped", "disabled", "needs_credentials", "cooldown", "booked", "dismissed", "failed"}
+REGIONAL_RULE_FIELDS = ("name", "mode", "pattern", "arrival_weekdays", "nights", "window_start", "window_end",
+                        "site_filters", "specific_ranges", "cart_assist_enabled")
 
 
 class Store:
@@ -204,6 +207,11 @@ class Store:
                     value TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS watch_regions (
+                    group_id TEXT PRIMARY KEY,
+                    scope_json TEXT NOT NULL,
+                    excluded_campgrounds_json TEXT NOT NULL DEFAULT '[]'
+                );
                 """
             )
             self._ensure_column(conn, "watches", "arrival_weekdays_json", "TEXT")
@@ -273,10 +281,16 @@ class Store:
 
     def delete_target(self, target_id: int) -> bool:
         with self.connect() as conn:
+            ids = [row[0] for row in conn.execute("SELECT id FROM watches WHERE target_id = ?", (target_id,))]
+            for offset in range(0, len(ids), 500):
+                self._exclude_region_members(conn, ids[offset:offset + 500])
             cursor = conn.execute("DELETE FROM targets WHERE id = ?", (target_id,))
-            return cursor.rowcount > 0
+            deleted = cursor.rowcount > 0
+            conn.execute("DELETE FROM watch_regions WHERE NOT EXISTS (SELECT 1 FROM watches WHERE watches.group_id = watch_regions.group_id)")
+            return deleted
 
-    def update_target(self, target_id: int, data: dict[str, Any], min_poll_interval_minutes: int = 10) -> dict[str, Any] | None:
+    def update_target(self, target_id: int, data: dict[str, Any], min_poll_interval_minutes: int = 10,
+                      *, _enroll: bool = True) -> dict[str, Any] | None:
         current = self.get_target(target_id)
         if current is None:
             return None
@@ -323,6 +337,8 @@ class Store:
                     target_id,
                 ),
             )
+            if _enroll:
+                self._enroll_regional_target(conn, dict(conn.execute("SELECT * FROM targets WHERE id = ?", (target_id,)).fetchone()))
         return self.get_target(target_id)
 
     def get_target(self, target_id: int) -> dict[str, Any] | None:
@@ -335,7 +351,8 @@ class Store:
             row = conn.execute("SELECT * FROM targets WHERE campground_id = ?", (campground_id,)).fetchone()
             return _target_with_coordinates(_row_to_dict(row))
 
-    def create_target(self, data: dict[str, Any], min_poll_interval_minutes: int = 10) -> dict[str, Any]:
+    def create_target(self, data: dict[str, Any], min_poll_interval_minutes: int = 10,
+                      *, _enroll: bool = True) -> dict[str, Any]:
         now = utc_now()
         poll_interval = max(int(data.get("poll_interval_minutes") or 10), min_poll_interval_minutes)
         provider_key(data["campground_id"])
@@ -392,6 +409,8 @@ class Store:
                 ),
             )
             row = conn.execute("SELECT * FROM targets WHERE campground_id = ?", (data["campground_id"],)).fetchone()
+            if _enroll:
+                self._enroll_regional_target(conn, dict(row))
             return _row_to_dict(row) or {}
 
     def list_watches(self) -> list[dict[str, Any]]:
@@ -400,6 +419,7 @@ class Store:
                 """
                 SELECT
                     watches.*,
+                    watch_regions.scope_json AS region_scope_json,
                     targets.name AS target_name,
                     targets.campground_id,
                     targets.park_name,
@@ -415,6 +435,7 @@ class Store:
                     targets.last_status
                 FROM watches
                 JOIN targets ON targets.id = watches.target_id
+                LEFT JOIN watch_regions ON watch_regions.group_id = watches.group_id
                 ORDER BY watches.active DESC, watches.created_at DESC
                 """
             ).fetchall()
@@ -456,32 +477,119 @@ class Store:
             watch_id = int(cursor.lastrowid)
         return self.get_watch(watch_id, _conn) or {}
 
-    def create_watch_group(self, target_ids: list[int], data: dict[str, Any]) -> list[dict]:
+    def create_watch_group(self, target_ids: list[int], data: dict[str, Any], region_scope: dict | None = None) -> list[dict]:
         group_id = str(uuid4())
+        scope = RegionScope.model_validate(region_scope).model_dump(exclude_none=True) if region_scope else None
         # One transaction prevents a failed region creation from leaving partial watches.
         with self.connect() as conn:
             ids = sorted(set(target_ids))
             if not ids:
                 raise ValueError("Select at least one campground")
             for target_id in ids:
-                target = conn.execute("SELECT active FROM targets WHERE id = ?", (target_id,)).fetchone()
+                target = conn.execute("SELECT * FROM targets WHERE id = ?", (target_id,)).fetchone()
                 if not target or not target["active"]:
                     raise ValueError("All selected campgrounds must exist and be active")
-            return [self.create_watch({**data, "target_id": target_id, "group_id": group_id}, conn) for target_id in ids]
+                if scope and not matches_region(dict(target), scope):
+                    raise ValueError("Selected campgrounds must be inside the saved region")
+            if scope:
+                conn.execute("INSERT INTO watch_regions (group_id, scope_json) VALUES (?, ?)", (group_id, json.dumps(scope)))
+            members = [self.create_watch({**data, "target_id": target_id, "group_id": group_id}, conn) for target_id in ids]
+            if scope:
+                self._enroll_region(conn, group_id)
+                members = self._group_members(conn, group_id)
+            return members
 
     def update_watch_group(self, group_id: str, data: dict[str, Any]) -> list[dict]:
         if "target_id" in data or "group_id" in data:
             raise ValueError("Group edits cannot change campground membership")
         with self.connect() as conn:
             ids = [row[0] for row in conn.execute("SELECT id FROM watches WHERE group_id = ?", (group_id,))]
-            return [self.update_watch(watch_id, data, conn) for watch_id in ids]
+            if not ids:
+                return []
+            updates = dict(data)
+            if "region_scope" in updates:
+                raw_scope = updates.pop("region_scope")
+                if raw_scope is None:
+                    conn.execute("DELETE FROM watch_regions WHERE group_id = ?", (group_id,))
+                else:
+                    scope = RegionScope.model_validate(raw_scope).model_dump(exclude_none=True)
+                    conn.execute("""INSERT INTO watch_regions (group_id, scope_json) VALUES (?, ?)
+                                    ON CONFLICT(group_id) DO UPDATE SET scope_json = excluded.scope_json""",
+                                 (group_id, json.dumps(scope)))
+            for watch_id in ids:
+                self.update_watch(watch_id, updates, conn)
+            members = self._group_members(conn, group_id)
+            if members[0].get("region_scope") and any(
+                any(member[field] != members[0][field] for field in REGIONAL_RULE_FIELDS) for member in members
+            ):
+                raise ValueError("Set shared dates and filters for all members before enabling future imports")
+            self._enroll_region(conn, group_id)
+            return self._group_members(conn, group_id)
+
+    def _group_members(self, conn, group_id: str) -> list[dict]:
+        return [self.get_watch(row[0], conn) for row in conn.execute(
+            "SELECT id FROM watches WHERE group_id = ? ORDER BY id", (group_id,)).fetchall()]
+
+    def _enroll_region(self, conn, group_id: str) -> int:
+        region = conn.execute("SELECT * FROM watch_regions WHERE group_id = ?", (group_id,)).fetchone()
+        if not region:
+            return 0
+        count = 0
+        for target in conn.execute("SELECT * FROM targets WHERE active = 1").fetchall():
+            count += self._enroll_regional_target(conn, dict(target), [region])
+        return count
+
+    def _enroll_regional_target(self, conn, target: dict, regions=None) -> int:
+        if not target["active"]:
+            return 0
+        count = 0
+        if regions is None:
+            regions = conn.execute("SELECT * FROM watch_regions").fetchall()
+        for region in regions:
+            group_id = region["group_id"]
+            if (target["campground_id"] in json.loads(region["excluded_campgrounds_json"])
+                    or not matches_region(target, json.loads(region["scope_json"]))):
+                continue
+            if conn.execute("SELECT 1 FROM watches WHERE group_id = ? AND target_id = ?",
+                            (group_id, target["id"])).fetchone():
+                continue
+            first = conn.execute("SELECT id FROM watches WHERE group_id = ? ORDER BY id LIMIT 1", (group_id,)).fetchone()
+            if not first:
+                continue
+            template = self.get_watch(first[0], conn)
+            enabled = conn.execute("SELECT 1 FROM watches WHERE group_id = ? AND active = 1 LIMIT 1", (group_id,)).fetchone()
+            watch = self.create_watch({**template, "target_id": target["id"], "active": bool(enabled)}, conn)
+            conn.execute("""INSERT INTO scan_events (watch_id, target_id, event_type, message, created_at)
+                            VALUES (?, ?, 'region_expanded', ?, ?)""",
+                         (watch["id"], target["id"], f"Added {target['name']} to regional watch {template['name']}.", utc_now()))
+            count += 1
+        return count
+
+    @staticmethod
+    def _exclude_region_members(conn, ids: list[int]) -> None:
+        if not ids:
+            return
+        rows = conn.execute(f"""SELECT watches.group_id, targets.campground_id
+                                FROM watches JOIN targets ON targets.id = watches.target_id
+                                WHERE watches.id IN ({','.join('?' for _ in ids)})""", ids).fetchall()
+        exclusions: dict[str, set[str]] = {}
+        for row in rows:
+            exclusions.setdefault(row["group_id"], set()).add(row["campground_id"])
+        for group_id, removed in exclusions.items():
+            region = conn.execute("SELECT excluded_campgrounds_json FROM watch_regions WHERE group_id = ?", (group_id,)).fetchone()
+            if region:
+                removed.update(json.loads(region[0]))
+                conn.execute("UPDATE watch_regions SET excluded_campgrounds_json = ? WHERE group_id = ?",
+                             (json.dumps(sorted(removed)), group_id))
 
     def get_watch_by_target_and_name(self, target_id: int, name: str, group_id: str | None = None) -> dict[str, Any] | None:
         with self.connect() as conn:
-            row = conn.execute(
-                "SELECT id FROM watches WHERE target_id = ? AND name = ? AND group_id IS ? ORDER BY id LIMIT 1",
-                (target_id, name, group_id),
-            ).fetchone()
+            if group_id:
+                row = conn.execute("SELECT id FROM watches WHERE target_id = ? AND group_id = ? ORDER BY id LIMIT 1",
+                                   (target_id, group_id)).fetchone()
+            else:
+                row = conn.execute("SELECT id FROM watches WHERE target_id = ? AND name = ? AND group_id IS NULL ORDER BY id LIMIT 1",
+                                   (target_id, name)).fetchone()
         return self.get_watch(int(row["id"])) if row else None
 
     def get_watch(self, watch_id: int, _conn=None) -> dict[str, Any] | None:
@@ -490,6 +598,7 @@ class Store:
                 """
                 SELECT
                     watches.*,
+                    watch_regions.scope_json AS region_scope_json,
                     targets.name AS target_name,
                     targets.campground_id,
                     targets.park_name,
@@ -506,6 +615,7 @@ class Store:
                     targets.last_status
                 FROM watches
                 JOIN targets ON targets.id = watches.target_id
+                LEFT JOIN watch_regions ON watch_regions.group_id = watches.group_id
                 WHERE watches.id = ?
                 """,
                 (watch_id,),
@@ -513,9 +623,7 @@ class Store:
             return self._inflate_watch(_row_to_dict(row) or {}) if row else None
 
     def delete_watch(self, watch_id: int) -> bool:
-        with self.connect() as conn:
-            cursor = conn.execute("DELETE FROM watches WHERE id = ?", (watch_id,))
-            return cursor.rowcount > 0
+        return bool(self.bulk_update_watches([watch_id], "delete"))
 
     def bulk_update_watches(self, watch_ids: list[int], action: str) -> int:
         if action not in {"pause", "resume", "delete"}:
@@ -530,6 +638,7 @@ class Store:
                 chunk = ids[offset:offset + 500]
                 placeholders = ",".join("?" for _ in chunk)
                 if action == "delete":
+                    self._exclude_region_members(conn, chunk)
                     cursor = conn.execute(f"DELETE FROM watches WHERE id IN ({placeholders})", chunk)
                 else:
                     cursor = conn.execute(
@@ -537,6 +646,8 @@ class Store:
                         [int(action == "resume"), utc_now(), *chunk],
                     )
                 count += cursor.rowcount
+            if action == "delete":
+                conn.execute("DELETE FROM watch_regions WHERE NOT EXISTS (SELECT 1 FROM watches WHERE watches.group_id = watch_regions.group_id)")
             return count
 
     def export_config(self, include_secrets: bool = False) -> dict[str, Any]:
@@ -598,10 +709,15 @@ class Store:
             for key in sorted(stored_settings)
             if key in SECRET_APP_SETTING_KEYS and not include_secrets
         ]
+        with self.connect() as conn:
+            regions = [{"group_id": row["group_id"], "scope": json.loads(row["scope_json"]),
+                        "excluded_campgrounds": json.loads(row["excluded_campgrounds_json"])}
+                       for row in conn.execute("SELECT * FROM watch_regions ORDER BY group_id")]
         return {
             "version": 1,
             "exported_at": utc_now(),
             "targets": list(targets.values()),
+            "regions": regions,
             "settings": {
                 "app_settings": exported_settings,
                 "redacted_keys": redacted_keys,
@@ -609,6 +725,9 @@ class Store:
         }
 
     def import_config(self, config: dict[str, Any], min_poll_interval_minutes: int = 10) -> dict[str, int]:
+        if isinstance(config, dict) and config.get("regions"):
+            from .schemas import ConfigBackup
+            ConfigBackup.model_validate(config)
         targets = config.get("targets") if isinstance(config, dict) else None
         if not isinstance(targets, list):
             raise ValueError("config must include a targets list")
@@ -616,6 +735,20 @@ class Store:
         settings_section = config.get("settings") or {}
         if settings_section and not isinstance(settings_section, dict):
             raise ValueError("settings must be an object")
+        # Validate saved selectors before changing targets. Older backups have none.
+        regions = config.get("regions") or []
+        group_ids = set()
+        for target in targets:
+            if not isinstance(target, dict) or not isinstance(target.get("watches", []), list):
+                raise ValueError("Each target must be an object with a watches list")
+            for watch in target.get("watches", []):
+                if not isinstance(watch, dict):
+                    raise ValueError("each watch must be an object")
+                group_ids.add(watch.get("group_id"))
+        for region in regions:
+            RegionScope.model_validate(region["scope"])
+            if region["group_id"] not in group_ids:
+                raise ValueError("Saved region must have at least one watch in the backup")
 
         imported_targets = 0
         updated_targets = 0
@@ -623,6 +756,7 @@ class Store:
         updated_watches = 0
         imported_settings = 0
         skipped_settings = 0
+        restored_group_templates = {}
 
         for target_config in targets:
             if not isinstance(target_config, dict):
@@ -656,8 +790,8 @@ class Store:
                 "active": bool(target_config.get("active", True)),
             }
             existing_target = self.get_target_by_campground_id(campground_id)
-            target = self.create_target(target_payload, min_poll_interval_minutes)
-            target = self.update_target(target["id"], target_payload, min_poll_interval_minutes) or target
+            target = self.create_target(target_payload, min_poll_interval_minutes, _enroll=False)
+            target = self.update_target(target["id"], target_payload, min_poll_interval_minutes, _enroll=False) or target
             if existing_target:
                 updated_targets += 1
             else:
@@ -686,11 +820,33 @@ class Store:
                 }
                 existing_watch = self.get_watch_by_target_and_name(target["id"], watch_name, watch_payload["group_id"])
                 if existing_watch:
-                    self.update_watch(existing_watch["id"], watch_payload)
+                    saved_watch = self.update_watch(existing_watch["id"], watch_payload, _group_edit=True)
                     updated_watches += 1
                 else:
-                    self.create_watch(watch_payload)
+                    saved_watch = self.create_watch(watch_payload)
                     created_watches += 1
+                if watch_payload["group_id"]:
+                    restored_group_templates[watch_payload["group_id"]] = saved_watch
+
+        with self.connect() as conn:
+            incoming_regions = {region["group_id"] for region in regions}
+            for group_id in group_ids - incoming_regions - {None}:
+                conn.execute("DELETE FROM watch_regions WHERE group_id = ?", (group_id,))
+            for region in regions:
+                members = self._group_members(conn, region["group_id"])
+                template = restored_group_templates[region["group_id"]]
+                for member in members:
+                    changed = {field: template[field] for field in REGIONAL_RULE_FIELDS if member[field] != template[field]}
+                    if changed:
+                        self.update_watch(member["id"], changed, conn)
+                conn.execute("""INSERT INTO watch_regions (group_id, scope_json, excluded_campgrounds_json)
+                                VALUES (?, ?, ?) ON CONFLICT(group_id) DO UPDATE SET
+                                scope_json = excluded.scope_json,
+                                excluded_campgrounds_json = excluded.excluded_campgrounds_json""",
+                             (region["group_id"], json.dumps(region["scope"]), json.dumps(region.get("excluded_campgrounds", []))))
+            # Reconcile only after all member rows and exclusions have been restored.
+            for region in conn.execute("SELECT group_id FROM watch_regions").fetchall():
+                created_watches += self._enroll_region(conn, region[0])
 
         raw_settings = settings_section.get("app_settings", {}) if isinstance(settings_section, dict) else {}
         if raw_settings:
@@ -717,13 +873,15 @@ class Store:
             "skipped_settings": skipped_settings,
         }
 
-    def update_watch(self, watch_id: int, data: dict[str, Any], _conn=None) -> dict[str, Any] | None:
+    def update_watch(self, watch_id: int, data: dict[str, Any], _conn=None, *, _group_edit: bool = False) -> dict[str, Any] | None:
         current = self.get_watch(watch_id, _conn)
         if current is None:
             return None
         updates = dict(data)
         if not updates:
             return current
+        if current.get("region_scope") and _conn is None and not _group_edit and set(updates) - {"active"}:
+            raise ValueError("Edit the regional watch to change criteria for an automatically expanding group")
 
         window_start = updates.get("window_start", current["window_start"])
         window_end = updates.get("window_end", current["window_end"])
@@ -1416,6 +1574,7 @@ class Store:
     def _inflate_watch(watch: dict[str, Any]) -> dict[str, Any]:
         if not watch:
             return watch
+        watch["region_scope"] = json.loads(watch.pop("region_scope_json", None) or "null")
         try:
             watch["specific_ranges"] = json.loads(watch.get("specific_ranges_json") or "[]")
         except json.JSONDecodeError:

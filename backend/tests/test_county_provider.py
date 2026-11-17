@@ -203,6 +203,30 @@ def test_county_discovery_deduplicates_and_federal_pack_does_not_count_county(tm
     assert sources["washington-state-parks"]["import_supported"] is False
 
 
+def test_new_county_import_joins_state_watch_and_notifies_in_mixed_crawl(tmp_path):
+    store = Store(tmp_path / "expanding.db")
+    store.init()
+    federal = store.create_target({"name": "Federal", "campground_id": "112", "state_code": "WA"})
+    members = store.create_watch_group([federal["id"]], {
+        "name": "WA weekend", "mode": "specific", "window_start": ARRIVAL.isoformat(),
+        "window_end": DEPARTURE.isoformat(), "specific_ranges": [{"arrival_date": ARRIVAL.isoformat(),
+        "departure_date": DEPARTURE.isoformat()}], "site_filters": {"site_type": "cabin"},
+    }, {"kind": "state", "state_code": "WA"})
+    client = CountyClient()
+    recorder = Recorder()
+    scanner = Scanner(store, client, recorder, 60, api_request_delay_seconds=0)
+    async def scenario():
+        await import_source(store, client, "snohomish-county-parks", 60)
+        assert len(store.list_watches()) == 2
+        assert {watch["group_id"] for watch in store.list_watches()} == {members[0]["group_id"]}
+        result = await scanner.scan_all_watches()
+        assert result["status"] == "waiting"
+        assert result["completed_count"] == 1
+        assert len(recorder.results) == 1
+        assert recorder.results[0]["campground_id"] == COUNTY_ID
+    asyncio.run(scenario())
+
+
 def test_county_backoff_survives_restart_without_blocking_federal(tmp_path):
     store = Store(tmp_path / "cooldown.db")
     store.init()

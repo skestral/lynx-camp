@@ -27,7 +27,9 @@ export function WatchGroup({ members, selectedIds, busy, onSelect, onEdit, onAct
           <input type="checkbox" aria-label={`Select regional watch ${first.name}`} checked={selected === ids.length}
             ref={(input) => { if (input) input.indeterminate = selected > 0 && selected < ids.length; }}
             disabled={busy} onChange={(event) => onSelect(ids, event.target.checked)} />
-          <span><strong>{first.name}</strong><small>{members.length} campgrounds &middot; {active} active</small><small>{parks}</small></span>
+          <span><strong>{first.name}</strong><small>{members.length} campgrounds &middot; {active} active</small>
+            {first.region_scope && <small>Future imports included &middot; {first.region_scope.kind === "state" ? first.region_scope.state_code : first.region_scope.kind === "parks" ? "Selected park groups" : "Saved map area"}</small>}
+            <small>{parks}</small></span>
         </label>
         <div className="row-actions">
           <button className="icon-only" disabled={busy} title={`Edit regional watch ${first.name}`} onClick={() => onEdit(first, first.group_id!)}><Pencil size={16} /></button>

@@ -35,6 +35,7 @@ from .schemas import (
     WatchUpdate,
     WatchBulkUpdate,
     WatchGroupCreate,
+    WatchGroupUpdate,
 )
 from .settings import settings
 from .sources import discover_source, import_source, list_source_definitions
@@ -349,17 +350,18 @@ async def bulk_watches(payload: WatchBulkUpdate) -> dict:
 @app.post("/api/watch-groups")
 def create_watch_group(payload: WatchGroupCreate) -> list[dict]:
     try:
-        return store.create_watch_group(payload.target_ids, payload.watch.model_dump(mode="json"))
+        return store.create_watch_group(payload.target_ids, payload.watch.model_dump(mode="json"),
+                                        payload.region_scope.model_dump(exclude_none=True) if payload.region_scope else None)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @app.patch("/api/watch-groups/{group_id}")
-async def update_watch_group(group_id: str, payload: WatchUpdate) -> list[dict]:
+async def update_watch_group(group_id: str, payload: WatchGroupUpdate) -> list[dict]:
     if scanner.is_busy:
         raise HTTPException(status_code=409, detail="Stop the current scan before editing a regional watch.")
     try:
-        watches = store.update_watch_group(group_id, payload.model_dump(exclude_unset=True, mode="json"))
+        watches = await asyncio.to_thread(store.update_watch_group, group_id, payload.model_dump(exclude_unset=True, mode="json"))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     if not watches:

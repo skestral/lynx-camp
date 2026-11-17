@@ -64,8 +64,14 @@ export type DateRange = {
   departure_date: string;
 };
 
+export type RegionScope =
+  | { kind: "state"; state_code: string }
+  | { kind: "parks"; park_names: string[] }
+  | { kind: "bounds"; south: number; west: number; north: number; east: number };
+
 export type Watch = {
   group_id: string | null;
+  region_scope?: RegionScope | null;
   id: number;
   target_id: number;
   target_name: string;
@@ -331,6 +337,7 @@ export type ScanAllResult = {
 export type ConfigBackup = {
   version: number;
   exported_at?: string | null;
+  regions?: Array<{ group_id: string; scope: RegionScope; excluded_campgrounds: string[] }>;
   settings?: {
     app_settings: Record<string, string>;
     redacted_keys: string[];
