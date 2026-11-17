@@ -58,7 +58,7 @@ The optional [browser worker guide](browser-worker.md) covers its separate Docke
 setup and offline test harness. It is not started by the main Compose file and has
 no access to the application's database, settings, or notification credentials.
 
-The [Camply probe](camply-probe.md) provides a separate, one-shot Washington library comparison in Docker. It defaults to offline, has its own dependency environment and guard tests, and is not wired into watches or notifications. Do not install Camply into the main backend environment: its Pydantic major version conflicts with ours.
+The [Camply probe](camply-probe.md) provides a separate, one-shot Washington library comparison in Docker. It defaults to offline, has its own dependency environment and guard tests, and is not wired into watches or notifications. It supports the published release with a fixed application User-Agent and a pinned PR #398 image with Camply's default header generation. The latter returned 19 Bogachiel Camping candidates in the November 17 local test; Roofed and production access remain unverified. Do not install Camply into the main backend environment: its Pydantic major version conflicts with ours.
 
 ## Scan Lifecycle
 

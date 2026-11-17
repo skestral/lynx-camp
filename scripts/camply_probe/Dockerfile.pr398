@@ -1,0 +1,9 @@
+FROM python:3.12-slim
+WORKDIR /probe
+# Pin the reviewed PR head; the branch still reports package version 0.34.1.
+RUN pip install --no-cache-dir https://codeload.github.com/juftin/camply/tar.gz/09b69e4ed502cae2f259bee54e33f36cc7c07bbd
+COPY probe.py test_probe.py ./
+ENV PYTHONUNBUFFERED=1 HOME=/tmp CAMPLY_LOG_HANDLER=PYTHON \
+    CAMPLY_PR_COMMIT=09b69e4ed502cae2f259bee54e33f36cc7c07bbd
+USER 65534:65534
+CMD ["python", "probe.py", "--user-agent", "camply"]

@@ -117,3 +117,10 @@ Regional membership was initially a creation-time snapshot. The opt-in coverage 
 - Ten offline tests passed with networking disabled, including Camply's real discovery/availability code with synthetic responses and a distinct schema-error case.
 - The explicitly requested live run at 3:17 PM Pacific made one catalog request and received HTTP 403 HTML containing human-verification markers. No retry or availability/booking request followed. The guarded transport uses a fixed application identity instead of Camply's randomized browser User-Agent.
 - Installation is verified; live Washington support is not. The [probe guide](camply-probe.md) records the exact scope, safe metadata, reproduction commands, and remaining limitations. No frontend or production deployment changed.
+
+### Camply PR #398 Comparison (2026-11-17)
+
+- Added a separate Docker image pinned to PR commit `09b69e4ed502cae2f259bee54e33f36cc7c07bbd` (package version 0.34.1). The explicit `camply` User-Agent mode preserves the library-generated header while retaining pacing, bounded requests, redaction, and stop-on-denial behavior.
+- All 15 offline tests passed in the PR image, including its real root-map handling and optional-details fallback. The rebuilt 0.34.4 image passed 14 with the PR-only test skipped. The tests do not require network access or application data.
+- The 3:25 PM Pacific live run retrieved 19 Bogachiel Camping candidates for November 28-29 in seven requests. Catalog and availability returned 200; the old details endpoint returned 404 and the PR supplied placeholders. No 403, 429, retry, browser-cookie replay, reservation, or alert occurred.
+- Individual site verification, Roofed support, multi-night behavior, statewide scanning, and production access remain unverified. The main app and its saved access stop were not changed. No UI changed, so the existing screenshots remain applicable.

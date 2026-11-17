@@ -74,7 +74,7 @@ The screenshots below use a synthetic denial in the isolated documentation demo,
 
 ## Optional Browser Diagnostics
 
-For a separate library comparison without a browser, use the [Camply Docker probe](camply-probe.md). It is a bounded diagnostic tool, not part of scheduled scanning, and does not read or modify Camp Finder appdata. The November 17 local test installed Camply successfully but received HTTP 403 HTML with human-verification markers on its first catalog request. It stopped without retries; changing libraries did not establish access under the tested application identity.
+For a separate library comparison without a browser, use the [Camply Docker probe](camply-probe.md). It is a bounded diagnostic tool, not part of scheduled scanning, and does not read or modify Camp Finder appdata. The first November 17 test received HTTP 403 under a fixed application identity. A later, explicitly requested test of pinned PR #398 with Camply's default User-Agent completed in local Docker and returned 19 Bogachiel Camping candidates for November 28-29. Its retired site-details endpoint returned 404 and used the PR's placeholder fallback. This is working candidate retrieval for one stay, not verified Roofed, statewide, or production coverage, and it does not change the native connector's saved access stop.
 
 The reservation workflow was inspected in the owner's existing Edge session on November 17, 2026, after an explicit handoff. Anonymous camping and roofed results loaded there. This does not establish access from a Docker browser or identify why the development browser was denied.
 
