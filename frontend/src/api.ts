@@ -34,13 +34,27 @@ import type {
 export const RESULTS_LIMIT = 2000;
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
-  const response = await fetch(path, {
-    headers: { "Content-Type": "application/json", ...(options?.headers || {}) },
-    ...options
-  });
+  let response: Response;
+  try {
+    response = await fetch(path, {
+      ...options,
+      signal: options?.signal || AbortSignal.timeout(options?.method ? 300000 : 15000),
+      headers: { "Content-Type": "application/json", ...(options?.headers || {}) }
+    });
+  } catch {
+    throw new Error(`${path}: server unreachable or request timed out. Check the connection and server logs.`);
+  }
   if (!response.ok) {
-    const text = await response.text();
-    throw new Error(text || `Request failed with ${response.status}`);
+    const body = await response.text();
+    let detail = response.statusText || "Request failed";
+    try {
+      const parsed = JSON.parse(body);
+      if (typeof parsed.detail === "string") detail = parsed.detail;
+    } catch { /* Proxy error pages are not useful dashboard messages. */ }
+    throw new Error(`${path}: HTTP ${response.status} - ${detail}`);
+  }
+  if (!response.headers.get("content-type")?.includes("application/json")) {
+    throw new Error(`${path}: expected JSON but received a web page. Check proxy routing and server version.`);
   }
   return response.json() as Promise<T>;
 }
@@ -50,6 +64,10 @@ export const api = {
   presets: () => request<PresetPack[]>("/api/presets"),
   sources: () => request<SourceDefinition[]>("/api/sources"),
   watches: () => request<Watch[]>("/api/watches"),
+  bulkWatches: (watch_ids: number[], action: "pause" | "resume" | "delete") =>
+    request<{ updated_count: number }>("/api/watches/bulk", {
+      method: "POST", body: JSON.stringify({ watch_ids, action })
+    }),
   results: (limit = RESULTS_LIMIT) => request<Result[]>(`/api/results?limit=${limit}`),
   resultSummary: () => request<ResultSummary>("/api/results/summary"),
   scanRuns: () => request<ScanRun[]>("/api/scans"),

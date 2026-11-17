@@ -4,10 +4,23 @@ import asyncio
 from datetime import date
 from types import SimpleNamespace
 
+import pytest
+
 from backend.app.cart_assist import CartAssistant
 from backend.app.db import Store
 from backend.app.recreation import Campsite, RateLimitError
 from backend.app.scanner import Scanner
+
+
+@pytest.fixture(autouse=True)
+def scan_calendar(monkeypatch):
+    # Availability fixtures below describe July 2026, independent of the host clock.
+    class ScanDate(date):
+        @classmethod
+        def today(cls):
+            return cls(2026, 6, 17)
+
+    monkeypatch.setattr("backend.app.scanner.date", ScanDate)
 
 
 class EmptyAvailabilityClient:

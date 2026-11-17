@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import logging
+import sqlite3
 from contextlib import asynccontextmanager
 from datetime import date
 
@@ -27,6 +29,7 @@ from .schemas import (
     TargetUpdate,
     WatchCreate,
     WatchUpdate,
+    WatchBulkUpdate,
 )
 from .settings import settings
 from .sources import discover_source, import_source, list_source_definitions
@@ -64,7 +67,10 @@ def current_min_poll_interval_minutes() -> int:
 
 async def scan_loop() -> None:
     while True:
-        await scanner.scan_due_watches()
+        try:
+            await scanner.scan_due_watches()
+        except Exception:
+            logging.getLogger(__name__).exception("Background scan cycle failed; retrying next cycle")
         await asyncio.sleep(settings.scan_loop_seconds)
 
 
@@ -96,7 +102,21 @@ app.add_middleware(
 
 @app.get("/api/health")
 def health() -> dict:
-    return {"ok": True, "database": str(settings.database_path)}
+    with store.connect() as conn:
+        conn.execute("SELECT id FROM watches LIMIT 1").fetchone()
+    return {"ok": True, "database": "ready"}
+
+
+@app.exception_handler(sqlite3.OperationalError)
+async def database_error(request, exc):
+    logging.getLogger(__name__).exception("Database failure on %s", request.url.path)
+    busy = "locked" in str(exc).lower() or "busy" in str(exc).lower()
+    return JSONResponse(
+        status_code=503 if busy else 500,
+        content={"detail": "Database is busy. Try again shortly; check server logs if this persists."
+                 if busy else "Database operation failed. Check server logs and storage health."},
+        headers={"Retry-After": "5"} if busy else None,
+    )
 
 
 @app.get("/api/search")
@@ -291,6 +311,16 @@ def create_watch(payload: WatchCreate) -> dict:
     return watch
 
 
+@app.post("/api/watches/bulk")
+async def bulk_watches(payload: WatchBulkUpdate) -> dict:
+    if payload.action == "delete" and scanner.is_busy:
+        raise HTTPException(status_code=409, detail="Stop the current scan and wait for it to finish before deleting watches.")
+    count = store.bulk_update_watches(payload.watch_ids, payload.action)
+    if payload.action == "pause" and scanner.active_watch_id in payload.watch_ids:
+        scanner.cancel_current_scan()
+    return {"updated_count": count, "action": payload.action}
+
+
 @app.post("/api/watches/{watch_id}/scan")
 async def run_scan(watch_id: int) -> dict:
     try:
@@ -334,7 +364,9 @@ def cancel_scan() -> dict:
 
 
 @app.delete("/api/watches/{watch_id}")
-def delete_watch(watch_id: int) -> dict:
+async def delete_watch(watch_id: int) -> dict:
+    if scanner.is_busy:
+        raise HTTPException(status_code=409, detail="Stop the current scan before deleting watches.")
     deleted = store.delete_watch(watch_id)
     if not deleted:
         raise HTTPException(status_code=404, detail=f"watch {watch_id} not found")
@@ -455,6 +487,8 @@ if settings.static_dir.exists():
 
 @app.get("/{path:path}")
 def serve_frontend(path: str):
+    if path.startswith("api/"):
+        raise HTTPException(status_code=404, detail="API endpoint not found; check frontend/server versions.")
     index = settings.static_dir / "index.html"
     requested = settings.static_dir / path
     if requested.exists() and requested.is_file():

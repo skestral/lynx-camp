@@ -764,6 +764,8 @@ export default function App() {
   const [presets, setPresets] = useState<PresetPack[]>([]);
   const [sources, setSources] = useState<SourceDefinition[]>([]);
   const [watches, setWatches] = useState<Watch[]>([]);
+  const [selectedWatchIds, setSelectedWatchIds] = useState<number[]>([]);
+  const [watchBulkBusy, setWatchBulkBusy] = useState(false);
   const [results, setResults] = useState<Result[]>([]);
   const [resultSummary, setResultSummary] = useState<ResultSummary>({ total_count: 0, active_count: 0 });
   const [scanRuns, setScanRuns] = useState<ScanRun[]>([]);
@@ -1447,61 +1449,32 @@ export default function App() {
 
   async function refresh(options?: { silent?: boolean }) {
     if (!options?.silent) setLoadState("loading");
-    try {
-      const [
-        targetData,
-        presetData,
-        sourceData,
-        watchData,
-        resultData,
-        resultSummaryData,
-        scanRunData,
-        scanEventData,
-        scanConfigData,
-        notificationData,
-        notificationStatusData,
-        notificationConfigData,
-        cartAssistStatusData,
-        cartAttemptData
-      ] = await Promise.all([
-        api.targets(),
-        api.presets(),
-        api.sources(),
-        api.watches(),
-        api.results(),
-        api.resultSummary(),
-        api.scanRuns(),
-        api.scanEvents(),
-        api.scanConfig(),
-        api.notifications(),
-        api.notificationStatus(),
-        api.notificationConfig(),
-        api.cartAssistStatus(),
-        api.cartAttempts()
-      ]);
-      setTargets(targetData);
-      setPresets(presetData);
-      setSources(sourceData);
-      setWatches(watchData);
-      setResults(resultData);
-      setResultSummary(resultSummaryData);
-      setScanRuns(scanRunData);
-      setScanEvents(scanEventData);
-      setScanConfig(scanConfigData);
-      setNotifications(notificationData);
-      setNotificationStatus(notificationStatusData);
-      setNotificationConfig(notificationConfigData);
-      setCartAssistStatus(cartAssistStatusData);
-      setCartAttempts(cartAttemptData);
-      setLoadState("idle");
-      if (!watchTarget && targetData.length > 0) setWatchTarget(String(targetData[0].id));
-      if (!targetSettingsId && targetData.length > 0) {
-        loadTargetSettings(targetData[0]);
-      }
-    } catch (error) {
-      setLoadState("error");
-      if (!options?.silent) setMessage(error instanceof Error ? error.message : "Unable to load Camp Finder.");
-    }
+    const outcomes = await Promise.allSettled([
+      api.targets().then((data) => {
+        setTargets(data);
+        if (!watchTarget && data.length) setWatchTarget(String(data[0].id));
+        if (!targetSettingsId && data.length) loadTargetSettings(data[0]);
+      }),
+      api.presets().then(setPresets),
+      api.sources().then(setSources),
+      api.watches().then((data) => {
+        setWatches(data);
+        setSelectedWatchIds((ids) => ids.filter((id) => data.some((watch) => watch.id === id)));
+      }),
+      api.results().then(setResults),
+      api.resultSummary().then(setResultSummary),
+      api.scanRuns().then(setScanRuns),
+      api.scanEvents().then(setScanEvents),
+      api.scanConfig().then(setScanConfig),
+      api.notifications().then(setNotifications),
+      api.notificationStatus().then(setNotificationStatus),
+      api.notificationConfig().then(setNotificationConfig),
+      api.cartAssistStatus().then(setCartAssistStatus),
+      api.cartAttempts().then(setCartAttempts)
+    ]);
+    const failures = outcomes.filter((outcome): outcome is PromiseRejectedResult => outcome.status === "rejected");
+    setLoadState(failures.length ? "error" : "idle");
+    if (failures.length) setMessage(failures.map((failure) => failure.reason instanceof Error ? failure.reason.message : "Request failed").join("; "));
   }
 
   useEffect(() => {
@@ -2290,9 +2263,24 @@ export default function App() {
   }
 
   async function deleteWatch(watchId: number) {
-    setMessage("");
-    await api.deleteWatch(watchId);
-    await refresh();
+    await bulkWatchAction("delete", [watchId]);
+  }
+
+  async function bulkWatchAction(action: "pause" | "resume" | "delete", ids = selectedWatchIds) {
+    if (!ids.length || watchBulkBusy) return;
+    if (action === "delete" && !window.confirm(`Permanently delete ${ids.length} watch rule(s) and their saved results/scan history? Targets are kept. Pause instead to retain history.`)) return;
+    setWatchBulkBusy(true);
+    try {
+      const result = await api.bulkWatches(ids, action);
+      setMessage(`${result.updated_count} watch rule(s): ${action} completed.`);
+      setSelectedWatchIds([]);
+      if (action === "delete" && editingWatchId && ids.includes(editingWatchId)) resetWatchForm();
+      await refresh({ silent: true });
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Watch update failed.");
+    } finally {
+      setWatchBulkBusy(false);
+    }
   }
 
   async function updateWatchActive(watch: Watch, active: boolean) {
@@ -3082,7 +3070,7 @@ export default function App() {
         </header>
 
         {message && <div className="notice">{message}</div>}
-        {loadState === "error" && <div className="notice danger">The API is not reachable yet.</div>}
+        {loadState === "error" && <div className="notice danger">Some dashboard data could not be refreshed. Previously loaded data may be stale. {message}</div>}
         {!isLogsPage && (
           <>
             <section className="home-focus" aria-label="Trip control">
@@ -3812,12 +3800,22 @@ export default function App() {
               )}
             </form>
             <div className="watch-list">
+              <div className="map-detail-actions" aria-label="Bulk watch actions">
+                <button className="icon-button" disabled={watchBulkBusy || !watches.length} onClick={() => setSelectedWatchIds(selectedWatchIds.length === watches.length ? [] : watches.map((watch) => watch.id))} type="button"><ListChecks size={16} />{selectedWatchIds.length === watches.length && watches.length ? "Deselect All" : "Select All"}</button>
+                <button className="icon-button" disabled={watchBulkBusy || !selectedWatchIds.length} onClick={() => void bulkWatchAction("pause")} type="button"><Pause size={16} />Pause Selected</button>
+                <button className="icon-button" disabled={watchBulkBusy || !selectedWatchIds.length} onClick={() => void bulkWatchAction("resume")} type="button"><Play size={16} />Resume Selected</button>
+                <button className="icon-button danger" disabled={watchBulkBusy || !selectedWatchIds.length} onClick={() => void bulkWatchAction("delete")} type="button"><Trash2 size={16} />Delete Selected</button>
+                <button className="icon-button" disabled={watchBulkBusy || !watches.length} onClick={() => void bulkWatchAction("pause", watches.map((watch) => watch.id))} type="button"><Pause size={16} />Pause All</button>
+                <button className="icon-button danger" disabled={watchBulkBusy || !watches.length} onClick={() => void bulkWatchAction("delete", watches.map((watch) => watch.id))} type="button"><Trash2 size={16} />Clear All Watches</button>
+                <small role="status">{watchBulkBusy ? "Updating watches..." : `${selectedWatchIds.length} selected`}</small>
+              </div>
               {watches.length === 0 && <p className="empty">No watch rules yet.</p>}
               {watches.map((watch) => {
                 const watchPaused = !watch.active || !watch.target_active;
                 return (
                 <article className={`watch-row ${watchPaused ? "inactive" : ""}`} key={watch.id}>
                   <span>
+                    <input type="checkbox" aria-label={`Select watch ${watch.name} at ${watch.target_name}`} checked={selectedWatchIds.includes(watch.id)} disabled={watchBulkBusy} onChange={(event) => setSelectedWatchIds((current) => event.target.checked ? [...current, watch.id] : current.filter((id) => id !== watch.id))} />
                     <strong>{watch.name}</strong>
                     <small>
                       {watch.target_name} &middot; {watch.candidate_count} stays &middot; {filterSummary(watch.site_filters)} &middot;{" "}

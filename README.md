@@ -368,6 +368,20 @@ The Settings drawer shows which notification channels are configured and which v
 
 This project uses the same Recreation.gov availability pattern that makes OpenCamp useful: campground search plus monthly campground availability calls. Camp Finder wraps that idea in a persistent local web app with watch rules, release-window hints, dedupe, and Docker hosting.
 
+## Managing Watches in Bulk
+
+Open Watches and select the rules you want to manage. Pause Selected and Resume Selected change their scan eligibility together. Pause All stops future scans for every watch and requests cancellation of the current watch. Cancellation completes at a safe checkpoint; it does not interrupt an HTTP request already in progress.
+
+Delete Selected and Clear All Watches require confirmation. Deleting a watch also removes its saved matches and scan history, but keeps the campground target. Pause watches instead when you want to keep their results. Stop an active scan and wait for it to finish before deleting watches.
+
+## Diagnosing API Failures
+
+The dashboard refreshes sections independently, so a failed settings request no longer hides successfully loaded availability. An error identifies the endpoint and HTTP status. Previously loaded sections remain visible but may be stale. Database lock failures return HTTP 503 with a retry hint; other database failures are logged by the server. The health endpoint checks database reads, not just whether the web process is running.
+
+For repeated errors, collect `docker compose logs --since 30m --tail 200 campfinder` and check the host path mounted at `/data`. SQLite uses WAL mode to let readers continue during writes. Keep the database on a local disk, not an SMB/NFS mount or an actively cloud-synced directory. WAL does not fix damaged storage or a long-running writer.
+
+Before troubleshooting storage or upgrading, stop the container and back up the entire appdata directory, including any `-wal` and `-shm` files. Do not delete journal files to clear a lock. Restart only after checking the logs and storage location. A healthy read probe alone does not prove that scans or writes are succeeding.
+
 ## Next Useful Phases
 
 1. Add filters for equipment, max vehicle length, accessible sites, and electric/water hookups when the API exposes them consistently.

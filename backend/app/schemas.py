@@ -59,6 +59,18 @@ class SiteFilters(BaseModel):
     min_people: int | None = Field(default=None, ge=1, le=99)
 
 
+class WatchBulkUpdate(BaseModel):
+    action: Literal["pause", "resume", "delete"]
+    watch_ids: list[int] = Field(min_length=1, max_length=2000)
+
+    @field_validator("watch_ids")
+    @classmethod
+    def positive_watch_ids(cls, value: list[int]) -> list[int]:
+        if any(item <= 0 for item in value):
+            raise ValueError("watch_ids must be positive")
+        return sorted(set(value))
+
+
 class WatchCreate(BaseModel):
     target_id: int
     name: str = Field(min_length=1, max_length=120)

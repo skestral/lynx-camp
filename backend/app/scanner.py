@@ -246,6 +246,14 @@ class Scanner:
         self.api_request_delay_seconds = max(0.0, float(api_request_delay_seconds))
         self.rate_limit_backoff_minutes = max(1, int(rate_limit_backoff_minutes))
 
+    @property
+    def is_busy(self) -> bool:
+        return self._lock.locked()
+
+    @property
+    def active_watch_id(self) -> int | None:
+        return self._active_watch_id
+
     async def scan_watch(self, watch_id: int) -> dict:
         watch = self.store.get_watch(watch_id)
         if watch is None:
@@ -327,6 +335,11 @@ class Scanner:
         return interval
 
     async def _scan_watch(self, watch: dict) -> dict:
+        # A bulk pause may have changed a watch after the sweep was queued.
+        current = self.store.get_watch(watch["id"])
+        if not current or not current.get("active") or not current.get("target_active"):
+            return {"status": "skipped", "candidate_count": 0, "available_count": 0}
+        watch = current
         run_id = self.store.start_scan_run(watch)
         self._cancel_requested = False
         self._active_run_id = run_id

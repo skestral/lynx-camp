@@ -67,15 +67,21 @@ class Store:
     def connect(self) -> Iterable[sqlite3.Connection]:
         conn = sqlite3.connect(self.database_path)
         conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA foreign_keys = ON")
         try:
+            conn.execute("PRAGMA foreign_keys = ON")
             yield conn
             conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
         finally:
             conn.close()
 
     def init(self) -> None:
         with self.connect() as conn:
+            # Keep dashboard readers independent of the scanner's short writes.
+            # The database and its WAL must live on local disk, not a network share.
+            conn.execute("PRAGMA journal_mode = WAL")
             conn.executescript(
                 """
                 CREATE TABLE IF NOT EXISTS targets (
@@ -465,6 +471,28 @@ class Store:
         with self.connect() as conn:
             cursor = conn.execute("DELETE FROM watches WHERE id = ?", (watch_id,))
             return cursor.rowcount > 0
+
+    def bulk_update_watches(self, watch_ids: list[int], action: str) -> int:
+        if action not in {"pause", "resume", "delete"}:
+            raise ValueError("Unknown watch action")
+        ids = sorted(set(watch_ids))
+        if not ids:
+            return 0
+        with self.connect() as conn:
+            count = 0
+            # Chunk parameters for older SQLite builds; all chunks share one transaction.
+            for offset in range(0, len(ids), 500):
+                chunk = ids[offset:offset + 500]
+                placeholders = ",".join("?" for _ in chunk)
+                if action == "delete":
+                    cursor = conn.execute(f"DELETE FROM watches WHERE id IN ({placeholders})", chunk)
+                else:
+                    cursor = conn.execute(
+                        f"UPDATE watches SET active = ?, updated_at = ? WHERE id IN ({placeholders})",
+                        [int(action == "resume"), utc_now(), *chunk],
+                    )
+                count += cursor.rowcount
+            return count
 
     def export_config(self, include_secrets: bool = False) -> dict[str, Any]:
         target_fields = [
