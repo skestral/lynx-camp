@@ -28,7 +28,7 @@ Sources shows the saved error and earliest review time. Check and Import are dis
 
 ## Implementation and Limits
 
-- Catalog requests use `/api/resourcelocation` and `/api/resourcecategory`, require recognized Camping and Roofed category metadata, and use each location's `rootMapId`. Complete metadata is cached for 24 hours; explicit Check/Import refreshes it.
+- Catalog requests use `/api/resourceLocation` and `/api/resourcecategory`, require recognized Camping and Roofed category metadata, and use each location's `rootMapId`. Complete metadata is cached for 24 hours; explicit Check/Import refreshes it. The location endpoint's capitalization matches the observed browser request; that correction is not evidence that it caused or fixes the 403.
 - Searches use GET `/api/availability/map`, JSON-encoded `filterData`, booking category 0 or 1, and the requested arrival/departure. Camping uses the upstream tent-equipment default; Roofed omits camping equipment. This does not prove suitability for every RV size or party.
 - Each map is requested with full-stay and daily availability. A candidate must be open in the full-stay result and on every occupied night. Child maps are traversed completely with cycle, duplicate, and size checks. Incomplete or conflicting records raise an error.
 - Site names fall back to provider IDs; capacity, facilities, eligibility restrictions, and specific roofed type remain unknown. Party size is one in the upstream query. Booking links carry category, park, leaf map, arrival, departure, and nights, but current provider date-prefill behavior has not been verified.
@@ -38,6 +38,39 @@ Sources shows the saved error and earliest review time. Check and Import are dis
 [Camply PR 391](https://github.com/juftin/camply/pull/391) and [PR 398](https://github.com/juftin/camply/pull/398) describe newer `rootMapId`, removed-detail-endpoint, and filter serialization changes. They inform this adapter; their authors' live checks are not Camp Finder verification. [GoCamp attribution](../third_party/gocamp/NOTICE.md) and its MIT license are included in the repository and Docker image.
 
 [Desktop source status](screenshots/washington-source.png) | [Mobile source status](screenshots/washington-source-mobile.png)
+
+## Request Diagnostics
+
+Open **Logs > Provider Diagnostics**, or select the log icon beside Washington State Parks in Sources. The latest 30 HTTP attempts are stored in appdata, newest first, and survive container restarts. There is no new service, environment variable, database replacement, or browser-console requirement. Existing databases use the app-settings table they already have.
+
+Each expandable row includes the endpoint, allowlisted search parameters, status, elapsed time, response size/type, known server family, and coarse body classifications such as `access_denied` or `human_verification`. Header-presence flags include Via, X-Cache, X-Azure-Ref, Set-Cookie, and WWW-Authenticate. Proxy, proxy-exclusion, and custom-CA settings are recorded only as booleans. A configured proxy is not proof that a particular request used it; a classification is a clue, not a definitive diagnosis.
+
+The report never retains raw response bodies, cookies, authorization headers, redirect URLs, proxy addresses, exception messages, cart/booking identifiers, or arbitrary query parameters. Request IDs are limited to named correlation headers and constrained hexadecimal/UUID formats. Search dates and public resource IDs remain in the report, so review it before sharing. Runtime diagnostics are excluded from Settings configuration exports; a full appdata backup still contains them.
+
+**Refresh** reads saved evidence. **Download** fetches the latest saved report and downloads JSON. Neither makes a provider request, clears a cooldown, or resumes a stopped source. While Logs is open, the saved report refreshes every 30 seconds when the tab is visible. A refresh error leaves the previous report visible with a stale-data warning.
+
+Requests made before this feature was installed cannot be reconstructed. A saved access stop with an empty history is expected after an upgrade. Do not reset that stop simply to populate the log. After the access issue is reviewed and the cooldown has elapsed, pause Washington watches before an intentional manual Check if you need a single controlled attempt. New 401/403 responses still stop requests; diagnostics failures cannot disable that protection.
+
+### Browser Comparison, November 17, 2026
+
+A normal, unsigned-in Edge session was inspected through its Network panel. No account cookies, HAR, browser profile, or reservation data were exported, and no Reserve action was taken.
+
+| Observation | What it establishes |
+| --- | --- |
+| GET `/api/resourceLocation` returned network HTTP 200 with `application/json; charset=utf-8`. Both the page's service-worker response and the underlying fetch were inspected. | The public catalog endpoint exists and worked in that browser session; this was not only a cached page rendering. |
+| A Camping search at Alta Lake for November 28-29 returned network HTTP 200 JSON from `/api/availability/map`. | The availability endpoint is still in use. The preview contained `mapAvailabilities`, `mapLinkAvailabilities`, and `resourceAvailabilities`; this root map had no individual resource results. It does not establish bookable matches. |
+| The browser response included X-Azure-Ref, X-Cache, and Set-Cookie. The request carried cookies. | The browser has session/edge context that the native client does not copy. Header presence does not establish which component denied the native request. |
+| The browser supplied sub-equipment, structured party-capacity counts, filters, and transient cart/booking parameters in addition to dates and category. | The experimental client's simpler query still needs full contract validation. Transient session identifiers are not copied into the connector. |
+
+The earlier native catalog attempt returned 403, before detailed diagnostics were installed. Its headers and body were not retained, so the rejection cannot yet be attributed to the origin API, an edge policy, a proxy, authentication, or endpoint capitalization. The existing Docker access stop was preserved during this comparison. Changing the endpoint spelling to match the browser is a contract correction, not an access workaround or a verified fix.
+
+Compare the next permitted native report with the browser's status, content type, header-presence flags, and safe search fields. A denial on catalog discovery happens before date/equipment filtering, so changing availability parameters alone does not explain that denial. Provider access guidance may still be necessary. Do not copy challenge cookies, impersonate browser identities, disable TLS checks, or rotate network routes.
+
+The screenshots below use a synthetic denial in the isolated documentation demo, not a captured provider response.
+
+![Expanded HTTP diagnostics in Logs](screenshots/washington-diagnostics.jpg)
+
+[Mobile diagnostics](screenshots/washington-diagnostics-mobile.jpg)
 
 ## Optional Browser Diagnostics
 

@@ -103,3 +103,10 @@ Regional membership was initially a creation-time snapshot. The opt-in coverage 
 - Reviewed the real Sources drawer at 1440 x 1100 and 390 x 844 using the read-only demo. Both layouts fit without horizontal overflow; Check, Import, and Reset correctly used disabled controls and a not-allowed cursor during the simulated cooldown. No application console errors were observed.
 - Added desktop/mobile screenshots with an explicitly labeled simulated access failure. Documentation explains unsupported metadata filters, date-link verification limits, and the distinction between implemented integration and permitted live access. Production was not redeployed.
 - Backend suite: 275 tests passed, with one existing Starlette/AnyIO deprecation warning. Frontend production build passed. These checks establish local integration behavior, not live Washington availability.
+
+### Washington HTTP Diagnostics (2026-11-17)
+
+- Added an expandable Provider Diagnostics section to Logs and a shortcut from Washington Sources. Refresh and JSON download read saved evidence only; they do not send provider requests or clear access stops.
+- Verified the expanded layout at 1440 x 1000 and 390 x 844, the source shortcut, refresh, and downloaded JSON. The mobile document had no horizontal overflow. Screenshots use a labeled synthetic denial from `scripts/docs_demo.py --washington-access-stop`.
+- Backend suite: 292 tests passed, with the existing Starlette/AnyIO deprecation warning. Frontend production build passed. Tests cover redaction, retention, restart persistence, read-only access, and denial handling when diagnostics fail.
+- A normal Edge catalog and Camping availability request returned HTTP 200 JSON. No cookies were exported or replayed, no booking action was submitted, and the existing Docker denial stop was preserved. The original 403's origin and native full-stay compatibility remain unverified.

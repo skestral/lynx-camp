@@ -15,6 +15,7 @@ import httpx
 
 from .activenet import RequestGate
 from .provider_errors import ProviderResponseError
+from .provider_diagnostics import capture_diagnostic
 from .provider_ids import campground_url, goingtocamp_identity
 from .recreation import Campsite, RateLimitError, _retry_after_seconds
 
@@ -197,18 +198,24 @@ class GoingToCampClient:
             await self._save_state({"state": "unverified"})
 
     async def _request(self, path: str, params: dict | None = None, before_request: RequestGate | None = None):
-        if path not in {"/resourcelocation", "/resourcecategory", "/availability/map"}:
+        if path not in {"/resourceLocation", "/resourcecategory", "/availability/map"}:
             raise ValueError("Unsupported Washington API operation")
         async with self._request_lock:
             await self._check_state()
             await asyncio.sleep(max(0, self.request_spacing_seconds - (time.monotonic() - self._last_request)))
             if before_request:
                 await before_request("Checking Washington stay" if path == "/availability/map" else "Loading Washington catalog")
+            started = time.monotonic()
+
+            async def record(outcome, response=None, error=None):
+                await asyncio.to_thread(capture_diagnostic, self.store, path, params, time.monotonic() - started,
+                                        outcome=outcome, response=response, error=error)
             try:
                 async with httpx.AsyncClient(timeout=20, transport=self.transport, follow_redirects=False,
                                              headers={"User-Agent": "CampFinder/1.0 (availability monitor)", "Accept": "application/json"}) as client:
                     response = await client.get(BASE_URL + path, params=params)
             except httpx.RequestError as exc:
+                await record("transport_error", error=exc)
                 raise unknown("API could not be reached") from exc
             finally:
                 self._last_request = time.monotonic()
@@ -218,21 +225,28 @@ class GoingToCampClient:
                 await self._save_state({"state": "rate_limited", "checked_at": now.isoformat(),
                                         "retry_at": (now + timedelta(seconds=delay)).isoformat(),
                                         "message": "API rate limit; waiting for provider cooldown."})
+                await record("rate_limited", response)
                 raise RateLimitError(delay, "Washington State Parks")
             if (response.status_code in {401, 403} or 300 <= response.status_code < 400
                     or response.status_code == 200 and "json" not in response.headers.get("content-type", "")):
                 await self._save_state({"state": "access_denied", "checked_at": now.isoformat(),
                                         "retry_at": (now + timedelta(hours=1)).isoformat(),
                                         "message": f"API access stopped (HTTP {response.status_code}); manual review required."})
+                await record("access_denied", response)
                 raise unknown(f"API access stopped (HTTP {response.status_code}); no automatic retry or browser fallback")
             if response.status_code != 200:
+                await record("http_error", response)
                 raise unknown(f"API returned HTTP {response.status_code}")
+            if len(response.content) > 8_000_000:
+                await record("response_too_large", response)
+                raise unknown("API response exceeded the size limit")
             try:
-                if len(response.content) > 8_000_000:
-                    raise ValueError("Response too large")
-                return response.json()
+                payload = response.json()
             except ValueError as exc:
+                await record("invalid_json", response)
                 raise unknown("API returned invalid JSON") from exc
+            await record("json_response", response)
+            return payload
 
     async def catalog(self, before_request: RequestGate | None = None, *, refresh=False):
         async with self._catalog_lock:
@@ -240,7 +254,7 @@ class GoingToCampClient:
                 await self._check_state()
                 if not refresh and self._catalog is not None and time.monotonic() - self._catalog_at < 86400:
                     return self._catalog
-            locations = await self._request("/resourcelocation", before_request=before_request)
+            locations = await self._request("/resourceLocation", before_request=before_request)
             categories = await self._request("/resourcecategory", before_request=before_request)
             catalog = parse_catalog(locations, categories)
             async with self._request_lock:

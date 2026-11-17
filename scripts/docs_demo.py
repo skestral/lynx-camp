@@ -45,6 +45,11 @@ def run(port: int, washington_access_stop: bool = False) -> None:
                 "retry_at": (datetime.now(UTC) + timedelta(minutes=45)).isoformat(),
                 "message": "Demo: API access stopped (HTTP 403); manual review required.",
             })})
+            from backend.app.provider_diagnostics import diagnostic_record, save_diagnostic
+            import httpx
+            save_diagnostic(main.store, diagnostic_record("/resourceLocation", None, 0.248,
+                outcome="access_denied", response=httpx.Response(403,
+                    text="Synthetic example: access denied", headers={"Content-Type": "text/html"})))
         targets = [main.store.create_target({
             "name": name, "park_name": park, "campground_id": f"demo-{index}",
             "state_code": "WA", "latitude": lat, "longitude": lon,

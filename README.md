@@ -118,6 +118,8 @@ credentials, a browser console, or another service. The optional
 
 Sources labeled **Live monitoring** or **Experimental API** have Check and Import actions. Check discovers campgrounds from that provider; Import creates or updates targets by provider-qualified ID. Experimental does not mean verified live coverage. Washington access denials persist across restarts, disable Check/Import, and require review before resetting in Sources. **Not connected** and **Directory only** entries cannot be imported into the scanner. An official listing or an open park does not establish nightly campsite availability.
 
+For Washington API failures, open **Logs > Provider Diagnostics**, or use the log icon beside the source. Expand a request to inspect its HTTP status, timing, response classification, and proxy/header-presence flags. The download button exports the latest redacted report without contacting the provider. Cookies, authorization values, raw bodies, and proxy addresses are never included. See [diagnosing denied requests](docs/washington-state-parks.md#request-diagnostics) for the comparison procedure and current findings.
+
 ### Snohomish County Setup
 
 1. Open Targets > Sources > County and regional parks.

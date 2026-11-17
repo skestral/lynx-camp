@@ -35,6 +35,7 @@ import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { RESULTS_LIMIT, api } from "./api";
 import { WatchGroup } from "./WatchGroup";
 import { SavedTargets } from "./SavedTargets";
+import { ProviderDiagnostics } from "./ProviderDiagnostics";
 import type {
   CrawlStatus,
   CartAssistStatus,
@@ -3644,6 +3645,11 @@ export default function App() {
                               <RotateCcw size={17} />
                             </button>
                           )}
+                          {source.id === "washington-state-parks" && (
+                            <a className="icon-only quiet" href="#logs" onClick={() => setDrawerOpen(false)} title="View Washington API diagnostics" aria-label="View Washington API diagnostics">
+                              <ListChecks size={16} />
+                            </a>
+                          )}
                           <a className="icon-only quiet" href={source.official_url} target="_blank" rel="noreferrer" title={`Open ${source.provider} source`}>
                             <ExternalLink size={16} />
                           </a>
@@ -4374,6 +4380,7 @@ export default function App() {
               </div>
             </section>
 
+            <ProviderDiagnostics />
             <div className="logs-layout">
               <section className="panel log-stream-panel">
                 <div className="panel-heading">

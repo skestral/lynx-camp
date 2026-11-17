@@ -13,3 +13,4 @@ artifacts
 .git
 .github
 *.log
+*.har

@@ -14,5 +14,6 @@ appdata/config/*
 .env
 .DS_Store
 *.log
+*.har
 .playwright-cli/
 output/playwright/

@@ -15,6 +15,7 @@ import type {
   PresetDiscoveryResult,
   PresetPack,
   PresetSourceImportResult,
+  ProviderDiagnostics,
   ReleaseWindowProfileResult,
   Result,
   ResultSummary,
@@ -64,6 +65,7 @@ export const api = {
   targets: () => request<Target[]>("/api/targets"),
   presets: () => request<PresetPack[]>("/api/presets"),
   sources: () => request<SourceDefinition[]>("/api/sources"),
+  sourceDiagnostics: () => request<ProviderDiagnostics>("/api/sources/washington-state-parks/diagnostics"),
   watches: () => request<Watch[]>("/api/watches"),
   createWatchGroup: (target_ids: number[], watch: Record<string, unknown>, region_scope: RegionScope | null = null) =>
     request<Watch[]>("/api/watch-groups", { method: "POST", body: JSON.stringify({ target_ids, watch, region_scope }) }),

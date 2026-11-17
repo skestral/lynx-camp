@@ -55,7 +55,7 @@ class Provider:
         assert "cookie" not in request.headers and "authorization" not in request.headers
         if self.code != 200:
             return httpx.Response(self.code, headers={"Retry-After": self.retry_after}, text="Not available")
-        if request.url.path == "/api/resourcelocation":
+        if request.url.path == "/api/resourceLocation":
             payload = deepcopy(LOCATIONS)
         elif request.url.path == "/api/resourcecategory":
             payload = deepcopy(CATEGORIES)

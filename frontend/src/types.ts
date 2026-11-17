@@ -493,6 +493,48 @@ export type SourceDiscoveryResult = {
   targets: PresetTarget[];
 };
 
+export type ProviderDiagnosticRecord = {
+  id: string;
+  recorded_at: string;
+  endpoint: string;
+  method: string;
+  query: Record<string, string>;
+  status: number | null;
+  outcome: string;
+  elapsed_ms: number;
+  response_bytes: number;
+  content_type: string;
+  server_family: string;
+  markers: string[];
+  request_ids: Record<string, string>;
+  via_present: boolean;
+  cache_header_present: boolean;
+  azure_edge_header_present: boolean;
+  set_cookie_present: boolean;
+  authenticate_header_present: boolean;
+  redirect: string;
+  transport_error: string | null;
+  proxy_configured: boolean;
+  no_proxy_configured: boolean;
+  custom_ca_configured: boolean;
+};
+
+export type ProviderDiagnostics = {
+  source_id: string;
+  provider: string;
+  history_limit: number;
+  connection: NonNullable<SourceDefinition["connection"]>;
+  records: ProviderDiagnosticRecord[];
+  client: {
+    method: string;
+    host: string;
+    user_agent: string;
+    accept: string;
+    browser_required: boolean;
+    automatic_redirects: boolean;
+  };
+};
+
 export type SourceImportResult = {
   source_id: string;
   source_name: string;

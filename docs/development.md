@@ -43,6 +43,7 @@ Active watches start background work as soon as the server starts. Use the read-
 | `backend/app/main.py` | FastAPI routes, application lifecycle, background scheduler |
 | `backend/app/scanner.py` | Stay windows, queued campground checks, pacing, cancellation, cooldowns, ETA |
 | `backend/app/recreation.py` | Recreation.gov client and HTTP 429/Retry-After handling |
+| `backend/app/provider_diagnostics.py`, `frontend/src/ProviderDiagnostics.tsx` | Allowlisted Washington HTTP evidence, bounded retention, Logs viewer and download |
 | `backend/app/providers.py`, `provider_ids.py`, `camava.py`, `activenet.py`, `cedar.py` | Provider routing, namespaced IDs, and county search clients |
 | `backend/app/db.py` | SQLite schema, transactions, watch groups, results, logs, saved settings |
 | `backend/app/notifications.py` | Channel configuration, alert formatting, tests, delivery records |
@@ -89,6 +90,7 @@ Watch deletion uses `Scanner.delete_watches` for both the bulk and individual en
 | `POST /api/watches/{id}/scan` | Checks one watch; returns 409 if a background crawl is pending or active |
 | `GET /api/scans` | Recent persisted campground scan runs |
 | `GET /api/scans/events` | Recent diagnostic checkpoints |
+| `GET /api/sources/washington-state-parks/diagnostics` | Saved redacted HTTP history and connection state; never contacts a provider |
 | `GET /api/notifications/status` | Whether channels are configured; not proof of delivery |
 | `POST /api/notifications/test` | Sends a real test to every configured channel; use deliberately |
 
@@ -117,6 +119,10 @@ Washington target IDs are `gtc:wa:<location-id>:<booking-category>`, where 0 is 
 The client serializes catalog and stay requests with a five-second floor, plus the scanner's configured request gate. It caches complete catalogs for 24 hours. HTTP 429 honors the longer of Retry-After and one hour; 401/403, redirects, and HTML responses set a manual access stop. The `goingtocamp_connection` app setting persists this state but is excluded from configuration exports. Resetting a stop cannot shorten the cooldown and does not itself contact the provider. Sources shows the saved state; scan failures also appear in Logs. No browser worker, login, hold, or payment endpoint is involved. Include `third_party/gocamp` in distributed images for attribution.
 
 `test_goingtocamp.py` uses synthetic HTTP responses and isolated databases to cover both accommodation categories, full and partial stays, nested maps, malformed payloads, identity validation, cancellation, persisted access stops, provider-specific cooldown, imports into regional watches, notification deduplication, and backup round trips. It does not contact Washington or send real notifications. The removed details endpoint is not called; specific accommodation types, loop, and capacity filters report an unsupported-filter error instead of silently returning no matches.
+
+`provider_diagnostics.py` captures one allowlisted record per actual Washington HTTP attempt, under the existing request lock. Capture and persistence run in a worker thread and cannot mask provider errors or stop-state persistence. The `goingtocamp_diagnostics` app setting holds a newest-first ring of 30 records; it is excluded from portable configuration exports. Reads validate records again and discard malformed entries or unrecognized fields. Do not replace this with raw headers, response bodies, exception strings, HAR files, or browser-session storage. `test_provider_diagnostics.py` covers secret-bearing input, corrupted history, restart retention, transport errors, bounded size, access stops, and the read-only API.
+
+The normal Edge catalog and one Camping map request returned HTTP 200 JSON during the [November 17 comparison](washington-state-parks.md#browser-comparison-november-17-2026). The native 403's origin remains unverified. Keep this distinction in release notes: a working interactive browser is not proof of Docker access or correct full-stay results.
 
 Skagit County uses Cedar's public GraphQL calendar. `cedar.py` sends query operations only to a fixed endpoint with an allowlisted organization and campground. The requested fields deliberately omit customer bookings and hold details. Each page also validates the campground's current public/unarchived catalog record. Pagination requires stable totals and rules, unique venue/portion identities, and a complete final page. Missing pages, GraphQL errors, unknown rule units, contradictory date flags, or foreign IDs are errors, never empty availability.
 

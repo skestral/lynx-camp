@@ -19,6 +19,8 @@ from .recreation import RateLimitError
 from .providers import CampgroundClient
 from .provider_ids import provider_key, provider_name
 from .provider_errors import ProviderResponseError
+from .provider_diagnostics import HISTORY_LIMIT, read_diagnostics
+from .goingtocamp import connection_state
 from .scan_config import reset_scan_config, scan_config, update_scan_config
 from .scanner import Scanner, generate_trip_windows, release_hints
 from .schemas import (
@@ -309,6 +311,16 @@ async def reset_source_access(source_id: str) -> dict:
         raise HTTPException(status_code=400, detail="This source has no manual access stop.")
     await client.washington.reset_access_stop()
     return {"reset": True}
+
+
+@app.get("/api/sources/{source_id}/diagnostics")
+def source_diagnostics(source_id: str) -> dict:
+    if source_id != "washington-state-parks":
+        raise HTTPException(status_code=404, detail="No HTTP diagnostics are available for this source.")
+    return {"source_id": source_id, "provider": "Washington State Parks", "history_limit": HISTORY_LIMIT,
+            "connection": connection_state(store), "records": read_diagnostics(store),
+            "client": {"method": "GET", "host": "washington.goingtocamp.com", "user_agent": "CampFinder/1.0 (availability monitor)",
+                       "accept": "application/json", "browser_required": False, "automatic_redirects": False}}
 
 
 @app.get("/api/config/export")
