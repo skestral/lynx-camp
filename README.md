@@ -6,21 +6,21 @@ The app is still notification-first. It opens Recreation.gov booking links when 
 
 ## Screenshots
 
-Dashboard overview:
+Current dashboard with grouped availability and a crawl waiting through a provider cooldown. These screenshots use synthetic data; the sites, progress, and delivery records are examples, not live availability.
 
-![Camp Finder availability monitor dashboard](docs/screenshots/dashboard-overview.png)
+![Dashboard showing pending crawl checks, estimated time, and grouped campsite matches](docs/screenshots/dashboard-overview.png)
 
-Campground map details:
+[Mobile crawl status](docs/screenshots/crawl-mobile.png) | [Regional watches](docs/screenshots/regional-watch-demo.png) | [Notification settings](docs/screenshots/notification-settings.png) | [Scan controls](docs/screenshots/scan-controls.png) | [Logs](docs/screenshots/crawl-logs.png)
 
-![Camp Finder map with a selected campground detail panel](docs/screenshots/map-campground-detail.png)
+## Quick Links
 
-Region watch setup:
-
-![Camp Finder watch drawer set to current map view scope](docs/screenshots/region-watch-drawer.png)
-
-Park region selection:
-
-![Camp Finder map with selected park region groups](docs/screenshots/park-region-selection.png)
+- [Install on a server](#server-install)
+- [First-run setup](#first-run-setup)
+- [Continuous crawling and rate limits](#scanning)
+- [Discord and other notifications](#notification-setup)
+- [Backups](#configuration-backups) and [upgrades](#upgrading)
+- [Troubleshooting](#diagnosing-api-failures)
+- [Developer guide](docs/development.md)
 
 ## What It Does
 
@@ -35,18 +35,18 @@ Park region selection:
 - Create exact arrival/departure date watches.
 - Edit watch names, targets, dates, day patterns, stay length, and site filters after creation.
 - Filter watch matches by campsite type, loop text, site text, and minimum people capacity.
-- Poll availability on a configurable interval, with a default minimum of 10 minutes.
-- Reuse fresh Recreation.gov month responses across watches and back off automatically after HTTP 429 rate limits.
+- Continuously crawl due watches with a default 60-minute minimum between repeat checks and five-second spacing between uncached availability requests.
+- Reuse fresh monthly responses, increase pacing after HTTP 429, and resume pending checks after the provider cooldown.
 - Temporarily increase scan cadence around calculated release times.
-- Run every active watch on demand with the Scan All control.
-- See the latest scan state at the top of the dashboard, including manual scans and background scans that are still running.
+- Queue every active watch with Start crawl and leave the server working after the browser closes.
+- See completed, pending, failed, and skipped checks, the next retry time, and an estimated time remaining.
 - Open the Activity drawer for scan run history, recent checkpoint events, and a manual Stop Scan control.
 - Open the Logs page for a deeper diagnostic view of scan events, durable runs, and notification delivery.
 - Revalidate previously available matches on each successful scan and remove matches that Recreation.gov no longer returns.
 - Review recent scan activity, including candidate counts, matches, status, and messages.
 - Calculate likely release windows from a target-specific booking window, release time, and timezone.
 - Store availability matches once so notifications are deduped.
-- Send one bulk notification per scan when multiple new site/date matches appear.
+- Send a batch of new matches after each campground check, including partial discoveries before a rate limit.
 - Mark selected watches as high priority with Cart Assist, then record one guarded assist attempt when a new match appears.
 - Show Cart Assist server readiness and recent attempt history without exposing Recreation.gov credentials in the browser.
 - Configure server-level Cart Assist from the dashboard or from Docker environment variables.
@@ -63,18 +63,12 @@ Park region selection:
 
 The dashboard is organized around the work that usually matters first:
 
-1. Trip Control shows the current priority state, scan status, next release hint, and source coverage before the map and results.
-2. The sidebar opens slide-out drawers for Alerts, Activity, Targets, Watches, and Settings. These tools stay available without stretching the main dashboard.
-3. Scan state and summary counts show whether Camp Finder is idle, scanning, or showing the last completed scan.
-4. The map uses Leaflet with OpenStreetMap tiles to show saved targets plus preset park/campground options. Selecting a marker or park region opens a detail panel with the campground overview, result counts, Recreation.gov details link, and watch actions. View Results jumps straight from the map to the working list, Watch View creates a rule across active imported targets inside the current map bounds, and Park Queue checkboxes can build a watch from selected park groups.
-5. Availability Results stay in the main working area so new matches are not buried below target and watch configuration.
-6. The Alerts drawer gives quick access to active matches, recent notification delivery, View Results, and Clear All.
-7. The Activity drawer shows the active scanner state, recent scan runs, recent checkpoint events, a Logs link, refresh, and Stop Scan.
-8. Target and watch setup live in the same slide-out drawer system. Use the Targets and Watches buttons in the header or sidebar to open them. The Targets drawer starts with campground search, then the source catalog, then static preset fallbacks.
-9. Result filters let you switch between active, all, available, opened, booked, and dismissed results.
-10. Result search matches park name, campground, site, loop, campsite type, watch name, and stay dates.
-11. Sort controls support newest first, arrival date, and park/campground grouping.
-12. Select Visible lets you bulk dismiss, mark booked, or reopen the results currently in view.
+1. Check the crawl banner and summary counts. Waiting means a provider cooldown is active, not that all campgrounds have been checked. Pause crawl retains pending work; Resume crawl continues it.
+2. Review Availability Results above the map. Expand park, campground, and stay-date groups, or use search and the status/sort controls. Select Visible supports bulk actions; the X beside a group dismisses its active matches after confirmation.
+3. Open Watches to manage regional listings and their member campgrounds. Targets, Watches, Alerts, Activity, and Settings are slide-out drawers, not separate dashboard sections.
+4. Use the Washington-centered map and Park Queue to inspect campgrounds or build a regional watch. Watch View selects active imported targets within the current map bounds; park checkboxes build a selected group set.
+5. Use Activity for recent scan checkpoints and Logs for detailed runs and notification delivery. Dashboard in the sidebar returns home from Logs.
+6. Trip Control and the full-width release planner remain below the primary results area for planning the next trip.
 
 In normal use, you add or import targets, create watch rules, then spend most of your time in the map, scan status, and results sections. Alerts, Activity, Targets, Watches, and Settings are slide-out drawers so the working area stays shorter. Release hints remain in a full-width planner below Availability Results, and the Logs link opens a dedicated diagnostics page when you need more detail than the Activity drawer shows.
 
@@ -96,7 +90,7 @@ The target drawer has three ways to use each preset:
 
 The source check is intentionally visible instead of automatic. It pages through Recreation.gov campground search for each park, keeps only exact parent-park matches, and verifies bundled campground IDs that the broad search misses. It shows how many campgrounds Recreation.gov returned, how many are new compared with the bundled list, and how many bundled targets were not returned by the current source search. That keeps the app useful when the network or upstream API is unavailable while still letting the campground lists drift with Recreation.gov over time.
 
-Paused targets are skipped by background scans and Scan All. Paused watch rules are kept in the dashboard but are also skipped until resumed.
+Paused targets and watch rules are skipped by the background crawl and manual full passes. Their configuration is retained until resumed or deleted.
 
 ## Source Catalog
 
@@ -111,7 +105,7 @@ Ready sources have Check and Import actions. Check runs the live Recreation.gov 
 
 ## Map and Region Watches
 
-The map is both a navigation tool and a watch builder. Click a park marker or its bounding box to see a park summary, quick campground list, result counts, and a Watch Park button. Click a campground marker to load its Recreation.gov campground details, including description text, activities, amenities, active notices, a Recreation.gov details link, a Google Maps directions link, and a campground image when Recreation.gov returns one. Some Recreation.gov campground records do not include media, so the UI shows a simple placeholder instead of guessing with stock imagery. If Recreation.gov does not return a detail record or rate-limits that lookup, Camp Finder falls back to the saved target record instead of blocking the map panel.
+The map is both a navigation tool and a watch builder. Click a park marker or its footprint polygon to see a park summary, quick campground list, result counts, and a Watch Park button. Click a campground marker to load its Recreation.gov campground details, including description text, activities, amenities, active notices, a Recreation.gov details link, a Google Maps directions link, and a campground image when Recreation.gov returns one. Some Recreation.gov campground records do not include media, so the UI shows a simple placeholder instead of guessing with stock imagery. If Recreation.gov does not return a detail record or rate-limits that lookup, Camp Finder falls back to the saved target record instead of blocking the map panel.
 
 Park regions are approximated from the visible campground coordinates in each park group. Camp Finder draws a convex campground footprint for groups with three or more distinct campground points, a corridor for two-point groups, and a small local footprint for one-point groups. Hovering a park row, park footprint, campground row, or campground marker highlights the matching item on the other side of the map/list pair. The Park Queue checkbox highlights that group's map footprint and adds it to the selected group set. Use Watch Selected to open the watch form with the Selected park groups scope and create one regional watch.
 
@@ -147,6 +141,10 @@ Watch filters are optional. If left blank, Camp Finder reports every campsite th
 - Site text: case-insensitive contains match against site label.
 - Minimum people: excludes known sites with lower max occupancy.
 
+Leave Site type blank to include cabins as well as tent, RV, and other site types returned by Recreation.gov. Enter `cabin` for a cabin-only watch or `tent` for tent-only results. Cabins must belong to an imported, active campground/facility covered by the watch; this does not search every lodging provider or hotel. A type filter is one substring, not a comma-separated list.
+
+For a Friday-and-Saturday stay, select Friday as the arrival day and set two nights (Sunday checkout). Selecting both Friday and Saturday creates alternate starts, not a requirement to stay both nights.
+
 ## Cart Assist Boundaries
 
 Recreation.gov says booking windows are set by individual facilities and lists booking-window details under each facility's Seasons & Booking tab. It also describes active bot mitigation and notes that Add to Cart holds a campsite for a limited checkout window. For that reason, Camp Finder keeps Cart Assist conservative:
@@ -165,11 +163,11 @@ The next safe step is a separate browser worker that can use one persistent Recr
 
 Camp Finder is meant to run as one Docker service on a trusted local network or private VPN. The container serves the React frontend, FastAPI backend, background scanner, SQLite database, and static assets from the same port.
 
-Use [compose.yaml](/compose.yaml) on a remote server when you want to pull the published image from GitHub Container Registry. Use [docker-compose.yml](/docker-compose.yml) when you are developing locally and want Docker to build from this checkout.
+Use [compose.yaml](compose.yaml) on a remote server when you want to pull the published image from GitHub Container Registry. Use [docker-compose.yml](docker-compose.yml) when you are developing locally and want Docker to build from this checkout. Always specify `-f` when both files are present so the deployment uses the intended database mount and image.
 
 ### Server Install
 
-Every push to `main` publishes `ghcr.io/skestral/lynx-camp:main`. On the server, put the compose file and appdata folder in the directory where you want Camp Finder to live:
+Successful Docker workflow runs for pushes to `main` publish `ghcr.io/skestral/lynx-camp:main`. On the server, put the compose file and appdata folder in the directory where you want Camp Finder to live:
 
 ```bash
 mkdir -p appdata/config
@@ -177,11 +175,13 @@ curl -fsSLO https://raw.githubusercontent.com/skestral/lynx-camp/main/compose.ya
 curl -fsSLo appdata/config/.env.example https://raw.githubusercontent.com/skestral/lynx-camp/main/appdata/config/.env.example
 cp appdata/config/.env.example appdata/config/.env
 nano appdata/config/.env
-docker compose pull
-docker compose up -d
+docker compose -f compose.yaml pull
+docker compose -f compose.yaml up -d
 ```
 
 Open `http://<server-ip>:8080` from a device on the same network. Do not expose the web UI directly to the public internet; the app does not include login protection yet.
+
+Set `CAMPFINDER_APP_BASE_URL` in `appdata/config/.env` to the address you use from other devices, such as `http://<server-ip>:8080`, so alert links return to the right server. The Docker host must stay running; your browser and personal computer do not need to remain connected.
 
 If GitHub Container Registry requires authentication on the server, run:
 
@@ -203,16 +203,16 @@ Then open `http://localhost:8080`. Local source builds use the named Docker volu
 
 1. Open the Targets drawer and import a preset pack or run a live source import.
 2. Open the map, inspect target coverage, and import any preset-only campgrounds you want to scan.
-3. Open the Watches drawer and create a watch for one campground, a park group, selected park groups, a state, or the current map view.
-4. Open Settings and confirm scan cadence, request delay, rate-limit backoff, and notification channels.
-5. Send a test notification before relying on unattended scans.
-6. Use Download in Settings to save a backup once targets, watches, and settings look right.
+3. Open Settings and confirm scan controls and notification channels. Save the notification settings, then use Test to confirm delivery before relying on unattended scans.
+4. Open Watches and create a watch for one campground, a park group, selected park groups, a state, or the current map view. Use Friday arrival and two nights for a Friday/Saturday trip. Leave Site type blank to include cabins and tent sites.
+5. Active watches are picked up automatically. Start crawl queues a manual full pass; a provider cooldown still takes precedence. You can close the page and check the crawl status later.
+6. Use Download in Settings to save a configuration backup once targets, watches, and settings look right. Also back up appdata if you need results and history.
 
 ### Runtime Data
 
 Keep `appdata/config/.env` on the server only. It is where file-managed notification secrets, SMTP credentials, ntfy tokens, and optional Recreation.gov credentials belong. Dashboard-saved settings are stored in SQLite at `appdata/campfinder.db` and override `.env` defaults.
 
-Protect `appdata` the same way you would protect a `.env` file. This app does not encrypt dashboard-saved Recreation.gov credentials at rest yet; the current tradeoff is simple remote-server setup over secret-manager complexity. For now, those values make the server status read as ready and allow guarded attempt records for high-priority watches; they are not used to complete checkout.
+Protect `appdata` the same way you would protect a `.env` file. Dashboard-saved secrets, including webhook URLs and Recreation.gov credentials, are not encrypted at rest. Recreation.gov credentials currently make the server status read as ready and allow guarded attempt records for high-priority watches; they are not used to complete checkout.
 
 If you prefer file-managed Cart Assist defaults, set these in `appdata/config/.env`:
 
@@ -228,26 +228,27 @@ You can also configure Cart Assist from the dashboard. The dashboard only shows 
 
 ### Development
 
-Backend:
+See the [developer guide](docs/development.md) for virtual-environment setup, frontend development, tests, the scan API, and safe screenshot capture. Use a separate local database for development; do not point a second app worker at production appdata.
 
-```powershell
-python -m pip install -r backend/requirements.txt
-python -m uvicorn backend.app.main:app --host 0.0.0.0 --port 8080
+### Upgrading
+
+Wait for the Docker publish workflow to succeed before pulling the new image. From the server directory, stop the container and back up the complete appdata directory, then update:
+
+```bash
+docker compose -f compose.yaml stop campfinder
+tar -czf "campfinder-appdata-$(date +%Y%m%d-%H%M%S).tgz" appdata
+docker compose -f compose.yaml pull campfinder
+docker compose -f compose.yaml up -d campfinder
+docker compose -f compose.yaml logs --since 5m --tail 100 campfinder
 ```
 
-Frontend:
+Keep that backup private because it contains settings and secrets. For a source build, use `docker compose -f docker-compose.yml up -d --build` after backing up its named volume; it does not use the server's `./appdata` bind mount. Editing a checkout or pulling Git changes alone does not replace a running container. Environment-file changes require container recreation, while saved Settings changes take effect without a rebuild.
 
-```powershell
-cd frontend
-npm install
-npm run dev
-```
-
-Open `http://localhost:5173` for Vite development, or build the frontend and use the backend on `http://localhost:8080`.
+After upgrading, refresh the browser, confirm the crawl status and notification channels, and review Logs. Existing environment values and saved UI overrides are preserved: upgrading does not automatically change an older one-second request delay to five seconds. Review Scan Controls and save the desired values. Do not reset a provider cooldown just to test an upgrade.
 
 ## Configuration Backups
 
-The Settings drawer can download and restore a JSON config backup. A backup includes targets, watches, target release settings, watch Cart Assist flags, scan control overrides, notification settings, and server-level Cart Assist settings. Availability results, scan logs, notification delivery history, and Cart Assist attempt history are not included.
+The Settings drawer can download and restore a JSON config backup. A backup includes targets, watches, target release settings, watch Cart Assist flags, scan control overrides, notification settings, and server-level Cart Assist settings. Availability results, scan logs, notification delivery history, Cart Assist attempt history, and the runtime crawl queue are not included. A stopped-container appdata backup preserves those records and the saved cooldown/pause state as well.
 
 Saved secrets are redacted from downloaded backups unless Include saved secrets is checked before export. Redacted values stay on the server that created the backup, and importing a redacted backup does not erase existing saved secrets on the destination server. When Include saved secrets is checked, the JSON file contains stored Recreation.gov credentials, webhook URLs, ntfy topic/token values, and SMTP username/password values. Treat that file like a `.env` file.
 
@@ -261,7 +262,7 @@ The crawl banner separates successfully checked, pending, failed, and skipped ca
 
 The estimated remaining time uses the remaining campground/month requests, configured/adaptive spacing, observed request latency, and known cooldown. It is a planning estimate, not a provider guarantee: future 429 responses, retries, cache expiry, and database/notification work can extend it. For example, 312 campgrounds over three months can mean roughly 936 monthly requests. At five seconds between requests, spacing alone takes about 78 minutes before network time or cooldowns.
 
-Release-aware scanning is enabled by default. Targets can use release windows in days, weeks, or months. If a watched stay has a calculated release time coming up, Camp Finder wakes up before that release and temporarily uses `CAMPFINDER_RELEASE_SCAN_INTERVAL_MINUTES` during the window configured by `CAMPFINDER_RELEASE_SCAN_BEFORE_MINUTES` and `CAMPFINDER_RELEASE_SCAN_AFTER_MINUTES`. Defaults are 15 minutes before, 60 minutes after, and a 10-minute release-window interval. Lower intervals should be an explicit choice after considering Recreation.gov's bot mitigation and shared API impact.
+Release-aware scheduling uses target windows in days, weeks, or months. During the configured window around a calculated release, `CAMPFINDER_RELEASE_SCAN_INTERVAL_MINUTES` requests a shorter repeat interval. Defaults are 15 minutes before, 60 minutes after, and a 10-minute release interval. The global minimum still applies: with the default 60-minute minimum, the effective interval cannot drop to 10 minutes. Queue length and provider cooldowns can delay a check; this is not a guarantee of a request at the exact release time.
 
 Camp Finder also has guardrails for off-season scans and rate limits. These can be changed from Settings without rebuilding the container:
 
@@ -282,6 +283,18 @@ The Activity drawer is the first place to look when a scan appears stuck. It sho
 
 Pause crawl (or Stop Scan) pauses background crawling and asks the active request to stop at the next safe checkpoint. Pending checks are retained and Resume crawl continues them. The pause survives restarts and does not delete results or watch rules. A request already in flight may take until its HTTP timeout before stopping. Pausing an individual watch also makes it ineligible for future checks; resume it in Watches when needed.
 
+| Crawl state | Meaning | What to do |
+| --- | --- | --- |
+| In progress | The server is checking the queued campgrounds. | Leave it running; new matches appear without waiting for the whole pass. |
+| Waiting for provider cooldown | A 429 postponed unfinished checks. | Wait until the displayed retry time; repeated Start clicks do not bypass it. |
+| Paused by you | Background work is stopped and the queue is retained. | Use Resume crawl when ready. |
+| Incomplete | One or more campground checks failed. | Inspect Activity or Logs; failed checks are not successful completions. |
+| Cycle complete | The pass finished without failed checks; skipped members are counted separately. | Due active watches continue to be scanned automatically. |
+
+The minimum scan interval controls repeat checks, not how quickly a large region finishes. Request spacing controls the pace within a pass. Both are separate from the overall ETA. A configured five-second delay may display as ten seconds or more after adaptive backoff. Slower scanning reduces request pressure but cannot guarantee that a provider will accept every request.
+
+![Settings drawer with minimum interval, request delay, cache, and backoff controls](docs/screenshots/scan-controls.png)
+
 ## Booking Assist
 
 Availability results include the Recreation.gov booking link plus status actions. Campsite links include the arrival date as `startDate`, so opening a result or Cart Assist checkout task goes straight to a booking page for the watched stay. The dashboard also adds that date before copying booking details, which keeps older saved rows useful after upgrades. Open marks a fresh match as opened, Copy puts a booking brief on your clipboard with the campground, watch, site, loop, type, stay dates, and Recreation.gov link. If the browser blocks clipboard access, the same brief appears above the results for manual selection. Booked records that you successfully reserved it, Dismiss removes it from active attention, and Reopen moves a handled result back to active availability. Future scans preserve booked and dismissed decisions for the same campsite/date result instead of notifying you about the same handled match again.
@@ -292,11 +305,7 @@ Results are grouped by national park, campground, and stay dates. When 12 or few
 
 Each park/region, campground, and stay-date heading has an X button to dismiss that group's active matches. The confirmation shows the count. It includes collapsed rows but respects the current search/status filters and the browser's loaded working set; it does not dismiss unseen results beyond the 2,000-row limit. Booked results and watches are left unchanged. Use the Dismissed view to find those matches again and Reopen to restore them. Group dismissal is one atomic database operation.
 
-These screenshots use synthetic local test data, not live availability:
-
-![Availability-first desktop dashboard with sample sites](docs/screenshots/availability-first-demo.png)
-
-![One regional watch covering two campgrounds on mobile](docs/screenshots/regional-watch-demo.png)
+The [dashboard screenshot](docs/screenshots/dashboard-overview.png) shows per-group dismissal beside campground and date headings. The [mobile watch screenshot](docs/screenshots/regional-watch-demo.png) shows a single regional listing with expandable campground members.
 
 For high-priority trips, enable Cart Assist on the watch rule. When a new match appears, the scanner writes a Cart Assist attempt with one of these statuses:
 
@@ -346,6 +355,19 @@ CAMPFINDER_WEBHOOK_URL=https://...
 
 Discord webhooks work because Camp Finder sends a simple `content` payload.
 
+### Discord Setup
+
+1. Open Settings and find Notification Settings, then Webhooks.
+2. Paste your Discord webhook into Discord or generic webhook URL and choose Save Notifications. The saved URL is not filled back into the input; the configured status and `appdata` source confirm it was stored.
+3. Use Test at the top of Settings. This sends a test to every configured channel, including Home Assistant or email if enabled. Confirm that the message reaches the intended Discord channel.
+4. Leave the server running. New matches are sent after each campground check; they do not wait for an entire regional pass to finish.
+
+Configured means a value is present, not that delivery has succeeded. Adding a webhook does not replay every result already saved in the dashboard. Review the test response for connection errors, and use Alerts or Logs to inspect delivery records for actual matches. There is no durable notification retry queue in this version.
+
+![Notification settings with a configured demo webhook and empty secret input](docs/screenshots/notification-settings.png)
+
+### Other Channels
+
 For Home Assistant, paste a webhook URL from a webhook-triggered automation into Settings or set:
 
 ```text
@@ -353,6 +375,8 @@ CAMPFINDER_HOME_ASSISTANT_WEBHOOK_URL=https://homeassistant.example.com/api/webh
 ```
 
 The Home Assistant channel receives structured JSON with `source`, `event`, `message`, `app_url`, match counts, and a bounded `matches` list. That lets an automation use the simple text message or route on fields such as campground, arrival date, and booking URL.
+
+Discord and Home Assistant are independent channels and can be used together. Saving one does not replace the other. ntfy and SMTP can also be enabled alongside them.
 
 For ntfy phone push, subscribe to a private topic in the ntfy mobile app and set:
 
@@ -383,6 +407,8 @@ CAMPFINDER_SMTP_TO=you@example.com
 
 The Settings drawer shows which notification channels are configured and which values are missing. Use the test button after changing `.env` or saving dashboard values to confirm delivery before relying on background scans.
 
+Blank secret fields preserve saved values. Clear Secrets removes the dashboard's saved notification secrets together; environment defaults can still supply them afterward. Keep webhook URLs, secret-inclusive exports, and screenshots of entered credentials out of issues and public repositories.
+
 ## Notes From OpenCamp
 
 This project uses the same Recreation.gov availability pattern that makes OpenCamp useful: campground search plus monthly campground availability calls. Camp Finder wraps that idea in a persistent local web app with watch rules, release-window hints, dedupe, and Docker hosting.
@@ -398,6 +424,10 @@ Delete Selected and Clear All Watches require confirmation. Deleting a watch als
 The dashboard refreshes sections independently, so a failed settings request no longer hides successfully loaded availability. An error identifies the endpoint and HTTP status. Previously loaded sections remain visible but may be stale. Database lock failures return HTTP 503 with a retry hint; other database failures are logged by the server. The health endpoint checks database reads, not just whether the web process is running.
 
 For repeated errors, collect `docker compose logs --since 30m --tail 200 campfinder` and check the host path mounted at `/data`. SQLite uses WAL mode to let readers continue during writes. Keep the database on a local disk, not an SMB/NFS mount or an actively cloud-synced directory. WAL does not fix damaged storage or a long-running writer.
+
+A provider HTTP 429 is different from an unreachable Camp Finder API. With a 429, the local dashboard can remain healthy while the crawl waits. Check the retry time, pending count, and recent `rate_limited` event before restarting anything. Use Pause crawl to stop it intentionally; do not repeatedly restart or press Start to work around the cooldown. For local 500/503 errors, inspect the server log and storage instead.
+
+![Logs showing a simulated rate limit, completed campground checks, and demo notification records](docs/screenshots/crawl-logs.png)
 
 Before troubleshooting storage or upgrading, stop the container and back up the entire appdata directory, including any `-wal` and `-shm` files. Do not delete journal files to clear a lock. Restart only after checking the logs and storage location. A healthy read probe alone does not prove that scans or writes are succeeding.
 

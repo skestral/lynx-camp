@@ -25,7 +25,7 @@ This review covers finding available campsites, managing regional watches, bulk 
 - Browser: resumed, paused, and deleted local test watches using bulk controls; targets remained.
 - Browser: injected a failed notification-status response and confirmed other dashboard sections still loaded.
 - Browser: verified site visibility for two matches and one-click campground/date expansion for a 15-match result set.
-- Demo screenshots are in `docs/screenshots/availability-first-demo.png` and `docs/screenshots/regional-watch-demo.png`.
+- The current screenshot set and capture instructions are listed in [the developer guide](development.md#documentation-screenshots).
 
 ## Operational follow-up
 
@@ -36,6 +36,14 @@ This review covers finding available campsites, managing regional watches, bulk 
 - The frontend production build passed. Desktop and 390px mobile checks confirmed the pending counts, cooldown deadline, conditional ETA, and missing-notification warning.
 - An isolated two-watch queue retained its pending work through pause and resume. The local Washington watch retained all 312 pending checks and its existing cooldown. No test bypassed the provider cooldown.
 - Production deployment and a full live 312-campground cycle remain unverified. Automated tests use fake provider responses; passing them does not establish a rate-limit-free request interval.
+
+### Documentation and screenshot refresh (2026-11-17)
+
+- Updated installation, upgrade, notification, scan-state, cabin-filter, and backup instructions against the current source and UI labels.
+- Captured a synthetic four-campground regional watch with tent/cabin matches, a simulated cooldown, and demo notification records. The capture server used a temporary database, no scheduler, a disabled provider client, and a read-only API; a test-send request returned 403 without sending anything.
+- Reviewed desktop and mobile screenshots of the dashboard, regional watch, notification settings, scan controls, and Logs. Used Dashboard to return from Logs.
+- Confirmed that `.env`, appdata, local data, and SQLite journal files are ignored. Only the two configuration templates are tracked, their webhook/password fields are blank, and no Discord webhook URL was found in tracked text. Secret-inclusive exports outside ignored paths still need manual care.
+- Backend tests: 92 passed. Frontend build and local-source Compose validation passed. Server Compose validation could not run because this checkout has no `appdata/config/.env`; no production environment file was created or read.
 
 Production logs confirmed `sqlite3.OperationalError: database is locked` on a settings read while the old health endpoint reported success. They do not identify the lock holder. The supplied host mount is local Unraid appdata, so an SMB/NFS mount has not been established as the cause. Check competing database users, share placement, backup/mover activity, and storage health before changing production storage.
 
