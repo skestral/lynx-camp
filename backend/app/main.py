@@ -319,7 +319,10 @@ def create_watch(payload: WatchCreate) -> dict:
 async def bulk_watches(payload: WatchBulkUpdate) -> dict:
     if payload.action == "delete" and scanner.is_busy:
         raise HTTPException(status_code=409, detail="Stop the current scan and wait for it to finish before deleting watches.")
-    count = store.bulk_update_watches(payload.watch_ids, payload.action)
+    if payload.action == "delete":
+        count = await scanner.delete_watches(payload.watch_ids)
+    else:
+        count = await asyncio.to_thread(store.bulk_update_watches, payload.watch_ids, payload.action)
     if payload.action == "pause" and scanner.active_watch_id in payload.watch_ids:
         scanner.cancel_current_scan(pause_crawl=False)
     return {"updated_count": count, "action": payload.action}
@@ -402,7 +405,7 @@ def cancel_scan() -> dict:
 async def delete_watch(watch_id: int) -> dict:
     if scanner.is_busy:
         raise HTTPException(status_code=409, detail="Stop the current scan before deleting watches.")
-    deleted = store.delete_watch(watch_id)
+    deleted = await scanner.delete_watches([watch_id])
     if not deleted:
         raise HTTPException(status_code=404, detail=f"watch {watch_id} not found")
     return {"deleted": True}

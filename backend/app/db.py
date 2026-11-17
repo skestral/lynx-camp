@@ -218,6 +218,23 @@ class Store:
             self._backfill_result_booking_urls(conn)
             self._ensure_column(conn, "watches", "group_id", "TEXT")
             conn.execute("CREATE INDEX IF NOT EXISTS watches_group_id ON watches(group_id)")
+            # Cascades otherwise rescan entire child tables for every deleted parent.
+            # Run on every startup so existing databases receive the same indexes.
+            for table, column in (
+                ("watches", "target_id"),
+                ("scan_runs", "watch_id"),
+                ("scan_runs", "target_id"),
+                ("scan_events", "run_id"),
+                ("scan_events", "watch_id"),
+                ("scan_events", "target_id"),
+                ("results", "watch_id"),
+                ("results", "target_id"),
+                ("notification_events", "result_id"),
+                ("cart_attempts", "watch_id"),
+                ("cart_attempts", "target_id"),
+            ):
+                conn.execute(f"CREATE INDEX IF NOT EXISTS {table}_{column} ON {table}({column})")
+            # cart_attempts.result_id already has a UNIQUE index.
 
     @staticmethod
     def _ensure_column(conn: sqlite3.Connection, table_name: str, column_name: str, definition: str) -> None:

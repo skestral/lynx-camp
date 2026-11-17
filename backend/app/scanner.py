@@ -359,6 +359,43 @@ class Scanner:
     def active_watch_id(self) -> int | None:
         return self._active_watch_id
 
+    async def delete_watches(self, watch_ids: list[int]) -> int:
+        if self.is_busy:
+            raise ValueError("Stop the current scan and wait for it to finish before deleting watches.")
+        async with self._lock:
+            task = asyncio.create_task(self._delete_watches_and_prune(watch_ids))
+            cancelled = False
+            # Cancelling an HTTP request cannot stop a SQLite worker. Keep the scan
+            # lock until its transaction and queue update finish, even on disconnect.
+            while True:
+                try:
+                    count = await asyncio.shield(task)
+                    break
+                except asyncio.CancelledError:
+                    if task.cancelled():
+                        raise
+                    cancelled = True
+            if cancelled:
+                raise asyncio.CancelledError
+            return count
+
+    async def _delete_watches_and_prune(self, watch_ids: list[int]) -> int:
+        count = await asyncio.to_thread(self.store.bulk_update_watches, watch_ids, "delete")
+        deleted = set(watch_ids)
+        pending = self._sweep.get("pending", [])
+        remaining = [watch_id for watch_id in pending if watch_id not in deleted]
+        if len(remaining) != len(pending):
+            self._sweep["pending"] = remaining
+            self._sweep["skipped_count"] = self._sweep.get("skipped_count", 0) + len(pending) - len(remaining)
+            self._sweep["months"] = {
+                key: value for key, value in self._sweep.get("months", {}).items() if int(key) not in deleted
+            }
+            self._sweep["current_target"] = None
+            if not remaining and not self._crawl_paused:
+                self._sweep["status"] = "incomplete" if self._sweep.get("failed_count") else "completed"
+            await asyncio.to_thread(self._save_runtime)
+        return count
+
     async def scan_watch(self, watch_id: int) -> dict:
         watch = self.store.get_watch(watch_id)
         if watch is None:

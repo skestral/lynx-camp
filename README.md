@@ -246,6 +246,8 @@ Keep that backup private because it contains settings and secrets. For a source 
 
 After upgrading, refresh the browser, confirm the crawl status and notification channels, and review Logs. Existing environment values and saved UI overrides are preserved: upgrading does not automatically change an older one-second request delay to five seconds. Review Scan Controls and save the desired values. Do not reset a provider cooldown just to test an upgrade.
 
+Existing databases receive the watch/history deletion indexes automatically during startup. No database reset, export/import, or manual SQL is required. The migration preserves targets, watches, results, and saved settings, including notification secrets. The first startup can take longer on a large database while indexes are built; allow it to finish before retrying dashboard actions. Keep a stopped-container appdata backup as described above.
+
 ## Configuration Backups
 
 The Settings drawer can download and restore a JSON config backup. A backup includes targets, watches, target release settings, watch Cart Assist flags, scan control overrides, notification settings, and server-level Cart Assist settings. Availability results, scan logs, notification delivery history, Cart Assist attempt history, and the runtime crawl queue are not included. A stopped-container appdata backup preserves those records and the saved cooldown/pause state as well.
@@ -418,6 +420,8 @@ This project uses the same Recreation.gov availability pattern that makes OpenCa
 Open Watches and select the rules you want to manage. Pause Selected and Resume Selected change their scan eligibility together. Pause All stops future scans for every watch and requests cancellation of the current watch. Cancellation completes at a safe checkpoint; it does not interrupt an HTTP request already in progress.
 
 Delete Selected and Clear All Watches require confirmation. Deleting a watch also removes its saved matches and scan history, but keeps the campground target. Pause watches instead when you want to keep their results. Stop an active scan and wait for it to finish before deleting watches.
+
+Bulk and single-watch deletion run database work off the API event loop, so dashboard reads can continue while the transaction finishes. The crawler cannot start a new check during deletion. The selected deletion is atomic across all batches; a failed batch rolls back earlier batches. Deleted members are removed from the saved pending queue without clearing a provider cooldown or changing the global pause setting. If a browser request is cancelled, the server still finishes the transaction before allowing another scan. Refresh to check the outcome before submitting the deletion again.
 
 ## Diagnosing API Failures
 

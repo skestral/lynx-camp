@@ -45,6 +45,14 @@ This review covers finding available campsites, managing regional watches, bulk 
 - Confirmed that `.env`, appdata, local data, and SQLite journal files are ignored. Only the two configuration templates are tracked, their webhook/password fields are blank, and no Discord webhook URL was found in tracked text. Secret-inclusive exports outside ignored paths still need manual care.
 - Backend tests: 92 passed. Frontend build and local-source Compose validation passed. Server Compose validation could not run because this checkout has no `appdata/config/.env`; no production environment file was created or read.
 
+### Bulk deletion regression checks (2026-11-17)
+
+- Added eleven child-key indexes for watch, scan, result, notification, and Cart Assist cascades. A populated database with the previous index set received them on `Store.init`; a second startup preserved all data and settings. Query plans confirmed indexed child-key lookups.
+- Bulk and single-watch deletion now use a worker thread while holding the scanner lock. Concurrent health, status, target, watch, and result reads returned successfully during an intentionally stalled write. A queued crawler waited until deletion finished.
+- Deletion across more than 500 IDs preserved unselected watches, targets, and saved settings. An injected failure in a later batch rolled back the entire deletion and its related history. Cancelled requests retained the lock until completion; pending queue changes survived reload without resetting cooldown or pause state.
+- Local timing sample: 550 watches, 550 scan runs/events, and 11,000 rows each in results, notifications, and Cart Assist. Deletion took 4.877 seconds without the new indexes and 0.076 seconds after migration; migration took 0.023 seconds. These are synthetic local measurements, not a production latency guarantee.
+- Backend suite: 100 tests passed. Frontend production build passed. Production data was not modified; production recovery still needs verification after deploying the updated image.
+
 Production logs confirmed `sqlite3.OperationalError: database is locked` on a settings read while the old health endpoint reported success. They do not identify the lock holder. The supplied host mount is local Unraid appdata, so an SMB/NFS mount has not been established as the cause. Check competing database users, share placement, backup/mover activity, and storage health before changing production storage.
 
 The local WAL/concurrency tests do not prove that production's underlying lock cause is resolved. Production deployment and post-deployment checks remain operator-controlled. Stop the container and back up the full appdata directory before updating. Never remove SQLite journal files to force a lock clear.
