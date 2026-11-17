@@ -212,6 +212,22 @@ export type ScanRun = {
   available_count: number;
 };
 
+export type CrawlStatus = {
+  status: "idle" | "queued" | "running" | "waiting" | "completed" | "incomplete" | "cancelled";
+  crawl_paused: boolean;
+  total_count: number;
+  completed_count: number;
+  failed_count: number;
+  skipped_count: number;
+  remaining_count: number;
+  current_target: string | null;
+  retry_at: string | null;
+  cooldown_seconds: number;
+  effective_request_delay_seconds: number;
+  estimated_remaining_seconds: number | null;
+  estimated_requests_remaining: number;
+};
+
 export type ScanEvent = {
   id: number;
   run_id: number | null;

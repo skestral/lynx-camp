@@ -1,4 +1,5 @@
 import type {
+  CrawlStatus,
   CartAssistConfigPayload,
   CartAssistStatus,
   CartAttempt,
@@ -17,7 +18,6 @@ import type {
   ReleaseWindowProfileResult,
   Result,
   ResultSummary,
-  ScanAllResult,
   ScanCancelResult,
   ScanConfig,
   ScanConfigPayload,
@@ -153,7 +153,8 @@ export const api = {
       `/api/watches/${watchId}/scan`,
       { method: "POST" }
     ),
-  runAllScans: () => request<ScanAllResult>("/api/scans/run-all", { method: "POST" }),
+  crawlStatus: () => request<CrawlStatus>("/api/scans/status"),
+  runAllScans: () => request<CrawlStatus>("/api/scans/run-all", { method: "POST" }),
   clearResults: () => request<{ cleared_count: number }>("/api/results/clear", { method: "POST" }),
   updateResultStatus: (resultId: number, status: Result["status"]) =>
     request<Result>(`/api/results/${resultId}`, { method: "PATCH", body: JSON.stringify({ status }) })

@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import json
+import logging
+import time as clock
 import math
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, time, timedelta
@@ -202,7 +205,7 @@ class Scanner:
         release_scan_after_minutes: int = 60,
         release_scan_interval_minutes: int = 2,
         availability_cache_minutes: int = 5,
-        api_request_delay_seconds: float = 1,
+        api_request_delay_seconds: float = 5,
         rate_limit_backoff_minutes: int = 60,
         max_notification_results: int = 5,
     ):
@@ -226,6 +229,108 @@ class Scanner:
         self._active_run_id: int | None = None
         self._active_watch_id: int | None = None
         self._active_target_id: int | None = None
+        self._sweep: dict = {}
+        self._sweep_task: asyncio.Task | None = None
+        self._adaptive_delay = 0.0
+        self._rate_limit_streak = 0
+        self._request_seconds = 1.0
+        self._current_months_loaded = 0
+        self._crawl_paused = False
+
+    def restore_runtime_state(self) -> None:
+        raw = self.store.get_app_settings(["scanner_runtime"]).get("scanner_runtime")
+        if not raw:
+            return
+        state = json.loads(raw)
+        self._sweep = state.get("sweep") or {}
+        self._crawl_paused = bool(state.get("crawl_paused", False))
+        self._adaptive_delay = float(state.get("adaptive_delay", 0))
+        self._rate_limit_streak = int(state.get("rate_limit_streak", 0))
+        until = state.get("backoff_until")
+        self._api_backoff_until = datetime.fromisoformat(until) if until else None
+        if self._sweep.get("status") == "running":
+            self._sweep["status"] = "queued"
+
+    def _save_runtime(self) -> None:
+        self.store.set_app_settings({"scanner_runtime": json.dumps({
+            "sweep": self._sweep, "adaptive_delay": self._adaptive_delay,
+            "crawl_paused": self._crawl_paused,
+            "rate_limit_streak": self._rate_limit_streak,
+            "backoff_until": self._api_backoff_until.isoformat() if self._api_backoff_until else None,
+        })})
+
+    @property
+    def effective_request_delay(self) -> float:
+        return max(self.api_request_delay_seconds, self._adaptive_delay)
+
+    @property
+    def full_scan_pending(self) -> bool:
+        return self._sweep.get("status") in {"queued", "running", "waiting"}
+
+    def scan_status(self) -> dict:
+        cooldown = max(0, math.ceil((self._api_backoff_until - datetime.now(UTC)).total_seconds())) if self._api_backoff_until else 0
+        pending = self._sweep.get("pending", [])
+        months = self._sweep.get("months", {})
+        requests = max(0, sum(months.get(str(watch_id), 0) for watch_id in pending) - self._current_months_loaded)
+        estimate = math.ceil(requests * (self.effective_request_delay + self._request_seconds) + cooldown) if self.full_scan_pending else None
+        return {
+            "status": "waiting" if cooldown and self.full_scan_pending else self._sweep.get("status", "idle"),
+            "crawl_paused": self._crawl_paused,
+            "total_count": self._sweep.get("total_count", 0),
+            "completed_count": self._sweep.get("completed_count", 0),
+            "failed_count": self._sweep.get("failed_count", 0),
+            "skipped_count": self._sweep.get("skipped_count", 0),
+            "remaining_count": len(pending),
+            "current_target": self._sweep.get("current_target"),
+            "retry_at": self._api_backoff_until.isoformat() if cooldown else None,
+            "cooldown_seconds": cooldown,
+            "effective_request_delay_seconds": self.effective_request_delay,
+            "estimated_remaining_seconds": estimate,
+            "estimated_requests_remaining": requests,
+        }
+
+    def _begin_full_scan(self, watches: list[dict] | None = None) -> None:
+        if watches is None:
+            watches = [w for w in self.store.list_watches() if w.get("active") and w.get("target_active")]
+        self._sweep = {"status": "queued", "pending": [w["id"] for w in watches],
+                       "total_count": len(watches), "completed_count": 0, "failed_count": 0,
+                       "skipped_count": 0, "available_count": 0, "missing_count": 0,
+                       "months": {str(w["id"]): len({month for trip in generate_trip_windows(w)
+                                  if trip.arrival_date >= date.today()
+                                  for month in months_for_trip(trip.arrival_date, trip.departure_date)}) for w in watches}}
+        self._save_runtime()
+
+    def start_full_scan(self) -> dict:
+        if self.full_scan_pending:
+            return self.scan_status()
+        if self.is_busy:
+            raise ValueError("A scan is already running. Wait or stop it before starting a full scan.")
+        self._crawl_paused = False
+        if self._sweep.get("status") == "cancelled" and self._sweep.get("pending"):
+            self._sweep["status"] = "queued"
+            self._save_runtime()
+        else:
+            self._begin_full_scan()
+        self._sweep_task = asyncio.create_task(self._run_requested_scan())
+        return self.scan_status()
+
+    async def _run_requested_scan(self) -> None:
+        try:
+            async with self._lock:
+                if self.full_scan_pending:
+                    await self._continue_full_scan()
+        except Exception:
+            logging.getLogger(__name__).exception("Full scan interrupted")
+            self._sweep["status"] = "incomplete"
+            self._save_runtime()
+
+    async def shutdown(self) -> None:
+        if self._sweep_task and not self._sweep_task.done():
+            self._sweep_task.cancel()
+            try:
+                await self._sweep_task
+            except asyncio.CancelledError:
+                pass
 
     def configure_scan_controls(
         self,
@@ -259,49 +364,86 @@ class Scanner:
         if watch is None:
             raise ValueError(f"watch {watch_id} not found")
 
+        if self.is_busy or self.full_scan_pending:
+            raise ValueError("A background crawl is pending; wait or stop it before scanning one campground.")
+        backoff = self._rate_limit_remaining_minutes()
+        if backoff:
+            return {"status": "rate_limited", "message": f"Waiting for provider cooldown, about {backoff} minutes remaining.", "candidate_count": 0, "available_count": 0}
         async with self._lock:
             return await self._scan_watch(watch)
 
     async def scan_all_watches(self) -> dict:
         async with self._lock:
-            summaries = []
-            for watch in [item for item in self.store.list_watches() if item.get("active") and item.get("target_active")]:
-                try:
-                    result = await self._scan_watch(watch)
-                    summaries.append({"watch_id": watch["id"], "watch_name": watch["name"], **result})
-                    if result.get("status") == "cancelled":
-                        break
-                except Exception as exc:
-                    summaries.append(
-                        {
-                            "watch_id": watch["id"],
-                            "watch_name": watch["name"],
-                            "status": "error",
-                            "message": str(exc),
-                            "candidate_count": 0,
-                            "available_count": 0,
-                        }
-                    )
-            return {
-                "watch_count": len(summaries),
-                "available_count": sum(item.get("available_count", 0) for item in summaries),
-                "missing_count": sum(item.get("missing_count", 0) for item in summaries),
-                "summaries": summaries,
-            }
+            if not self.full_scan_pending:
+                self._begin_full_scan()
+            return await self._continue_full_scan()
+
+    async def _continue_full_scan(self) -> dict:
+        summaries = []
+        if self._rate_limit_remaining_minutes() is not None:
+            self._sweep["status"] = "waiting"
+            self._save_runtime()
+            return {**self.scan_status(), "watch_count": 0, "available_count": self._sweep.get("available_count", 0), "summaries": []}
+        self._sweep["status"] = "running"
+        while self._sweep["pending"]:
+            watch_id = self._sweep["pending"][0]
+            watch = self.store.get_watch(watch_id)
+            self._current_months_loaded = 0
+            self._sweep["current_target"] = watch.get("target_name") if watch else None
+            try:
+                result = await self._scan_watch(watch) if watch else {"status": "skipped"}
+            except Exception as exc:
+                result = {"status": "error", "message": str(exc)}
+            latest = self.store.get_watch(watch_id)
+            if result["status"] == "cancelled" and not self._crawl_paused and (not latest or not latest.get("active")):
+                result["status"] = "skipped"
+            summaries.append({"watch_id": watch_id, "watch_name": watch.get("name") if watch else "Removed watch", **result})
+            if result["status"] in {"rate_limited", "cancelled"} or self._sweep["status"] == "cancelled":
+                self._sweep["status"] = "waiting" if result["status"] == "rate_limited" else "cancelled"
+                self._current_months_loaded = 0
+                self._save_runtime()
+                break
+            self._sweep["pending"].pop(0)
+            key = "completed_count" if result["status"] == "success" else "skipped_count" if result["status"] == "skipped" else "failed_count"
+            self._sweep[key] += 1
+            self._sweep["available_count"] += result.get("available_count", 0)
+            self._sweep["missing_count"] += result.get("missing_count", 0)
+            self._current_months_loaded = 0
+            self._save_runtime()
+        if not self._sweep["pending"]:
+            self._sweep["status"] = "incomplete" if self._sweep["failed_count"] else "completed"
+            if self._sweep["status"] == "completed":
+                self._rate_limit_streak = 0
+                self._adaptive_delay = max(self.api_request_delay_seconds, round(self._adaptive_delay * 0.8, 2))
+            self._save_runtime()
+        return {
+            **self.scan_status(),
+            "watch_count": len(summaries),
+            "available_count": self._sweep["available_count"],
+            "missing_count": self._sweep["missing_count"],
+            "summaries": summaries,
+        }
 
     async def scan_due_watches(self) -> None:
         async with self._lock:
-            for watch in self.store.due_watches():
-                try:
-                    result = await self._scan_watch(watch)
-                    if result.get("status") == "cancelled":
-                        break
-                except Exception as exc:
-                    self.store.update_target_scan_status(watch["target_id"], f"error: {exc}")
-                    self._schedule_next_scan(watch)
+            if self._crawl_paused:
+                return
+            if not self.full_scan_pending:
+                due = self.store.due_watches(limit=10000)
+                if not due:
+                    return
+                self._begin_full_scan(due)
+            await self._continue_full_scan()
 
-    def cancel_current_scan(self) -> dict:
+    def cancel_current_scan(self, pause_crawl: bool = True) -> dict:
         active_run_id = self._active_run_id
+        if pause_crawl:
+            self._crawl_paused = True
+            self._save_runtime()
+        sweep_cancelled = self.full_scan_pending and pause_crawl
+        if sweep_cancelled:
+            self._sweep["status"] = "cancelled"
+            self._save_runtime()
         if active_run_id is not None:
             self._cancel_requested = True
             self.store.log_scan_event(
@@ -317,7 +459,7 @@ class Scanner:
             exclude_run_ids=[active_run_id] if active_run_id is not None else [],
         )
         return {
-            "cancel_requested": active_run_id is not None,
+            "cancel_requested": active_run_id is not None or sweep_cancelled,
             "active_run_id": active_run_id,
             "stale_cancelled_count": stale_count,
         }
@@ -408,6 +550,7 @@ class Scanner:
                             f"Fetching Recreation.gov availability for {month.strftime('%B %Y')}.",
                         )
                         monthly_cache[month] = await self._monthly_availability(watch["campground_id"], month)
+                        self._current_months_loaded = len(monthly_cache)
                         self._log_scan_event(
                             run_id,
                             watch,
@@ -537,6 +680,11 @@ class Scanner:
             self.store.update_target_scan_status(watch["target_id"], "rate_limited")
             self.store.schedule_next_scan(watch["id"], backoff_minutes)
             self._log_scan_event(run_id, watch, "warning", "rate_limited", message)
+            if new_results:
+                try:
+                    await self.notifier.notify_results(new_results, self.store, self.max_notification_results)
+                except Exception:
+                    logging.getLogger(__name__).exception("Notification failed for partial scan results")
             return {
                 "status": "rate_limited",
                 "message": message,
@@ -563,19 +711,27 @@ class Scanner:
                 return campsites
 
         await self._wait_for_api_slot()
-        campsites = await self.client.monthly_availability(campground_id, month)
+        started = clock.monotonic()
+        try:
+            campsites = await self.client.monthly_availability(campground_id, month)
+        finally:
+            self._last_api_request_at = datetime.now(UTC)
+            self._request_seconds = 0.8 * self._request_seconds + 0.2 * (clock.monotonic() - started)
         self._availability_cache[key] = (datetime.now(UTC), campsites)
         return campsites
 
     async def _wait_for_api_slot(self) -> None:
-        if self.api_request_delay_seconds <= 0:
+        if self.effective_request_delay <= 0:
             return
         self._raise_if_cancel_requested()
         now = datetime.now(UTC)
         if self._last_api_request_at is not None:
             elapsed = (now - self._last_api_request_at).total_seconds()
-            if elapsed < self.api_request_delay_seconds:
-                await asyncio.sleep(self.api_request_delay_seconds - elapsed)
+            remaining = self.effective_request_delay - elapsed
+            while remaining > 0:
+                await asyncio.sleep(min(remaining, 1))
+                self._raise_if_cancel_requested()
+                remaining = self.effective_request_delay - (datetime.now(UTC) - self._last_api_request_at).total_seconds()
         self._raise_if_cancel_requested()
         self._last_api_request_at = datetime.now(UTC)
 
@@ -602,8 +758,11 @@ class Scanner:
         self.store.log_scan_event(run_id, watch["id"], watch["target_id"], level, event_type, message)
 
     def _start_rate_limit_backoff(self, exc: RateLimitError) -> None:
-        seconds = exc.retry_after_seconds or self.rate_limit_backoff_minutes * 60
+        self._rate_limit_streak += 1
+        self._adaptive_delay = min(60, max(5, self.effective_request_delay * 2))
+        seconds = max(exc.retry_after_seconds or 0, min(86400, self.rate_limit_backoff_minutes * 60 * 2 ** min(self._rate_limit_streak - 1, 8)))
         self._api_backoff_until = datetime.now(UTC) + timedelta(seconds=seconds)
+        self._save_runtime()
 
     def _rate_limit_remaining_minutes(self) -> int | None:
         if self._api_backoff_until is None:

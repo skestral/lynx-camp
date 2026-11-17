@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import dataclass
-from datetime import date
+from datetime import UTC, date, datetime
+from email.utils import parsedate_to_datetime
+import math
 from html.parser import HTMLParser
 from typing import Any
 
@@ -394,8 +396,14 @@ def _retry_after_seconds(value: Any) -> int | None:
         if value is None or value == "":
             return None
         return max(1, int(float(str(value).strip())))
-    except (TypeError, ValueError):
-        return None
+    except (TypeError, ValueError, OverflowError):
+        try:
+            retry_at = parsedate_to_datetime(str(value))
+            if retry_at.tzinfo is None:
+                retry_at = retry_at.replace(tzinfo=UTC)
+            return max(1, math.ceil((retry_at - datetime.now(UTC)).total_seconds()))
+        except (TypeError, ValueError, OverflowError):
+            return None
 
 
 def _reservation_window(payload: dict[str, Any]) -> dict[str, Any]:

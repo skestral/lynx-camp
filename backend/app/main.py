@@ -80,6 +80,7 @@ async def scan_loop() -> None:
 async def lifespan(app: FastAPI):
     store.init()
     apply_scan_config()
+    scanner.restore_runtime_state()
     store.cancel_running_scan_runs("Server restarted before this scan finished.", status="interrupted")
     task = asyncio.create_task(scan_loop())
     try:
@@ -90,6 +91,7 @@ async def lifespan(app: FastAPI):
             await task
         except asyncio.CancelledError:
             pass
+        await scanner.shutdown()
 
 
 app = FastAPI(title="Camp Finder", lifespan=lifespan)
@@ -319,7 +321,7 @@ async def bulk_watches(payload: WatchBulkUpdate) -> dict:
         raise HTTPException(status_code=409, detail="Stop the current scan and wait for it to finish before deleting watches.")
     count = store.bulk_update_watches(payload.watch_ids, payload.action)
     if payload.action == "pause" and scanner.active_watch_id in payload.watch_ids:
-        scanner.cancel_current_scan()
+        scanner.cancel_current_scan(pause_crawl=False)
     return {"updated_count": count, "action": payload.action}
 
 
@@ -346,6 +348,8 @@ async def update_watch_group(group_id: str, payload: WatchUpdate) -> list[dict]:
 
 @app.post("/api/watches/{watch_id}/scan")
 async def run_scan(watch_id: int) -> dict:
+    if scanner.is_busy or scanner.full_scan_pending:
+        raise HTTPException(status_code=409, detail="A crawl is already pending. Pause it before starting an individual scan.")
     try:
         return await scanner.scan_watch(watch_id)
     except ValueError as exc:
@@ -366,9 +370,17 @@ def update_watch(watch_id: int, payload: WatchUpdate) -> dict:
     return watch
 
 
-@app.post("/api/scans/run-all")
+@app.get("/api/scans/status")
+async def scan_status() -> dict:
+    return scanner.scan_status()
+
+
+@app.post("/api/scans/run-all", status_code=202)
 async def run_all_scans() -> dict:
-    return await scanner.scan_all_watches()
+    try:
+        return scanner.start_full_scan()
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @app.get("/api/scans")

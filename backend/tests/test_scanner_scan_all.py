@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import date
+from datetime import UTC, date, datetime, timedelta
 from types import SimpleNamespace
 
 import pytest
@@ -268,8 +268,15 @@ def test_rate_limit_pauses_following_watches_without_more_api_calls(tmp_path) ->
     result = asyncio.run(scanner.scan_all_watches())
 
     assert client.calls == 1
-    assert [summary["status"] for summary in result["summaries"]] == ["rate_limited", "rate_limited"]
-    assert result["summaries"][1]["candidate_count"] == 0
+    assert [summary["status"] for summary in result["summaries"]] == ["rate_limited"]
+    assert result["status"] == "waiting"
+    assert result["completed_count"] == 0
+    assert result["remaining_count"] == 2
+    assert len(store.list_scan_runs()) == 1
+    assert result["estimated_remaining_seconds"] >= 3600
+    asyncio.run(scanner.scan_due_watches())
+    assert client.calls == 1
+    assert len(store.list_scan_runs()) == 1
 
 
 def test_cancel_current_scan_marks_active_run_cancelled(tmp_path) -> None:
@@ -294,3 +301,173 @@ def test_cancel_current_scan_marks_active_run_cancelled(tmp_path) -> None:
     event_types = [event["event_type"] for event in store.list_scan_events()]
     assert "cancel_requested" in event_types
     assert "cancelled" in event_types
+
+
+def test_partial_matches_are_notified_before_rate_limit_cooldown(tmp_path):
+    store = Store(tmp_path / "test.db")
+    store.init()
+    _, watch = create_target_and_watch(store)
+    store.update_watch(watch["id"], {"window_end": "2026-08-31"})
+
+    class LimitedNextMonth(MultiSiteAvailabilityClient):
+        async def monthly_availability(self, campground_id, month):
+            if month.month == 8:
+                raise RateLimitError(120)
+            return await super().monthly_availability(campground_id, month)
+
+    notifier = RecordingNotifier()
+    scanner = Scanner(store, LimitedNextMonth(), notifier, 60, api_request_delay_seconds=0)
+    result = asyncio.run(scanner.scan_all_watches())
+    assert result["status"] == "waiting"
+    assert result["completed_count"] == 0
+    assert result["remaining_count"] == 1
+    assert len(notifier.batches) == 1
+    assert len(notifier.batches[0][0]) == 2
+
+
+async def no_wait():
+    pass
+
+
+def test_pausing_one_watch_does_not_pause_entire_crawl(tmp_path):
+    store = Store(tmp_path / "test.db")
+    store.init()
+    create_target_and_watch(store, "One")
+    create_target_and_watch(store, "Two")
+
+    class PausingClient:
+        calls = 0
+
+        async def monthly_availability(self, *_):
+            self.calls += 1
+            if self.calls == 1:
+                store.bulk_update_watches([scanner.active_watch_id], "pause")
+                scanner.cancel_current_scan(pause_crawl=False)
+            return {}
+
+    scanner = Scanner(store, PausingClient(), NoopNotifier(), 60, api_request_delay_seconds=0)
+    result = asyncio.run(scanner.scan_all_watches())
+    assert result["status"] == "completed"
+    assert result["skipped_count"] == 1
+    assert result["completed_count"] == 1
+    assert not result["crawl_paused"]
+
+
+def test_crawl_resumes_pending_work_after_restart(tmp_path):
+    store = Store(tmp_path / "test.db")
+    store.init()
+    create_target_and_watch(store, "First")
+    create_target_and_watch(store, "Second")
+
+    class LimitedSecondRequest:
+        calls = 0
+
+        async def monthly_availability(self, *_):
+            self.calls += 1
+            if self.calls == 2:
+                raise RateLimitError(120)
+            return {}
+
+    client = LimitedSecondRequest()
+    scanner = Scanner(store, client, NoopNotifier(), 60, api_request_delay_seconds=0, availability_cache_minutes=0)
+    result = asyncio.run(scanner.scan_all_watches())
+    assert result["status"] == "waiting"
+    assert result["completed_count"] == 1
+    assert result["remaining_count"] == 1
+    recovered_client = EmptyAvailabilityClient()
+    recovered = Scanner(store, recovered_client, NoopNotifier(), 60)
+    recovered.restore_runtime_state()
+    assert recovered.scan_status()["completed_count"] == 1
+    assert recovered.effective_request_delay >= 5
+    asyncio.run(recovered.scan_due_watches())
+    assert recovered_client.calls == []
+    recovered._api_backoff_until = datetime.now(UTC) - timedelta(seconds=1)
+    recovered._wait_for_api_slot = no_wait
+    asyncio.run(recovered.scan_due_watches())
+    assert len(recovered_client.calls) == 1
+    assert recovered.scan_status()["status"] == "completed"
+    assert recovered.scan_status()["completed_count"] == 2
+    asyncio.run(recovered.scan_due_watches())
+    assert len(recovered_client.calls) == 1  # Poll intervals prevent an immediate repeat.
+
+
+def test_pause_during_cooldown_survives_restart(tmp_path):
+    store = Store(tmp_path / "test.db")
+    store.init()
+    create_target_and_watch(store)
+    scanner = Scanner(store, RateLimitedClient(), NoopNotifier(), 60, api_request_delay_seconds=0)
+    asyncio.run(scanner.scan_all_watches())
+    assert scanner.cancel_current_scan()["cancel_requested"]
+    restored = Scanner(store, EmptyAvailabilityClient(), NoopNotifier(), 60)
+    restored.restore_runtime_state()
+    restored._api_backoff_until = datetime.now(UTC) - timedelta(seconds=1)
+    asyncio.run(restored.scan_due_watches())
+    assert restored.client.calls == []
+    assert restored.scan_status()["crawl_paused"]
+    assert restored.scan_status()["remaining_count"] == 1
+
+
+def test_backoff_honors_retry_after_and_adapts_spacing(tmp_path):
+    store = Store(tmp_path / "test.db")
+    store.init()
+    scanner = Scanner(store, EmptyAvailabilityClient(), NoopNotifier(), 60, api_request_delay_seconds=5)
+    scanner._start_rate_limit_backoff(RateLimitError(7200))
+    assert scanner.scan_status()["cooldown_seconds"] >= 7199
+    assert scanner.effective_request_delay == 10
+    scanner._start_rate_limit_backoff(RateLimitError(1))
+    assert scanner.scan_status()["cooldown_seconds"] >= 7199
+    assert scanner.effective_request_delay == 20
+
+
+def test_failed_crawl_is_not_reported_as_complete(tmp_path):
+    store = Store(tmp_path / "test.db")
+    store.init()
+    create_target_and_watch(store)
+
+    class FailingClient:
+        async def monthly_availability(self, *_):
+            raise RuntimeError("provider unavailable")
+
+    scanner = Scanner(store, FailingClient(), NoopNotifier(), 60, api_request_delay_seconds=0)
+    result = asyncio.run(scanner.scan_all_watches())
+    assert result["status"] == "incomplete"
+    assert result["completed_count"] == 0
+    assert result["failed_count"] == 1
+
+
+def test_start_api_returns_before_scan_finishes_and_deduplicates(tmp_path, monkeypatch):
+    import httpx
+    from backend.app import main
+
+    store = Store(tmp_path / "test.db")
+    store.init()
+    create_target_and_watch(store)
+
+    async def scenario():
+        release = asyncio.Event()
+
+        class SlowClient:
+            calls = 0
+
+            async def monthly_availability(self, *_):
+                self.calls += 1
+                await release.wait()
+                return {}
+
+        scanner = Scanner(store, SlowClient(), NoopNotifier(), 60, api_request_delay_seconds=0)
+        monkeypatch.setattr(main, "scanner", scanner)
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=main.app), base_url="http://test") as client:
+            response = await asyncio.wait_for(client.post("/api/scans/run-all"), timeout=1)
+            assert response.status_code == 202
+            assert response.json()["remaining_count"] == 1
+            task = scanner._sweep_task
+            await client.post("/api/scans/run-all")
+            assert scanner._sweep_task is task
+            status = (await client.get("/api/scans/status")).json()
+            assert status["status"] in {"queued", "running"}
+            release.set()
+            await task
+            assert scanner.client.calls == 1
+            assert scanner.scan_status()["status"] == "completed"
+
+    asyncio.run(scenario())

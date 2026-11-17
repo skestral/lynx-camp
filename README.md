@@ -255,15 +255,22 @@ Saved secrets are redacted from downloaded backups unless Include saved secrets 
 
 Camp Finder scans active watches in the background and respects the minimum poll interval from the server scan controls. The `.env` values are the startup defaults, and the dashboard Settings panel can save appdata overrides for scan cadence, release scanning, request delay, caching, and rate-limit backoff. Saved dashboard values are stored in `appdata/campfinder.db` and take effect for new scans immediately. Use Reset to Env in Settings when you want the server to fall back to the `.env` values again.
 
-The UI also has a Scan All button for a manual sweep across every active watch. Manual scans are useful when you import a preset pack, add filters, or want to check the current Recreation.gov response immediately.
+The server continuously crawls due active watches, one campground at a time. Start crawl queues a full pass and returns immediately; the browser does not need to remain open. New hits are sent through configured notification channels after each campground check, including partial discoveries before a rate limit. If no channel is configured, the dashboard warns that matches are being saved without external alerts.
+
+The crawl banner separates successfully checked, pending, failed, and skipped campground checks. A rate-limited check remains pending, and the queue resumes after cooldown without rechecking already completed campgrounds in that cycle. Queue progress, adaptive pacing, and cooldown deadlines survive a server restart. Runtime queue state is not included in configuration exports. Run only one application worker/container against a database.
+
+The estimated remaining time uses the remaining campground/month requests, configured/adaptive spacing, observed request latency, and known cooldown. It is a planning estimate, not a provider guarantee: future 429 responses, retries, cache expiry, and database/notification work can extend it. For example, 312 campgrounds over three months can mean roughly 936 monthly requests. At five seconds between requests, spacing alone takes about 78 minutes before network time or cooldowns.
 
 Release-aware scanning is enabled by default. Targets can use release windows in days, weeks, or months. If a watched stay has a calculated release time coming up, Camp Finder wakes up before that release and temporarily uses `CAMPFINDER_RELEASE_SCAN_INTERVAL_MINUTES` during the window configured by `CAMPFINDER_RELEASE_SCAN_BEFORE_MINUTES` and `CAMPFINDER_RELEASE_SCAN_AFTER_MINUTES`. Defaults are 15 minutes before, 60 minutes after, and a 10-minute release-window interval. Lower intervals should be an explicit choice after considering Recreation.gov's bot mitigation and shared API impact.
 
 Camp Finder also has guardrails for off-season scans and rate limits. These can be changed from Settings without rebuilding the container:
 
-- `CAMPFINDER_AVAILABILITY_CACHE_MINUTES` defaults to `5`. Fresh monthly availability responses are reused across watches for the same campground/month, which keeps multiple weekend rules from making duplicate API calls.
-- `CAMPFINDER_API_REQUEST_DELAY_SECONDS` defaults to `1`. The scanner waits between uncached Recreation.gov month requests.
-- `CAMPFINDER_RATE_LIMIT_BACKOFF_MINUTES` defaults to `60`. If Recreation.gov returns HTTP 429, the scanner records the scan as `rate_limited`, schedules the affected watches after the backoff, and skips additional API calls while the backoff is active.
+- `CAMPFINDER_MIN_POLL_INTERVAL_MINUTES` defaults to `60`, so completed campground checks are not immediately repeated.
+- `CAMPFINDER_AVAILABILITY_CACHE_MINUTES` defaults to `30`. Fresh monthly availability responses are reused across watches for the same campground/month.
+- `CAMPFINDER_API_REQUEST_DELAY_SECONDS` defaults to `5`. This is a minimum pause after an uncached availability request completes, not a guarantee against rate limits.
+- `CAMPFINDER_RATE_LIMIT_BACKOFF_MINUTES` defaults to `60`. A 429 pauses the crawl globally. The server honors the longer of Retry-After (seconds or HTTP date) and the configured backoff. Repeated limits double the local backoff up to 24 hours and increase request spacing up to 60 seconds. A longer provider Retry-After is never shortened. Successful full cycles gradually relax adaptive spacing toward the configured minimum.
+
+While waiting, the scanner does not cycle through remaining targets generating repeated rate-limit records. The dashboard polls local progress less often during cooldown. Saved Settings overrides and existing `.env` values still take precedence over new defaults; update them when upgrading an existing installation.
 
 The Target Settings form includes a Detect Window action. It samples Recreation.gov campsite reservation-window metadata for the selected campground and applies the most common window it finds, such as a 14-day rolling window when a facility exposes that rule.
 
@@ -273,7 +280,7 @@ The scan status strip at the top of the dashboard changes as soon as a manual sc
 
 The Activity drawer is the first place to look when a scan appears stuck. It shows the current scanner state, recent durable scan rows, recent checkpoint events, refresh, a Logs link, and Stop Scan. The Logs page is the deeper diagnostic view. It shows the loaded checkpoint event stream beside recent scan runs and notification delivery, including events such as scan start, candidate count, Recreation.gov month fetches, available-site discoveries, rate limits, errors, and cancellation requests. If the server restarts while a scan row is still marked `running`, startup marks that row `interrupted` so the dashboard does not keep showing a stale process forever.
 
-Stop Scan asks the server to cancel the active scan at the next safe checkpoint and also marks any stale `running` rows as cancelled. It does not delete results or watch rules. A Recreation.gov request that is already in flight may take until its HTTP timeout before the scanner can stop, but the activity log records the stop request immediately.
+Pause crawl (or Stop Scan) pauses background crawling and asks the active request to stop at the next safe checkpoint. Pending checks are retained and Resume crawl continues them. The pause survives restarts and does not delete results or watch rules. A request already in flight may take until its HTTP timeout before stopping. Pausing an individual watch also makes it ineligible for future checks; resume it in Watches when needed.
 
 ## Booking Assist
 

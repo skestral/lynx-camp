@@ -8,6 +8,17 @@ import httpx
 from backend.app.recreation import Campsite, RecreationClient
 
 
+def test_retry_after_accepts_seconds_and_http_dates():
+    from datetime import UTC, datetime, timedelta
+    from email.utils import format_datetime
+    from backend.app.recreation import _retry_after_seconds
+
+    assert _retry_after_seconds("120") == 120
+    assert _retry_after_seconds("bad header") is None
+    future = format_datetime(datetime.now(UTC) + timedelta(hours=2), usegmt=True)
+    assert 7199 <= _retry_after_seconds(future) <= 7200
+
+
 def test_campsite_from_api_extracts_reservation_window() -> None:
     campsite = Campsite.from_api(
         {

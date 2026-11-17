@@ -47,7 +47,7 @@ def test_bulk_api_validates_and_blocks_delete_during_scans(store, monkeypatch):
     watch_id = store.list_watches()[0]["id"]
     monkeypatch.setattr(main, "scanner", SimpleNamespace(
         is_busy=True, active_watch_id=watch_id,
-        cancel_current_scan=lambda: cancelled.append(True)))
+        cancel_current_scan=lambda **kwargs: cancelled.append(True)))
     client = TestClient(main.app)
     assert client.post("/api/watches/bulk", json={"action": "pause", "watch_ids": []}).status_code == 422
     assert client.post("/api/watches/bulk", json={"action": "delete", "watch_ids": [watch_id]}).status_code == 409

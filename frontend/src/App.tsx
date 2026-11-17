@@ -34,6 +34,7 @@ import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { RESULTS_LIMIT, api } from "./api";
 import { WatchGroup } from "./WatchGroup";
 import type {
+  CrawlStatus,
   CartAssistStatus,
   CartAttempt,
   CartAttemptStatus,
@@ -108,12 +109,12 @@ type NotificationField = {
 };
 
 const DEFAULT_SCAN_CONFIG_VALUES: ScanConfigValues = {
-  min_poll_interval_minutes: 10,
+  min_poll_interval_minutes: 60,
   release_scan_before_minutes: 15,
   release_scan_after_minutes: 60,
   release_scan_interval_minutes: 10,
-  availability_cache_minutes: 5,
-  api_request_delay_seconds: 1,
+  availability_cache_minutes: 30,
+  api_request_delay_seconds: 5,
   rate_limit_backoff_minutes: 60
 };
 
@@ -796,6 +797,7 @@ export default function App() {
   const [cartAssistConfigBusy, setCartAssistConfigBusy] = useState<"save" | "clear" | null>(null);
   const [cartAttemptBusyId, setCartAttemptBusyId] = useState<number | null>(null);
   const [loadState, setLoadState] = useState<LoadState>("idle");
+  const [crawlStatus, setCrawlStatus] = useState<CrawlStatus | null>(null);
   const [refreshError, setRefreshError] = useState("");
   const [message, setMessage] = useState("");
   const [query, setQuery] = useState("");
@@ -960,17 +962,27 @@ export default function App() {
   const allVisibleResultsSelected =
     visibleResultIds.length > 0 && visibleResultIds.every((id) => selectedResultSet.has(id));
   const runningScan = scanRuns.find((run) => run.status === "running" && !run.finished_at);
-  const scanInProgress = scanAllBusy || scanBusyId !== null || Boolean(runningScan);
+  const crawlPending = Boolean(crawlStatus && ["queued", "running", "waiting"].includes(crawlStatus.status));
+  const scanInProgress = scanAllBusy || scanBusyId !== null || Boolean(runningScan) || crawlPending;
+  const scanWorking = scanAllBusy || scanBusyId !== null || Boolean(runningScan) || crawlStatus?.status === "running";
   const latestScan = scanRuns.find((run) => run.status !== "running") || scanRuns[0];
   const runningScanRuns = scanRuns.filter((run) => run.status === "running" && !run.finished_at);
   const latestScanEvent = scanEvents[0];
   const activeScanTitle = runningScan
     ? `Scanning ${runningScan.watch_name}`
+    : crawlStatus?.crawl_paused ? "Background crawl paused"
+    : crawlStatus?.status === "waiting" ? "Waiting for provider cooldown"
+    : crawlPending ? "Background crawl queued"
     : scanProgress?.title || (latestScan ? `Last scan: ${latestScan.watch_name}` : "No scans yet");
   const activeScanDetail = runningScan ? (
     <>
       <span>{runningScan.target_name}</span>
       <span>started {formatDateTime(runningScan.started_at)}</span>
+    </>
+  ) : crawlPending || crawlStatus?.crawl_paused ? (
+    <>
+      <span>{crawlStatus?.remaining_count} campground checks pending</span>
+      {crawlStatus?.retry_at && !crawlStatus.crawl_paused && <span>next attempt after {formatDateTime(crawlStatus.retry_at)}</span>}
     </>
   ) : scanProgress?.detail ? (
     scanProgress.detail
@@ -1053,7 +1065,10 @@ export default function App() {
     };
   }, [presetDiscovery, presets, sourceDiscovery, sources]);
   const nextReleaseHint = latestRelease[0] || null;
-  const focusSummary = scanInProgress
+  const focusSummary = crawlStatus?.crawl_paused ? "Background crawl paused."
+    : crawlStatus?.status === "waiting" ? "Background crawl waiting for provider cooldown."
+    : crawlStatus?.status === "queued" ? "Background crawl queued."
+    : scanWorking
     ? `${runningScanRuns.length || 1} scan${(runningScanRuns.length || 1) === 1 ? "" : "s"} running now.`
     : activeResultCount > 0
       ? `${activeResultCount} active match${activeResultCount === 1 ? "" : "es"} ready for review.`
@@ -1478,6 +1493,7 @@ export default function App() {
       api.results().then(setResults),
       api.resultSummary().then(setResultSummary),
       api.scanRuns().then(setScanRuns),
+      api.crawlStatus().then(setCrawlStatus),
       api.scanEvents().then(setScanEvents),
       api.scanConfig().then(setScanConfig),
       api.notifications().then(setNotifications),
@@ -1518,26 +1534,28 @@ export default function App() {
     const pollLiveScanState = async () => {
       if (document.visibilityState !== "visible") return;
       try {
-        const [scanRunData, scanEventData, resultData, resultSummaryData, cartAttemptData] = await Promise.all([
+        const [scanRunData, scanEventData, resultData, resultSummaryData, cartAttemptData, crawlData] = await Promise.all([
           api.scanRuns(),
           api.scanEvents(),
           api.results(),
           api.resultSummary(),
-          api.cartAttempts()
+          api.cartAttempts(),
+          api.crawlStatus()
         ]);
         setScanRuns(scanRunData);
         setScanEvents(scanEventData);
         setResults(resultData);
         setResultSummary(resultSummaryData);
         setCartAttempts(cartAttemptData);
+        setCrawlStatus(crawlData);
       } catch {
         // The normal refresh loop and scan completion handler will surface persistent API failures.
       }
     };
     void pollLiveScanState();
-    const handle = window.setInterval(pollLiveScanState, 3000);
+    const handle = window.setInterval(pollLiveScanState, crawlStatus?.status === "waiting" ? 15000 : 3000);
     return () => window.clearInterval(handle);
-  }, [scanInProgress]);
+  }, [scanInProgress, crawlStatus?.status]);
 
   useEffect(() => {
     if (!cartAssistStatus || cartAssistConfigDirty || cartAssistConfigBusy) return;
@@ -2050,7 +2068,8 @@ export default function App() {
     setMessage("");
     try {
       const result = await api.runAllScans();
-      setMessage(`Scanned ${result.watch_count} watch${result.watch_count === 1 ? "" : "es"}; found ${result.available_count} available match${result.available_count === 1 ? "" : "es"}.`);
+      setCrawlStatus(result);
+      setMessage(result.status === "waiting" ? "Crawl is waiting for the provider cooldown." : "Background crawl queued. You can close this page; notifications continue on the server.");
       await refresh();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Scan all failed.");
@@ -2073,9 +2092,7 @@ export default function App() {
           ? ` Marked ${result.stale_cancelled_count} stale run${result.stale_cancelled_count === 1 ? "" : "s"} as cancelled.`
           : "";
       setMessage(
-        result.cancel_requested
-          ? `Stop requested for the active scan.${staleMessage}`
-          : `No active scanner was running.${staleMessage}`
+        `Background crawl paused. Pending checks are retained.${result.active_run_id ? " The current request will stop at its next checkpoint." : ""}${staleMessage}`
       );
       await refresh({ silent: true });
     } catch (error) {
@@ -3096,7 +3113,7 @@ export default function App() {
         </nav>
         <div className="sidebar-note">
           <Timer size={18} />
-          <span>Minimum scan interval: 10 min</span>
+          <span>Minimum scan interval: {scanConfig?.values.min_poll_interval_minutes ?? 60} min</span>
         </div>
       </aside>
 
@@ -3125,9 +3142,9 @@ export default function App() {
               <CalendarDays size={18} />
               <span>Watches</span>
             </button>
-            <button className="icon-button" onClick={runAllScans} disabled={scanAllBusy || activeWatches.length === 0} title="Run every active watch now">
+            <button className="icon-button" onClick={runAllScans} disabled={scanAllBusy || crawlPending || activeWatches.length === 0} title="Queue every active watch in the background">
               <Play size={18} />
-              <span>{scanAllBusy ? "Scanning" : "Scan All"}</span>
+              <span>{scanAllBusy ? "Starting" : crawlPending ? "Crawling" : "Start crawl"}</span>
             </button>
             {scanInProgress && (
               <button className="icon-button danger" onClick={cancelScans} disabled={scanCancelBusy} title="Stop the active scan">
@@ -3144,6 +3161,24 @@ export default function App() {
 
         {message && <div className="notice">{message}</div>}
         {refreshError && <div className="notice danger" role="alert">Some dashboard data could not be refreshed. Previously loaded data may be stale. {refreshError}</div>}
+        {crawlStatus && (crawlStatus.total_count > 0 || crawlStatus.cooldown_seconds > 0) && (
+          <section className="crawl-status" aria-label="Background crawl" aria-live="polite">
+            <div>
+              <strong>{crawlStatus.crawl_paused ? "Crawl paused by you" : crawlStatus.cooldown_seconds > 0 ? "Crawl waiting for provider cooldown" : crawlPending ? "Background crawl in progress" : crawlStatus.status === "incomplete" ? "Crawl incomplete" : "Crawl cycle complete"}</strong>
+              <p>{crawlStatus.completed_count} of {crawlStatus.total_count} campground checks completed &middot; {crawlStatus.remaining_count} pending &middot; {crawlStatus.failed_count} failed &middot; {crawlStatus.skipped_count} skipped</p>
+              {crawlPending && <progress max={Math.max(1, crawlStatus.total_count)} value={crawlStatus.completed_count} />}
+              {crawlStatus.current_target && crawlStatus.status === "running" && <small>Checking {crawlStatus.current_target}. </small>}
+              {crawlStatus.retry_at && <small>Next attempt after {formatDateTime(crawlStatus.retry_at)}. </small>}
+              {crawlStatus.estimated_remaining_seconds !== null && <small>Estimated remaining: about {Math.max(1, Math.ceil(crawlStatus.estimated_remaining_seconds / 60))} min, including known cooldowns. Further rate limits may extend this. </small>}
+              <small>Availability request spacing: {crawlStatus.effective_request_delay_seconds}s. {crawlStatus.status === "completed" && !crawlStatus.crawl_paused ? "Watching continues as checks become due." : ""}</small>
+              {notificationStatus.channels.length > 0 && !notificationStatus.channels.some((channel) => channel.configured) && <small>Notifications are not configured. <button className="icon-button" onClick={() => openDrawer("settings")}><Bell size={16} />Set up alerts</button></small>}
+            </div>
+            <div className="row-actions">
+              {crawlPending ? <button className="icon-button" onClick={cancelScans} disabled={scanCancelBusy}><Pause size={17} />Pause crawl</button>
+                : <button className="icon-button" onClick={runAllScans} disabled={scanAllBusy || Boolean(runningScan)}><Play size={17} />{crawlStatus.crawl_paused ? "Resume crawl" : "Scan now"}</button>}
+            </div>
+          </section>
+        )}
         {!isLogsPage && (
           <>
             <section className="home-focus" aria-label="Trip control">
@@ -3165,7 +3200,7 @@ export default function App() {
                     <CalendarDays size={17} />
                     <span>Watches</span>
                   </button>
-                  <button className="icon-button" onClick={runAllScans} disabled={scanAllBusy || activeWatches.length === 0} type="button">
+                  <button className="icon-button" onClick={runAllScans} disabled={scanAllBusy || crawlPending || activeWatches.length === 0} type="button">
                     <Play size={17} />
                     <span>{scanAllBusy ? "Scanning" : "Scan Now"}</span>
                   </button>
@@ -3177,9 +3212,9 @@ export default function App() {
               </div>
 
               <div className="home-focus-side">
-                <div className={`scan-status-card focus-scan ${scanInProgress ? "running" : ""}`} aria-live="polite">
+                <div className={`scan-status-card focus-scan ${scanWorking ? "running" : ""}`} aria-live="polite">
                   <span className="scan-status-icon">
-                    {scanInProgress ? <RefreshCw className="spinning" size={20} /> : <Activity size={20} />}
+                    {scanWorking ? <RefreshCw className="spinning" size={20} /> : <Activity size={20} />}
                   </span>
                   <span>
                     <strong>{activeScanTitle}</strong>
@@ -3372,7 +3407,7 @@ export default function App() {
             <div className="diagnostic-grid">
               <article className="diagnostic-card">
                 <span className={`status ${scanInProgress ? "calm" : "quiet"}`}>
-                  {scanInProgress ? "running" : "idle"}
+                  {crawlStatus?.crawl_paused ? "paused" : crawlStatus?.status === "waiting" ? "waiting" : scanWorking ? "running" : crawlPending ? "queued" : "idle"}
                 </span>
                 <strong>{activeScanTitle}</strong>
                 <small>{activeScanDetail}</small>
@@ -4240,9 +4275,9 @@ export default function App() {
                 <SummaryMetric label="Notifications" value={notifications.length.toString()} icon={<Bell size={18} />} />
                 <SummaryMetric label="Active matches" value={activeResultCount.toString()} icon={<CheckCircle2 size={18} />} />
               </div>
-              <div className={`scan-status-card embedded ${scanInProgress ? "running" : ""}`} aria-live="polite">
+              <div className={`scan-status-card embedded ${scanWorking ? "running" : ""}`} aria-live="polite">
                 <span className="scan-status-icon">
-                  {scanInProgress ? <RefreshCw className="spinning" size={20} /> : <Activity size={20} />}
+                  {scanWorking ? <RefreshCw className="spinning" size={20} /> : <Activity size={20} />}
                 </span>
                 <span>
                   <strong>{activeScanTitle}</strong>

@@ -228,6 +228,20 @@ small {
   color: var(--danger);
 }
 
+.crawl-status {
+  order: 3;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 0;
+  border-block: 1px solid var(--line);
+}
+.crawl-status > div:first-child { flex: 1 1 280px; min-width: 0; overflow-wrap: anywhere; }
+.crawl-status small { display: block; }
+.crawl-status progress { display: block; width: min(100%, 420px); height: 10px; margin: 8px 0; accent-color: var(--forest); }
+
 .home-focus {
   order: 7;
   display: grid;

@@ -29,6 +29,14 @@ This review covers finding available campsites, managing regional watches, bulk 
 
 ## Operational follow-up
 
+### Continuous crawl verification (2026-11-17)
+
+- Backend suite: 92 tests passed, including durable queue recovery, cooldown suppression, Retry-After dates, adaptive pacing, partial-result notifications, and pausing one watch without pausing the entire crawl.
+- The full-scan endpoint returns HTTP 202 before provider work finishes; repeated starts reuse the pending cycle.
+- The frontend production build passed. Desktop and 390px mobile checks confirmed the pending counts, cooldown deadline, conditional ETA, and missing-notification warning.
+- An isolated two-watch queue retained its pending work through pause and resume. The local Washington watch retained all 312 pending checks and its existing cooldown. No test bypassed the provider cooldown.
+- Production deployment and a full live 312-campground cycle remain unverified. Automated tests use fake provider responses; passing them does not establish a rate-limit-free request interval.
+
 Production logs confirmed `sqlite3.OperationalError: database is locked` on a settings read while the old health endpoint reported success. They do not identify the lock holder. The supplied host mount is local Unraid appdata, so an SMB/NFS mount has not been established as the cause. Check competing database users, share placement, backup/mover activity, and storage health before changing production storage.
 
 The local WAL/concurrency tests do not prove that production's underlying lock cause is resolved. Production deployment and post-deployment checks remain operator-controlled. Stop the container and back up the full appdata directory before updating. Never remove SQLite journal files to force a lock clear.
