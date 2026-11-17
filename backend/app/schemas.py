@@ -106,6 +106,11 @@ class WatchCreate(BaseModel):
         return unique
 
 
+class WatchGroupCreate(BaseModel):
+    target_ids: list[int] = Field(min_length=1, max_length=500)
+    watch: WatchCreate
+
+
 class WatchUpdate(BaseModel):
     target_id: int | None = None
     name: str | None = Field(default=None, min_length=1, max_length=120)
@@ -134,6 +139,7 @@ class WatchUpdate(BaseModel):
 
 
 class ConfigWatch(BaseModel):
+    group_id: str | None = Field(default=None, max_length=64)
     name: str = Field(min_length=1, max_length=120)
     mode: Literal["weekend", "specific"]
     pattern: str = "fri-sun"

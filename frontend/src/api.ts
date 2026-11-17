@@ -64,6 +64,10 @@ export const api = {
   presets: () => request<PresetPack[]>("/api/presets"),
   sources: () => request<SourceDefinition[]>("/api/sources"),
   watches: () => request<Watch[]>("/api/watches"),
+  createWatchGroup: (target_ids: number[], watch: Record<string, unknown>) =>
+    request<Watch[]>("/api/watch-groups", { method: "POST", body: JSON.stringify({ target_ids, watch }) }),
+  updateWatchGroup: (id: string, payload: Record<string, unknown>) =>
+    request<Watch[]>(`/api/watch-groups/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(payload) }),
   bulkWatches: (watch_ids: number[], action: "pause" | "resume" | "delete") =>
     request<{ updated_count: number }>("/api/watches/bulk", {
       method: "POST", body: JSON.stringify({ watch_ids, action })

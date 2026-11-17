@@ -113,11 +113,15 @@ Ready sources have Check and Import actions. Check runs the live Recreation.gov 
 
 The map is both a navigation tool and a watch builder. Click a park marker or its bounding box to see a park summary, quick campground list, result counts, and a Watch Park button. Click a campground marker to load its Recreation.gov campground details, including description text, activities, amenities, active notices, a Recreation.gov details link, a Google Maps directions link, and a campground image when Recreation.gov returns one. Some Recreation.gov campground records do not include media, so the UI shows a simple placeholder instead of guessing with stock imagery. If Recreation.gov does not return a detail record or rate-limits that lookup, Camp Finder falls back to the saved target record instead of blocking the map panel.
 
-Park regions are approximated from the visible campground coordinates in each park group. Camp Finder draws a convex campground footprint for groups with three or more distinct campground points, a corridor for two-point groups, and a small local footprint for one-point groups. Hovering a park row, park footprint, campground row, or campground marker highlights the matching item on the other side of the map/list pair. The Park Queue checkbox highlights that group's map footprint and adds it to the selected group set. Use Watch Selected to open the watch form with the Selected park groups scope; Camp Finder then creates one ordinary watch rule per active imported target in those groups.
+Park regions are approximated from the visible campground coordinates in each park group. Camp Finder draws a convex campground footprint for groups with three or more distinct campground points, a corridor for two-point groups, and a small local footprint for one-point groups. Hovering a park row, park footprint, campground row, or campground marker highlights the matching item on the other side of the map/list pair. The Park Queue checkbox highlights that group's map footprint and adds it to the selected group set. Use Watch Selected to open the watch form with the Selected park groups scope and create one regional watch.
 
 These local footprints are meant for watch selection, not legal park boundaries. A future boundary-source integration could use a provider such as Google Maps data-driven boundary styling, OpenStreetMap boundary data, or an official park boundary dataset, but that would need provider credentials, data licensing review, and a cache model before replacing the local campground-footprint polygons.
 
-Bulk watch scopes create ordinary watch rules behind the scenes. If you choose a park, selected park groups, state, or current map view, Camp Finder creates one watch per active imported target in that scope, using the same date pattern and filters from the watch form. Preset-only markers can be inspected from the map, but they need to be imported as targets before a recurring watch can scan them.
+Park, selected-park, state, and map-view watches appear as one regional listing. Expand Campgrounds to inspect individual scan schedules, run a campground check, or pause a member. The group controls edit the shared dates and filters, select all members, pause/resume the region, or delete it after confirmation. A group edit applies to every remaining member. Creation and shared edits are atomic: a failed request does not save half a region.
+
+Membership is the set of active imported targets selected when the regional watch is created, not a live geographic subscription. Importing another campground later does not automatically add it to existing watches. Preset-only markers must be imported before they can be watched. Existing ungrouped watches are left unchanged rather than guessing which ones belong together. Group IDs survive configuration export/import. The scanner still keeps a separate schedule and history for each campground, while dashboard watch counts represent regional listings.
+
+Availability Results appears above the map and park queue on desktop and mobile. Existing watches and bulk actions appear before the collapsible Add Watch form in the Watches drawer.
 
 Use the current map view scope for practical regions that do not line up with park or state names. Pan and zoom the Washington-centered map until the campgrounds you care about are visible, click Watch View, confirm the dates and filters, then save. A freehand polygon selector is not implemented yet, but the map-bounds scope covers the common "everything in this area for Friday and Saturday" workflow without adding another drawing mode.
 
@@ -277,7 +281,13 @@ Availability results include the Recreation.gov booking link plus status actions
 
 Each successful scan also revalidates active results for the same watch and date ranges. If a previously active site/date match is not returned again, Camp Finder marks it booked and removes it from the active list. Scan errors and Recreation.gov rate limits do not clear old results, because those runs did not prove the match disappeared.
 
-Results are grouped by national park, campground, and stay dates. Campground and stay sections start collapsed so the list is easier to scan after large result bursts. The dashboard loads up to 2,000 recent result rows so large scans can still be searched, grouped, selected, and handled in bulk. It also shows server-side total and active counts, and warns if the loaded working set is clipped. Use the status filter and search field to narrow the dashboard before selecting results. Bulk actions apply to selected results only; Clear All dismisses every active availability result, which is useful when a scan finds many sites that you do not want to pursue.
+Results are grouped by national park, campground, and stay dates. When 12 or fewer results match the current filters, campground and stay sections open automatically so sites are immediately visible. Larger result sets start collapsed below the park level. Your explicit expand/collapse choices take precedence until the page is reloaded. The dashboard loads up to 2,000 recent result rows, shows server-side total and active counts, and warns if the loaded working set is clipped. Use the status filter and search field to narrow the dashboard before selecting results. Bulk actions apply to selected results only; Clear All dismisses every active availability result.
+
+These screenshots use synthetic local test data, not live availability:
+
+![Availability-first desktop dashboard with sample sites](docs/screenshots/availability-first-demo.png)
+
+![One regional watch covering two campgrounds on mobile](docs/screenshots/regional-watch-demo.png)
 
 For high-priority trips, enable Cart Assist on the watch rule. When a new match appears, the scanner writes a Cart Assist attempt with one of these statuses:
 
@@ -381,6 +391,8 @@ The dashboard refreshes sections independently, so a failed settings request no 
 For repeated errors, collect `docker compose logs --since 30m --tail 200 campfinder` and check the host path mounted at `/data`. SQLite uses WAL mode to let readers continue during writes. Keep the database on a local disk, not an SMB/NFS mount or an actively cloud-synced directory. WAL does not fix damaged storage or a long-running writer.
 
 Before troubleshooting storage or upgrading, stop the container and back up the entire appdata directory, including any `-wal` and `-shm` files. Do not delete journal files to clear a lock. Restart only after checking the logs and storage location. A healthy read probe alone does not prove that scans or writes are succeeding.
+
+On Unraid, `/mnt/user/appdata/...` is a user-share view over local storage, not evidence of an SMB mount. Check the appdata share's actual pool/array placement, free space, mover/backup activity, and whether another container opens the same database. The path alone does not diagnose a lock. Do not copy between `/mnt/user` and a direct disk/pool path for the same files; see the [Unraid share documentation](https://docs.unraid.net/unraid-os/using-unraid-to/manage-storage/shares/). A traceback ending in `sqlite3.OperationalError: database is locked` confirms lock contention, but does not identify the process holding the lock or imply corruption.
 
 ## Next Useful Phases
 

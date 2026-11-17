@@ -229,7 +229,7 @@ small {
 }
 
 .home-focus {
-  order: 3;
+  order: 7;
   display: grid;
   grid-template-columns: minmax(0, 0.92fr) minmax(360px, 1.08fr);
   gap: 16px;
@@ -1057,12 +1057,12 @@ small {
 
 .content-grid.lower .results-panel {
   grid-column: 1 / -1;
-  grid-row: 2;
+  grid-row: 1;
 }
 
 .content-grid.lower .map-dashboard {
   grid-column: 1 / -1;
-  grid-row: 1;
+  grid-row: 2;
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(300px, 360px);
   gap: 12px;
@@ -1522,6 +1522,24 @@ small {
 .search-box input,
 .target-settings-form input,
 .target-settings-form select,
+#watches:not(.drawer-panel-hidden) {
+  display: grid;
+  gap: 16px;
+}
+
+#watches > .watch-list { grid-row: 2; }
+#watches > .watch-editor { grid-row: 3; }
+.watch-editor > summary, .watch-members > summary {
+  cursor: pointer;
+  padding: 12px 0;
+  font-weight: 650;
+}
+.watch-group { border-bottom: 1px solid var(--line); min-width: 0; }
+.watch-group-label { display: flex; gap: 10px; align-items: flex-start; min-width: 0; }
+.watch-group-label small { display: block; overflow-wrap: anywhere; }
+.watch-members { padding-left: 12px; }
+.watch-group input[type="checkbox"] { width: 18px; height: 18px; flex: 0 0 18px; }
+
 .watch-form input,
 .watch-form select {
   width: 100%;
@@ -2602,7 +2620,7 @@ th {
   }
 
   .content-grid.lower .results-panel {
-    order: 2;
+    order: 1;
     grid-column: auto;
     grid-row: auto;
     max-height: none;
@@ -2611,7 +2629,7 @@ th {
   }
 
   .content-grid.lower .map-dashboard {
-    order: 1;
+    order: 2;
     grid-column: auto;
     grid-row: auto;
     grid-template-columns: 1fr;
@@ -2671,7 +2689,7 @@ th {
   }
 
   .summary-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .logs-summary-grid,
@@ -2843,7 +2861,6 @@ th {
     overflow-x: auto;
   }
 
-  .topbar-actions,
   .focus-action-row {
     grid-template-columns: 1fr;
   }

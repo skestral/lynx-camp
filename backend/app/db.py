@@ -3,10 +3,11 @@ from __future__ import annotations
 import json
 import sqlite3
 from collections.abc import Iterable
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 from .app_settings import EXPORTABLE_APP_SETTING_KEYS, SECRET_APP_SETTING_KEYS
 from .coordinates import CAMPGROUND_COORDINATES
@@ -215,6 +216,8 @@ class Store:
             self._ensure_column(conn, "results", "booked_at", "TEXT")
             self._ensure_column(conn, "results", "dismissed_at", "TEXT")
             self._backfill_result_booking_urls(conn)
+            self._ensure_column(conn, "watches", "group_id", "TEXT")
+            conn.execute("CREATE INDEX IF NOT EXISTS watches_group_id ON watches(group_id)")
 
     @staticmethod
     def _ensure_column(conn: sqlite3.Connection, table_name: str, column_name: str, definition: str) -> None:
@@ -396,19 +399,19 @@ class Store:
             ).fetchall()
             return [self._inflate_watch(_row_to_dict(row) or {}) for row in rows]
 
-    def create_watch(self, data: dict[str, Any]) -> dict[str, Any]:
+    def create_watch(self, data: dict[str, Any], _conn=None) -> dict[str, Any]:
         now = utc_now()
         specific_ranges = data.get("specific_ranges") or []
         arrival_weekdays = data.get("arrival_weekdays")
         site_filters = data.get("site_filters") or {}
-        with self.connect() as conn:
+        with (nullcontext(_conn) if _conn is not None else self.connect()) as conn:
             cursor = conn.execute(
                 """
                 INSERT INTO watches (
                     target_id, name, mode, pattern, nights, window_start, window_end,
                     arrival_weekdays_json, site_filters_json, specific_ranges_json,
-                    active, cart_assist_enabled, next_scan_at, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    active, cart_assist_enabled, next_scan_at, created_at, updated_at, group_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     int(data["target_id"]),
@@ -426,21 +429,42 @@ class Store:
                     now,
                     now,
                     now,
+                    data.get("group_id"),
                 ),
             )
             watch_id = int(cursor.lastrowid)
-        return self.get_watch(watch_id) or {}
+        return self.get_watch(watch_id, _conn) or {}
 
-    def get_watch_by_target_and_name(self, target_id: int, name: str) -> dict[str, Any] | None:
+    def create_watch_group(self, target_ids: list[int], data: dict[str, Any]) -> list[dict]:
+        group_id = str(uuid4())
+        # One transaction prevents a failed region creation from leaving partial watches.
+        with self.connect() as conn:
+            ids = sorted(set(target_ids))
+            if not ids:
+                raise ValueError("Select at least one campground")
+            for target_id in ids:
+                target = conn.execute("SELECT active FROM targets WHERE id = ?", (target_id,)).fetchone()
+                if not target or not target["active"]:
+                    raise ValueError("All selected campgrounds must exist and be active")
+            return [self.create_watch({**data, "target_id": target_id, "group_id": group_id}, conn) for target_id in ids]
+
+    def update_watch_group(self, group_id: str, data: dict[str, Any]) -> list[dict]:
+        if "target_id" in data or "group_id" in data:
+            raise ValueError("Group edits cannot change campground membership")
+        with self.connect() as conn:
+            ids = [row[0] for row in conn.execute("SELECT id FROM watches WHERE group_id = ?", (group_id,))]
+            return [self.update_watch(watch_id, data, conn) for watch_id in ids]
+
+    def get_watch_by_target_and_name(self, target_id: int, name: str, group_id: str | None = None) -> dict[str, Any] | None:
         with self.connect() as conn:
             row = conn.execute(
-                "SELECT id FROM watches WHERE target_id = ? AND name = ? ORDER BY id LIMIT 1",
-                (target_id, name),
+                "SELECT id FROM watches WHERE target_id = ? AND name = ? AND group_id IS ? ORDER BY id LIMIT 1",
+                (target_id, name, group_id),
             ).fetchone()
         return self.get_watch(int(row["id"])) if row else None
 
-    def get_watch(self, watch_id: int) -> dict[str, Any] | None:
-        with self.connect() as conn:
+    def get_watch(self, watch_id: int, _conn=None) -> dict[str, Any] | None:
+        with (nullcontext(_conn) if _conn is not None else self.connect()) as conn:
             row = conn.execute(
                 """
                 SELECT
@@ -511,6 +535,7 @@ class Store:
             "poll_interval_minutes",
         ]
         watch_fields = [
+            "group_id",
             "name",
             "mode",
             "pattern",
@@ -624,6 +649,7 @@ class Store:
                 if not watch_name:
                     raise ValueError("each watch must include name")
                 watch_payload = {
+                    "group_id": watch_config.get("group_id"),
                     "target_id": target["id"],
                     "name": watch_name,
                     "mode": watch_config.get("mode") or "weekend",
@@ -637,7 +663,7 @@ class Store:
                     "cart_assist_enabled": bool(watch_config.get("cart_assist_enabled", False)),
                     "active": bool(watch_config.get("active", True)),
                 }
-                existing_watch = self.get_watch_by_target_and_name(target["id"], watch_name)
+                existing_watch = self.get_watch_by_target_and_name(target["id"], watch_name, watch_payload["group_id"])
                 if existing_watch:
                     self.update_watch(existing_watch["id"], watch_payload)
                     updated_watches += 1
@@ -670,8 +696,8 @@ class Store:
             "skipped_settings": skipped_settings,
         }
 
-    def update_watch(self, watch_id: int, data: dict[str, Any]) -> dict[str, Any] | None:
-        current = self.get_watch(watch_id)
+    def update_watch(self, watch_id: int, data: dict[str, Any], _conn=None) -> dict[str, Any] | None:
+        current = self.get_watch(watch_id, _conn)
         if current is None:
             return None
         updates = dict(data)
@@ -686,6 +712,7 @@ class Store:
         set_parts = []
         values: list[Any] = []
         scalar_fields = [
+            "group_id",
             "target_id",
             "name",
             "mode",
@@ -722,9 +749,9 @@ class Store:
         values.append(utc_now())
         values.append(watch_id)
 
-        with self.connect() as conn:
+        with (nullcontext(_conn) if _conn is not None else self.connect()) as conn:
             conn.execute(f"UPDATE watches SET {', '.join(set_parts)} WHERE id = ?", values)
-        return self.get_watch(watch_id)
+        return self.get_watch(watch_id, _conn)
 
     def due_watches(self, limit: int = 5) -> list[dict[str, Any]]:
         now = utc_now()

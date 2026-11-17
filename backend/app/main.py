@@ -30,6 +30,7 @@ from .schemas import (
     WatchCreate,
     WatchUpdate,
     WatchBulkUpdate,
+    WatchGroupCreate,
 )
 from .settings import settings
 from .sources import discover_source, import_source, list_source_definitions
@@ -319,6 +320,27 @@ async def bulk_watches(payload: WatchBulkUpdate) -> dict:
     if payload.action == "pause" and scanner.active_watch_id in payload.watch_ids:
         scanner.cancel_current_scan()
     return {"updated_count": count, "action": payload.action}
+
+
+@app.post("/api/watch-groups")
+def create_watch_group(payload: WatchGroupCreate) -> list[dict]:
+    try:
+        return store.create_watch_group(payload.target_ids, payload.watch.model_dump(mode="json"))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.patch("/api/watch-groups/{group_id}")
+async def update_watch_group(group_id: str, payload: WatchUpdate) -> list[dict]:
+    if scanner.is_busy:
+        raise HTTPException(status_code=409, detail="Stop the current scan before editing a regional watch.")
+    try:
+        watches = store.update_watch_group(group_id, payload.model_dump(exclude_unset=True, mode="json"))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if not watches:
+        raise HTTPException(status_code=404, detail="Regional watch not found")
+    return watches
 
 
 @app.post("/api/watches/{watch_id}/scan")

@@ -71,3 +71,71 @@ def test_health_checks_database_and_reports_lock_errors(store, monkeypatch):
     assert response.status_code == 503
     assert response.headers["Retry-After"] == "5"
     assert "Database is busy" in response.json()["detail"]
+
+
+def group_targets_and_payload(store):
+    first = store.list_targets()[0]
+    second = store.create_target({"name": "Other", "campground_id": "456"})
+    return [first["id"], second["id"]], {
+        "name": "Regional weekends", "mode": "weekend", "target_id": first["id"],
+        "window_start": "2027-07-01", "window_end": "2027-07-31", "active": False,
+    }
+
+
+def test_region_create_edit_and_backup_preserve_membership(store, tmp_path):
+    ids, payload = group_targets_and_payload(store)
+    members = store.create_watch_group(ids + ids, payload)
+    assert len(members) == 2
+    group_id = members[0]["group_id"]
+    assert group_id and {watch["group_id"] for watch in members} == {group_id}
+    updated = store.update_watch_group(group_id, {"name": "Summer weekends", "nights": 3})
+    assert all(watch["name"] == "Summer weekends" and watch["nights"] == 3 for watch in updated)
+    # An independently created group with the same name must not collapse on import.
+    store.create_watch_group(ids, {**payload, "name": "Summer weekends"})
+    from backend.app.schemas import ConfigBackup
+    backup = ConfigBackup.model_validate(store.export_config()).model_dump(mode="json")
+    restored = Store(tmp_path / "restored.db")
+    restored.init()
+    restored.import_config(backup)
+    restored.import_config(backup)
+    grouped = [watch for watch in restored.list_watches() if watch["group_id"]]
+    assert len(grouped) == 4
+    assert len({watch["group_id"] for watch in grouped}) == 2
+    assert len(restored.list_watches()) == len(store.list_watches())
+
+
+def test_region_creation_rolls_back_on_partial_failure(store, monkeypatch):
+    ids, payload = group_targets_and_payload(store)
+    original = store.create_watch
+    before = len(store.list_watches())
+    calls = []
+
+    def fail_second(data, conn=None):
+        calls.append(data)
+        if len(calls) == 2:
+            raise RuntimeError("injected write failure")
+        return original(data, conn)
+
+    monkeypatch.setattr(store, "create_watch", fail_second)
+    with pytest.raises(RuntimeError):
+        store.create_watch_group(ids, payload)
+    assert len(store.list_watches()) == before
+
+
+def test_region_api_validation_and_edit(store, monkeypatch):
+    ids, payload = group_targets_and_payload(store)
+    monkeypatch.setattr(main, "store", store)
+    monkeypatch.setattr(main, "scanner", SimpleNamespace(is_busy=False))
+    client = TestClient(main.app)
+    assert client.post("/api/watch-groups", json={"target_ids": [], "watch": payload}).status_code == 422
+    assert client.post("/api/watch-groups", json={"target_ids": [9999], "watch": payload}).status_code == 400
+    response = client.post("/api/watch-groups", json={"target_ids": ids, "watch": payload})
+    assert response.status_code == 200
+    group_id = response.json()[0]["group_id"]
+    response = client.patch(f"/api/watch-groups/{group_id}", json={"nights": 3})
+    assert response.status_code == 200
+    assert all(watch["nights"] == 3 for watch in response.json())
+    assert client.patch(f"/api/watch-groups/{group_id}", json={"target_id": ids[0]}).status_code == 400
+    assert client.patch("/api/watch-groups/missing", json={"nights": 3}).status_code == 404
+    main.scanner.is_busy = True
+    assert client.patch(f"/api/watch-groups/{group_id}", json={"nights": 4}).status_code == 409

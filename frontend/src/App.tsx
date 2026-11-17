@@ -32,6 +32,7 @@ import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { RESULTS_LIMIT, api } from "./api";
+import { WatchGroup } from "./WatchGroup";
 import type {
   CartAssistStatus,
   CartAttempt,
@@ -795,11 +796,15 @@ export default function App() {
   const [cartAssistConfigBusy, setCartAssistConfigBusy] = useState<"save" | "clear" | null>(null);
   const [cartAttemptBusyId, setCartAttemptBusyId] = useState<number | null>(null);
   const [loadState, setLoadState] = useState<LoadState>("idle");
+  const [refreshError, setRefreshError] = useState("");
   const [message, setMessage] = useState("");
   const [query, setQuery] = useState("");
   const [suggestions, setSuggestions] = useState<SearchSuggestion[]>([]);
   const [searching, setSearching] = useState(false);
   const [editingWatchId, setEditingWatchId] = useState<number | null>(null);
+  const [editingGroupId, setEditingGroupId] = useState<string | null>(null);
+  const [watchSaveBusy, setWatchSaveBusy] = useState(false);
+  const [watchEditorOpen, setWatchEditorOpen] = useState(false);
   const [watchName, setWatchName] = useState("");
   const [watchScope, setWatchScope] = useState<WatchScope>("target");
   const [watchPark, setWatchPark] = useState("");
@@ -871,6 +876,15 @@ export default function App() {
 
   const activeTargets = targets.filter((target) => target.active);
   const activeWatches = watches.filter((watch) => watch.active && watch.target_active);
+  const watchGroups = useMemo(() => {
+    const groups = new Map<string, Watch[]>();
+    for (const watch of watches) {
+      const key = watch.group_id || `single:${watch.id}`;
+      groups.set(key, [...(groups.get(key) || []), watch]);
+    }
+    return [...groups.entries()];
+  }, [watches]);
+  const activeWatchCount = new Set(activeWatches.map((watch) => watch.group_id || `single:${watch.id}`)).size;
   const activeResults = results.filter(isActiveAvailability);
   const loadedResultCount = results.length;
   const totalResultCount = resultSummary.total_count || loadedResultCount;
@@ -971,7 +985,7 @@ export default function App() {
   ) : (
     "Ready when watches are added."
   );
-  const watchSummary = `${activeWatches.length} active watch${activeWatches.length === 1 ? "" : "es"}`;
+  const watchSummary = `${activeWatchCount} active watch${activeWatchCount === 1 ? "" : "es"}`;
   const latestRelease = useMemo(
     () =>
       activeWatches
@@ -1044,7 +1058,7 @@ export default function App() {
     : activeResultCount > 0
       ? `${activeResultCount} active match${activeResultCount === 1 ? "" : "es"} ready for review.`
       : activeWatches.length > 0
-        ? `${activeWatches.length} active watch${activeWatches.length === 1 ? "" : "es"} covering ${activeTargets.length} campground${activeTargets.length === 1 ? "" : "s"}.`
+        ? `${activeWatchCount} active watch${activeWatchCount === 1 ? "" : "es"} covering ${new Set(activeWatches.map((watch) => watch.target_id)).size} campgrounds.`
         : targets.length > 0
           ? `${targets.length} campground target${targets.length === 1 ? "" : "s"} saved.`
           : "No campground targets saved yet.";
@@ -1474,7 +1488,7 @@ export default function App() {
     ]);
     const failures = outcomes.filter((outcome): outcome is PromiseRejectedResult => outcome.status === "rejected");
     setLoadState(failures.length ? "error" : "idle");
-    if (failures.length) setMessage(failures.map((failure) => failure.reason instanceof Error ? failure.reason.message : "Request failed").join("; "));
+    setRefreshError(failures.map((failure) => failure.reason instanceof Error ? failure.reason.message : "Request failed").join("; "));
   }
 
   useEffect(() => {
@@ -1634,12 +1648,15 @@ export default function App() {
 
   function resetWatchForm() {
     setEditingWatchId(null);
+    setEditingGroupId(null);
+    setWatchEditorOpen(false);
     setWatchName("");
     setWatchScope("target");
     setCartAssistEnabled(false);
   }
 
-  function editWatch(watch: Watch) {
+  function editWatch(watch: Watch, groupId: string | null = null) {
+    setEditingGroupId(groupId);
     setEditingWatchId(watch.id);
     setWatchName(watch.name);
     setWatchScope("target");
@@ -1892,6 +1909,7 @@ export default function App() {
 
   async function submitWatch(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (watchSaveBusy) return;
     const selectedTargets = selectedWatchTargets();
     if (selectedTargets.length === 0) {
       setMessage(
@@ -1929,10 +1947,22 @@ export default function App() {
         : [],
       cart_assist_enabled: cartAssistEnabled
     };
-    if (editingWatchId) {
+    setWatchSaveBusy(true);
+    try {
+    if (editingGroupId) {
+      const { target_id: _targetId, ...groupPayload } = payload;
+      await api.updateWatchGroup(editingGroupId, groupPayload);
+      setMessage(`Updated regional watch ${baseName}.`);
+      resetWatchForm();
+    } else if (editingWatchId) {
       const updated = await api.updateWatch(editingWatchId, payload);
       setMessage(`Updated ${updated.name}.`);
       resetWatchForm();
+    } else if (watchScope !== "target") {
+      await api.createWatchGroup(selectedTargets.map((target) => target.id), payload);
+      setMessage(`Added ${baseName} across ${selectedTargets.length} campgrounds.`);
+      setWatchName("");
+      setCartAssistEnabled(false);
     } else {
       let createdCount = 0;
       let skippedCount = 0;
@@ -1984,6 +2014,11 @@ export default function App() {
       setCartAssistEnabled(false);
     }
     await refresh();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unable to save watch.");
+    } finally {
+      setWatchSaveBusy(false);
+    }
   }
 
   async function runScan(watchId: number) {
@@ -2291,11 +2326,11 @@ export default function App() {
   }
 
   function isResultGroupOpen(groupId: string) {
-    return resultGroupOpen[groupId] ?? groupId.startsWith("park:");
+    return resultGroupOpen[groupId] ?? (groupId.startsWith("park:") || filteredResults.length <= 12);
   }
 
   function toggleResultGroup(groupId: string) {
-    setResultGroupOpen((current) => ({ ...current, [groupId]: !(current[groupId] ?? true) }));
+    setResultGroupOpen((current) => ({ ...current, [groupId]: !(current[groupId] ?? (groupId.startsWith("park:") || filteredResults.length <= 12)) }));
   }
 
   function toggleResultSelection(resultId: number) {
@@ -2470,6 +2505,10 @@ export default function App() {
   }
 
   function selectedWatchTargets() {
+    if (editingGroupId) {
+      const ids = new Set(watches.filter((watch) => watch.group_id === editingGroupId).map((watch) => watch.target_id));
+      return targets.filter((target) => ids.has(target.id));
+    }
     if (editingWatchId || watchScope === "target") {
       const target = targetById.get(Number(watchTarget));
       return target ? [target] : [];
@@ -2487,18 +2526,21 @@ export default function App() {
   }
 
   function watchScopeSummary() {
+    if (editingGroupId) return `Editing one regional watch across ${selectedWatchTargets().length} campgrounds.`;
     const selected = selectedWatchTargets();
     if (editingWatchId) return "Editing one existing watch.";
     if (watchScope === "target") return "Creates one watch for the selected campground.";
-    if (watchScope === "park") return `Creates ${selected.length} watch rule${selected.length === 1 ? "" : "s"} across ${watchPark || "this park"}.`;
-    if (watchScope === "state") return `Creates ${selected.length} watch rule${selected.length === 1 ? "" : "s"} across ${watchStateCode || "this state"}.`;
+    if (watchScope === "park") return `One regional watch, ${selected.length} campgrounds in ${watchPark || "this park"}.`;
+    if (watchScope === "state") return `One regional watch, ${selected.length} campgrounds in ${watchStateCode || "this state"}.`;
     if (watchScope === "selection") {
-      return `Creates ${selected.length} watch rule${selected.length === 1 ? "" : "s"} across ${selectedParkGroups.length} selected park group${selectedParkGroups.length === 1 ? "" : "s"}.`;
+      return `One regional watch, ${selected.length} campgrounds across ${selectedParkGroups.length} selected park groups.`;
     }
-    return `Creates ${selected.length} watch rule${selected.length === 1 ? "" : "s"} inside the current map view.`;
+    return `One regional watch, ${selected.length} campgrounds inside the current map view.`;
   }
 
   function openWatchBuilderForPark(parkName: string) {
+    setEditingGroupId(null);
+    setWatchEditorOpen(true);
     setWatchScope("park");
     setWatchPark(parkName);
     setEditingWatchId(null);
@@ -2506,6 +2548,8 @@ export default function App() {
   }
 
   function openWatchBuilderForCampground(campground: CampgroundMapPoint) {
+    setEditingGroupId(null);
+    setWatchEditorOpen(true);
     if (!campground.targetId) {
       setMessage("Import this campground as a target before creating a watch.");
       return;
@@ -2517,6 +2561,8 @@ export default function App() {
   }
 
   function openWatchBuilderForMapView() {
+    setEditingGroupId(null);
+    setWatchEditorOpen(true);
     setWatchScope("map");
     setEditingWatchId(null);
     const count = activeTargetsInMapView().length;
@@ -2529,6 +2575,8 @@ export default function App() {
   }
 
   function openWatchBuilderForSelectedParks() {
+    setEditingGroupId(null);
+    setWatchEditorOpen(true);
     if (selectedParkGroups.length === 0) {
       setMessage("Select one or more park groups before creating a selected-region watch.");
       return;
@@ -3070,7 +3118,7 @@ export default function App() {
         </header>
 
         {message && <div className="notice">{message}</div>}
-        {loadState === "error" && <div className="notice danger">Some dashboard data could not be refreshed. Previously loaded data may be stale. {message}</div>}
+        {refreshError && <div className="notice danger" role="alert">Some dashboard data could not be refreshed. Previously loaded data may be stale. {refreshError}</div>}
         {!isLogsPage && (
           <>
             <section className="home-focus" aria-label="Trip control">
@@ -3145,7 +3193,7 @@ export default function App() {
 
             <section className="summary-grid" aria-label="Monitor summary">
               <SummaryMetric label="Targets" value={activeTargets.length.toString()} icon={<MapPin size={18} />} />
-              <SummaryMetric label="Active watches" value={activeWatches.length.toString()} icon={<CalendarDays size={18} />} />
+              <SummaryMetric label="Active watches" value={activeWatchCount.toString()} icon={<CalendarDays size={18} />} />
               <SummaryMetric label="Active matches" value={activeResultCount.toString()} icon={<CheckCircle2 size={18} />} />
               <SummaryMetric label="Notifications" value={notifications.length.toString()} icon={<Bell size={18} />} />
             </section>
@@ -3642,6 +3690,8 @@ export default function App() {
                 <p>Scan weekend patterns or exact stays for each target.</p>
               </div>
             </div>
+            <details className="watch-editor" open={watchEditorOpen || Boolean(editingWatchId) || watches.length === 0} onToggle={(event) => setWatchEditorOpen(event.currentTarget.open)}>
+            <summary>{editingGroupId ? "Edit Regional Watch" : editingWatchId ? "Edit Watch" : "Add Watch"}</summary>
             <form className="watch-form" onSubmit={submitWatch}>
               <label>
                 Name
@@ -3651,17 +3701,18 @@ export default function App() {
                 Scope
                 <select
                   disabled={Boolean(editingWatchId)}
-                  value={editingWatchId ? "target" : watchScope}
+                  value={editingGroupId ? "region" : editingWatchId ? "target" : watchScope}
                   onChange={(event) => setWatchScope(event.target.value as WatchScope)}
                 >
                   <option value="target">One campground</option>
+                  {editingGroupId && <option value="region">Regional watch</option>}
                   <option value="park">Park group</option>
                   <option value="state">State</option>
                   <option value="map">Current map view</option>
                   <option value="selection">Selected park groups</option>
                 </select>
               </label>
-              {(editingWatchId || watchScope === "target") && (
+              {!editingGroupId && (editingWatchId || watchScope === "target") && (
                 <label>
                   Target
                   <select value={watchTarget} onChange={(event) => setWatchTarget(event.target.value)}>
@@ -3788,7 +3839,7 @@ export default function App() {
                   type="checkbox"
                 />
               </label>
-              <button className="icon-button" type="submit">
+              <button className="icon-button" type="submit" disabled={watchSaveBusy}>
                 {editingWatchId ? <Save size={18} /> : <Plus size={18} />}
                 <span>{editingWatchId ? "Save Watch" : "Add Watch"}</span>
               </button>
@@ -3799,6 +3850,7 @@ export default function App() {
                 </button>
               )}
             </form>
+            </details>
             <div className="watch-list">
               <div className="map-detail-actions" aria-label="Bulk watch actions">
                 <button className="icon-button" disabled={watchBulkBusy || !watches.length} onClick={() => setSelectedWatchIds(selectedWatchIds.length === watches.length ? [] : watches.map((watch) => watch.id))} type="button"><ListChecks size={16} />{selectedWatchIds.length === watches.length && watches.length ? "Deselect All" : "Select All"}</button>
@@ -3810,13 +3862,17 @@ export default function App() {
                 <small role="status">{watchBulkBusy ? "Updating watches..." : `${selectedWatchIds.length} selected`}</small>
               </div>
               {watches.length === 0 && <p className="empty">No watch rules yet.</p>}
-              {watches.map((watch) => {
+              {watchGroups.map(([key, members]) => (
+                <WatchGroup key={key} members={members} selectedIds={selectedWatchIds} busy={watchBulkBusy || watchSaveBusy}
+                  onSelect={(ids, selected) => setSelectedWatchIds((current) => selected ? [...new Set([...current, ...ids])] : current.filter((id) => !ids.includes(id)))}
+                  onEdit={editWatch} onAction={(action, ids) => void bulkWatchAction(action, ids)}>
+              {members.map((watch) => {
                 const watchPaused = !watch.active || !watch.target_active;
                 return (
                 <article className={`watch-row ${watchPaused ? "inactive" : ""}`} key={watch.id}>
                   <span>
                     <input type="checkbox" aria-label={`Select watch ${watch.name} at ${watch.target_name}`} checked={selectedWatchIds.includes(watch.id)} disabled={watchBulkBusy} onChange={(event) => setSelectedWatchIds((current) => event.target.checked ? [...current, watch.id] : current.filter((id) => id !== watch.id))} />
-                    <strong>{watch.name}</strong>
+                    <strong>{watch.group_id ? watch.target_name : watch.name}</strong>
                     <small>
                       {watch.target_name} &middot; {watch.candidate_count} stays &middot; {filterSummary(watch.site_filters)} &middot;{" "}
                       {watchPaused ? "paused" : `next ${formatDateTime(watch.next_scan_at)}`}
@@ -3829,9 +3885,9 @@ export default function App() {
                       </span>
                     )}
                     <span className={`status ${watchPaused ? "quiet" : "success"}`}>{watchPaused ? "paused" : "active"}</span>
-                    <button className="icon-only" onClick={() => editWatch(watch)} title={`Edit ${watch.name}`}>
+                    {!watch.group_id && <button className="icon-only" onClick={() => editWatch(watch)} title={`Edit ${watch.name}`}>
                       <Pencil size={16} />
-                    </button>
+                    </button>}
                     <button className="icon-only" onClick={() => runScan(watch.id)} disabled={scanBusyId === watch.id || watchPaused} title="Run scan now">
                       <RefreshCw size={17} />
                     </button>
@@ -3854,6 +3910,8 @@ export default function App() {
                 </article>
                 );
               })}
+                </WatchGroup>
+              ))}
             </div>
           </section>
 

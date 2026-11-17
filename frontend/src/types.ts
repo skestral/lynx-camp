@@ -65,6 +65,7 @@ export type DateRange = {
 };
 
 export type Watch = {
+  group_id: string | null;
   id: number;
   target_id: number;
   target_name: string;
