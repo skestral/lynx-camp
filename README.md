@@ -111,6 +111,10 @@ Sources can be filtered to Puget Sound, Olympic Peninsula, Mount Rainier, Snoqua
 - County and regional parks: Snohomish County, King County's Tolt-MacDonald campground, and Skagit County's Howard Miller Steelhead Park have live discovery and exact-stay availability searches. Clallam, Lewis, and Tacoma Power parks have official links but their reservation connectors are not connected. Jefferson County camping is directory-only.
 - Washington state: official Washington State Parks and WA DNR entries. These are research/directory sources for now, with official links, not availability scanners.
 
+Washington State Parks has an optional [private browser diagnostic worker](docs/browser-worker.md)
+for evaluating its normal reservation interface on a Docker server. It is not
+connected to watches or notifications; installing it does not enable state-park monitoring.
+
 Sources labeled **Live monitoring** have Check and Import actions. Check discovers campgrounds from that provider; Import creates or updates targets by provider-qualified ID. **Not connected** and **Directory only** entries cannot be imported into the scanner. An official listing or an open park does not establish nightly campsite availability.
 
 ### Snohomish County Setup

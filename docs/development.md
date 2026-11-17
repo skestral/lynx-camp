@@ -51,6 +51,11 @@ Active watches start background work as soon as the server starts. Use the read-
 | `frontend/src/App.tsx`, `WatchGroup.tsx`, `SavedTargets.tsx` | Dashboard, drawers, logs, regional watch controls, grouped target inventory |
 | `frontend/src/api.ts`, `types.ts` | Frontend API calls and response contracts |
 | `backend/tests/` | Unit and API tests with isolated databases and fake providers |
+| `browser_worker/`, `compose.browser.yaml` | Optional isolated browser console and read-only search inspector, not a live provider |
+
+The optional [browser worker guide](browser-worker.md) covers its separate Docker
+setup and offline test harness. It is not started by the main Compose file and has
+no access to the application's database, settings, or notification credentials.
 
 ## Scan Lifecycle
 

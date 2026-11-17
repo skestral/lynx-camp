@@ -12,13 +12,13 @@ The first requirement is a permitted data-access path and its usage limits. Do n
 
 The reservation workflow was inspected in the owner's existing Edge session on November 17, 2026, after an explicit handoff. Anonymous camping and roofed results loaded there. This does not establish access from a Docker browser or identify why the development browser was denied.
 
-A browser connector is an alternative to a direct API integration where permitted. The next gate is an isolated Docker browser with a private interactive setup path, followed by bounded validation of the same normal workflow. Do not export challenge cookies or replay browser credentials through a denied API.
+A browser connector is an alternative to a direct API integration where permitted. An [isolated Docker browser worker](browser-worker.md) now provides a private console and read-only inspection of a manually submitted search. Its runtime and synthetic-page checks pass; Washington access from that worker and complete live-result collection have not been verified. Do not export challenge cookies or replay browser credentials through a denied API.
 
 For unattended remote hosting, the proposed design is a dedicated browser worker alongside Camp Finder, with a separate persistent profile under appdata. It would operate the normal search UI one stay at a time, feed validated results into the existing scan pipeline, and expose waiting/error/cancel states. An authenticated, private interactive console could let the owner handle required login or human-verification steps. It must pause for those steps and stop on denial, not solve or evade them automatically. Manual completion is not a guarantee that unattended use is supported.
 
 [Playwright supports Docker](https://playwright.dev/python/docs/docker), but a production crawler needs a non-root sandboxed browser and private control endpoints. Browser profiles are sensitive; [Playwright's authentication guidance](https://playwright.dev/python/docs/auth) warns against committing stored browser state. Exclude profiles from Git, image build contexts, ordinary settings exports, and diagnostic screenshots. Do not use the owner's everyday browser profile as the server profile.
 
-A local browser helper would require the owner's computer to remain available, so it does not meet the remote-only deployment requirement. A permitted API/feed remains the lighter operational option. Neither approach has been implemented or verified for Washington in Camp Finder yet.
+A local browser helper would require the owner's computer to remain available, so it does not meet the remote-only deployment requirement. A permitted API/feed remains the lighter operational option. Neither approach is connected to Washington watches or alerts in Camp Finder yet.
 
 ## Interactive Verification
 
