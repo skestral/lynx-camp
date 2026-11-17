@@ -86,6 +86,14 @@ SOURCE_DEFINITIONS: list[SourceDefinition] = [
         "queries": [],
     },
     {
+        "id": "skagit-county-parks", "name": "Skagit County Parks", "provider": "Skagit County Parks",
+        "category": "County and regional parks", "region": "WA", "counties": ["Skagit"],
+        "areas": ["Everett and North Sound", "Snoqualmie and Cascades"], "status": "ready", "source_type": "cedar",
+        "description": "Live Howard Miller Steelhead Park tent, RV, cabin, and Adirondack searches. Current-year bookings; manual checkout.",
+        "official_url": "https://www.explore.skagitcounty.org/skagitcounty/discover/facility/e43b2789-e411-426f-9d75-b53a499c11ba",
+        "queries": [],
+    },
+    {
         "id": "washington-state-parks",
         "name": "Washington State Parks",
         "provider": "Washington State Parks",
@@ -124,9 +132,6 @@ for source_id, name, counties, areas, url, description in [
     ("tacoma-power-parks", "Tacoma Power Parks", ["Pierce", "Lewis"], ["Mount Rainier", "Puget Sound"],
      "https://www.mytpu.org/community-environment-parks/parks-recreation/",
      "Alder Lake, Mayfield Lake, Mossyrock, and Taidnapam. Reservation connector pending; not scanned."),
-    ("skagit-county-parks", "Skagit County Parks", ["Skagit"], ["Everett and North Sound", "Snoqualmie and Cascades"],
-     "https://www.explore.skagitcounty.org/skagitcounty/discover/facility/e43b2789-e411-426f-9d75-b53a499c11ba",
-     "Howard Miller Steelhead Park campground. Reservation connector pending; not scanned."),
     ("lewis-county-parks", "Lewis County Parks", ["Lewis"], ["Mount Rainier"],
      "https://lewiscountywa.gov/departments/parks-recreation/parks-venues/",
      "County park and fairground camping. Reservation connector pending; not scanned."),
@@ -155,13 +160,13 @@ def list_source_definitions(store: Store) -> list[dict[str, Any]]:
 async def discover_source(store: Store, client: Any, source_id: str) -> dict[str, Any]:
     source = _get_source(source_id)
     if not _supports_discovery(source):
-        raise ValueError(f"source {source_id} does not support live Recreation.gov discovery yet")
+        raise ValueError(f"source {source_id} does not support live campground discovery yet")
 
     existing = {target["campground_id"] for target in store.list_targets()}
     discovered_by_id: dict[str, dict[str, Any]] = {}
     queries = source.get("queries") or []
 
-    if source["source_type"] in {"camava", "activenet"}:
+    if source["source_type"] in {"camava", "activenet", "cedar"}:
         discovered_by_id = {target["campground_id"]: target for target in await client.discover_external(source_id)}
     for query in queries:
         for suggestion in await _source_campgrounds(client, query):
@@ -231,7 +236,7 @@ def _get_source(source_id: str) -> SourceDefinition:
 
 
 def _supports_discovery(source: SourceDefinition) -> bool:
-    return source.get("status") == "ready" and source.get("source_type") in {"recreation_search", "camava", "activenet"}
+    return source.get("status") == "ready" and source.get("source_type") in {"recreation_search", "camava", "activenet", "cedar"}
 
 
 async def _source_campgrounds(client: Any, query: SourceQuery) -> list[dict[str, Any]]:
@@ -288,6 +293,8 @@ def _source_target(suggestion: dict[str, Any], source: SourceDefinition, query: 
 
 
 def _imported_count_for_source(source: SourceDefinition, targets: list[dict[str, Any]]) -> int:
+    if source.get("source_type") == "cedar":
+        return sum(1 for target in targets if target.get("campground_id") == "cedar:skagit:hmsp")
     if source.get("source_type") == "activenet":
         return sum(1 for target in targets if target.get("campground_id") == "activenet:king:66")
     if source.get("source_type") == "camava":

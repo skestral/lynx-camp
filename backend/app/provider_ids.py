@@ -9,11 +9,13 @@ def provider_key(campground_id: str) -> str:
         return "snohomish"
     if campground_id == "activenet:king:66":
         return "king"
+    if campground_id == "cedar:skagit:hmsp":
+        return "skagit"
     raise ValueError(f"Unsupported campground provider: {campground_id}")
 
 
 def provider_name(campground_id: str) -> str:
-    return {"snohomish": "Snohomish County Parks", "king": "King County Parks",
+    return {"snohomish": "Snohomish County Parks", "king": "King County Parks", "skagit": "Skagit County Parks",
             "recreation": "Recreation.gov"}[provider_key(campground_id)]
 
 
@@ -21,6 +23,8 @@ def campground_url(campground_id: str, arrival: str | None = None, departure: st
                    *, campsite_id: str | None = None) -> str:
     if provider_key(campground_id) == "recreation":
         return f"https://www.recreation.gov/camping/campgrounds/{campground_id}"
+    if provider_key(campground_id) == "skagit":
+        return "https://www.explore.skagitcounty.org/skagitcounty/reservation/campgrounds/e43b2789-e411-426f-9d75-b53a499c11ba"
     if provider_key(campground_id) == "king":
         facility = "125"
         if campsite_id:

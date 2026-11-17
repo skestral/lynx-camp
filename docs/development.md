@@ -43,7 +43,7 @@ Active watches start background work as soon as the server starts. Use the read-
 | `backend/app/main.py` | FastAPI routes, application lifecycle, background scheduler |
 | `backend/app/scanner.py` | Stay windows, queued campground checks, pacing, cancellation, cooldowns, ETA |
 | `backend/app/recreation.py` | Recreation.gov client and HTTP 429/Retry-After handling |
-| `backend/app/providers.py`, `provider_ids.py`, `camava.py`, `activenet.py` | Provider routing, namespaced IDs, Snohomish and King County search clients |
+| `backend/app/providers.py`, `provider_ids.py`, `camava.py`, `activenet.py`, `cedar.py` | Provider routing, namespaced IDs, and county search clients |
 | `backend/app/db.py` | SQLite schema, transactions, watch groups, results, logs, saved settings |
 | `backend/app/notifications.py` | Channel configuration, alert formatting, tests, delivery records |
 | `backend/app/scan_config.py` | UI/environment scan-control precedence and validation |
@@ -87,11 +87,11 @@ Watch deletion uses `Scanner.delete_watches` for both the bulk and individual en
 | `GET /api/notifications/status` | Whether channels are configured; not proof of delivery |
 | `POST /api/notifications/test` | Sends a real test to every configured channel; use deliberately |
 
-A 429 leaves that provider's checks pending. The scanner waits for the longer of its Retry-After and exponential local backoff, while eligible checks for other providers continue. Cooldowns survive restart. Successful cycles gradually reduce adaptive spacing toward the configured minimum. ETA counts monthly requests for Recreation.gov and full-stay searches for Snohomish, plus spacing, observed latency, and known cooldown. It is not a completion deadline.
+A 429 leaves that provider's checks pending. The scanner waits for the longer of its Retry-After and exponential local backoff, while eligible checks for other providers continue. Cooldowns survive restart. Successful cycles gradually reduce adaptive spacing toward the configured minimum. ETA counts monthly requests for Recreation.gov and full-stay searches for county providers, plus spacing, observed latency, and known cooldown. A county stay can require several paginated or rule-check requests, so initial estimates can be low. It is not a completion deadline.
 
 ## Adding Providers
 
-Recreation.gov IDs stay unchanged. Snohomish IDs use `camava:snoco:<park-id>`; campsite IDs use the same prefix with the site ID. King County currently allows only `activenet:king:66`, the verified Tolt-MacDonald center; its site IDs use `activenet:king:<facility-id>`. The namespace prevents numeric collisions without rewriting existing target/watch IDs or foreign keys. `provider_ids.py` is the allowlist for routing and booking URLs. Never accept a user-supplied provider host as an HTTP destination.
+Recreation.gov IDs stay unchanged. Snohomish IDs use `camava:snoco:<park-id>`; campsite IDs use the same prefix with the site ID. King County currently allows only `activenet:king:66`, the verified Tolt-MacDonald center; its site IDs use `activenet:king:<facility-id>`. Skagit County allows only `cedar:skagit:hmsp`, Howard Miller Steelhead Park; site IDs use `cedar:skagit:<venue-portion-uuid>`. The namespace prevents numeric collisions without rewriting existing target/watch IDs or foreign keys. `provider_ids.py` is the allowlist for routing and booking URLs. Never accept a user-supplied provider host as an HTTP destination.
 
 `CampgroundClient` routes external discovery and full-stay searches. Recreation.gov still uses monthly maps. Snohomish uses the public campground search page with a GET request for an exact arrival/departure range. `camava.py` parses HTML with Beautiful Soup, checks echoed dates and selected park, and only accepts enabled Reserve buttons inside matching site cards. It never submits those buttons. The map JSON is deliberately not used for availability: it may contain sites from other parks. Blank pages, changed markup, and denied responses must raise errors rather than expire existing matches.
 
@@ -105,9 +105,19 @@ Tolt-MacDonald's map point is the address location linked by the official county
 
 Before enabling another source, verify discovery IDs, all overnight accommodation categories, full-stay rules, denial handling, date-aware booking links, and rate limits. Add fixture tests and bounded read-only live checks. Do not mark an unverified connector ready, retry through a firewall denial, or treat first-come campground directories as availability feeds.
 
+Skagit County uses Cedar's public GraphQL calendar. `cedar.py` sends query operations only to a fixed endpoint with an allowlisted organization and campground. The requested fields deliberately omit customer bookings and hold details. Each page also validates the campground's current public/unarchived catalog record. Pagination requires stable totals and rules, unique venue/portion identities, and a complete final page. Missing pages, GraphQL errors, unknown rule units, contradictory date flags, or foreign IDs are errors, never empty availability.
+
+The calendar query covers arrival midnight through the millisecond before departure midnight in America/Los_Angeles, with DST-aware conversion to UTC. Every occupied night must be available. Hidden/admin-only sites and pending-only dates are excluded. Site settings inherit from the facility unless their override flag is true; older records omit these flags. Current-year release policy and the 14-night cap come from the county's official campground page, while lead times, minimum stays, and venue overrides come from live records. Weekend and holiday overrides apply conservatively to any occupied night. Account-dependent cumulative stay limits are not knowable from the anonymous calendar and are left to checkout.
+
+Cedar's public form uses the US `date-holidays` calendar and an observance-name exclusion list. A bounded 2026-2035 date snapshot avoids hand-maintaining holiday arithmetic or adding Node to the Docker runtime. Regenerate it with `npm run generate:cedar-holidays` in `frontend`; unknown years fail closed. The pinned generator dependency is not imported into the UI bundle. See [third-party data attribution](third-party-data.md) for the snapshot's source and license.
+
+Skagit requests use the same per-HTTP-request scanner gate as King County, plus a five-second floor and serialized transport. Discovery and availability cannot burst concurrently. The common stay cache, cancellation, notification deduplication, and persisted Skagit-specific cooldown need no separate scheduling system. The verified booking link opens the campground calendar without dates. No mutation, login, cart, or payment endpoint is called.
+
 `test_county_provider.py` covers parsing, unknown responses, cross-provider IDs, notification handoff, independent cooldowns, backup restoration, and repeated database initialization. Live development checks on November 17, 2026 discovered eight county parks, returned cabin and campsite results for a Flowing Lake weekend, and recognized a closed Whitehorse stay. No reservations or real notifications were sent. Washington State Parks was firewall-denied and remains unconnected; production-host behavior is unverified.
 
 `test_king_county.py` covers paginated overnight discovery, per-site restrictions, partial/unknown responses, cache behavior, denial handling, cancellation between rule checks, import/scan/notification handoff, and backup compatibility. A paced read-only development scan on November 17, 2026 discovered 53 Tolt-MacDonald sites and returned 49 validated matches for June 4-6, 2027, including six yurts. That cold-cache run made 54 catalog, availability, and rule requests. These are point-in-time results, not reserved inventory. Tests do not send real notifications or submit reservations.
+
+`test_skagit_county.py` covers tent/cabin/RV classification, hidden and partial sites, paginated response failures, inherited rules, lead times, holiday minimums, DST boundaries, annual release limits, cancellation, and regional import/scan/backup integration. A read-only server check on November 17, 2026 read three availability pages for November 20-22 and returned 51 public matches: 41 RV sites, seven tent sites, two cabins, and one paired Adirondack shelter. The response included 68 records, of which 15 were hidden and two public sites were not available for the whole stay. No reservation, hold, or real notification was submitted. Production-host access remains unverified.
 
 Clallam research on the same date confirmed the official Salt Creek and Dungeness CampLife links. The normal browser availability response required registration/login; a plain server request to the observed map endpoint returned HTTP 403. No credentials, browser challenge tokens, alternate routes, or access workarounds were used. Leave this source unconnected until there is an authorized, verified integration path.
 
@@ -164,7 +174,8 @@ Current documentation images:
 | `notification-settings.png` | Configured example webhook with no credential shown |
 | `scan-controls.png` | Repeat interval, request spacing, cache, and backoff settings |
 | `crawl-logs.png` | Diagnostic events, run outcomes, and demo deliveries |
-| `county-sources.png` | Puget Sound catalog with live Snohomish and King County coverage |
+| `county-sources.png` | Everett and North Sound catalog with live Snohomish and Skagit County coverage |
+| `county-sources-mobile.png` | Skagit County source controls at 390px |
 | `saved-targets-mobile.png` | Searchable saved inventory with an expanded campground group |
 
 Never capture a real webhook input, secret-inclusive export, account credential, or private delivery error for public documentation. Describe demo data as simulated; configured channels and seeded delivery records are not live verification.

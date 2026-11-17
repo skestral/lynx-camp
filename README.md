@@ -1,6 +1,6 @@
 # Camp Finder
 
-Camp Finder is a local-network web app for monitoring campground availability across supported reservation providers. Recreation.gov, Snohomish County Parks, and King County's Tolt-MacDonald campground are currently connected. It runs in Docker, persists its data in SQLite, and notifies you when a configured campground/date rule has availability.
+Camp Finder is a local-network web app for monitoring campground availability across supported reservation providers. Recreation.gov, Snohomish County Parks, King County's Tolt-MacDonald campground, and Skagit County's Howard Miller Steelhead Park are currently connected. It runs in Docker, persists its data in SQLite, and notifies you when a configured campground/date rule has availability.
 
 The app is still notification-first. Matches link to the reservation provider, and Recreation.gov watches can be flagged as high priority for Cart Assist logging. The current Cart Assist implementation is a guarded audit trail and readiness check; it does not automatically click Add to Cart, submit payment, or try to get around login or CAPTCHA checks.
 
@@ -27,6 +27,7 @@ Current dashboard with grouped availability and a crawl waiting through a provid
 - Add campground targets from Recreation.gov search.
 - Discover and monitor Snohomish County campgrounds, including cabins and yurts, alongside federal campgrounds.
 - Monitor King County's Tolt-MacDonald tent, RV, yurt, camping-container, and group sites as one campground target.
+- Monitor Howard Miller Steelhead Park's public tent, RV, cabin, and Adirondack sites through Skagit County's calendar.
 - Browse sources by region and manage saved campgrounds in collapsible park/county groups.
 - Opt regional watches into future imports so new matching campgrounds join the same date and filter rules across connected providers.
 - Import preset target packs for Pacific Northwest, Northern Rockies, Greater Yellowstone, or California national parks, then trim targets you do not want.
@@ -107,7 +108,7 @@ Sources can be filtered to Puget Sound, Olympic Peninsula, Mount Rainier, Snoqua
 - National parks: live Recreation.gov discovery for the requested Olympic, Rainier, Crater Lake, North Cascades, Glacier, Yellowstone, and Grand Teton set.
 - National forests: live Recreation.gov discovery for Washington national forests such as Olympic, Mount Baker-Snoqualmie, Okanogan-Wenatchee, Gifford Pinchot, and Colville.
 - Regions: a Washington Recreation.gov state starter for federal campgrounds that are not covered by a named park or forest source yet.
-- County and regional parks: Snohomish County and King County's Tolt-MacDonald campground have live discovery and exact-stay availability searches. Clallam, Skagit, Lewis, and Tacoma Power parks have official links but their reservation connectors are not connected. Jefferson County camping is directory-only.
+- County and regional parks: Snohomish County, King County's Tolt-MacDonald campground, and Skagit County's Howard Miller Steelhead Park have live discovery and exact-stay availability searches. Clallam, Lewis, and Tacoma Power parks have official links but their reservation connectors are not connected. Jefferson County camping is directory-only.
 - Washington state: official Washington State Parks and WA DNR entries. These are research/directory sources for now, with official links, not availability scanners.
 
 Sources labeled **Live monitoring** have Check and Import actions. Check discovers campgrounds from that provider; Import creates or updates targets by provider-qualified ID. **Not connected** and **Directory only** entries cannot be imported into the scanner. An official listing or an open park does not establish nightly campsite availability.
@@ -138,6 +139,20 @@ The [published camping policy](https://kingcounty.gov/en/dept/dnrp/nature-recrea
 
 The first eligible scan can take several minutes while site rules are checked. Catalog and rule responses are cached for 24 hours in memory. Availability uses the normal stay cache setting. King County requests are serialized with at least five seconds between requests, and a higher UI request-delay setting still applies. Logs identify catalog, availability, and rule-check requests. ETA is approximate and can be less accurate during this initial metadata load. No account credentials are needed for monitoring.
 
+### Skagit County Setup
+
+1. Open Targets > Sources, select Everett and North Sound or Snoqualmie and Cascades, and expand County and regional parks.
+2. Import Skagit County Parks. Howard Miller Steelhead Park appears as one target covering its public campsites, cabins, and Adirondack shelter. Other Skagit County campgrounds are not included in this connector.
+3. Create a county-group watch, or include it in a Washington or map-view watch. Enable Include future imports on an existing matching regional watch to have the target join automatically.
+4. Leave the site-type filter blank for every accommodation, or use `tent`, `RV`, `cabin`, or `adirondack`. For Friday and Saturday nights, select Friday arrival and two nights.
+5. Follow an alert to the county calendar, re-enter the dates, and select the named site. No verified date-prefill URL is available. Booking and account sign-in stay on the county website.
+
+[Mobile source view](docs/screenshots/county-sources-mobile.png)
+
+The [county campground page](https://www.explore.skagitcounty.org/skagitcounty/discover/facility/e43b2789-e411-426f-9d75-b53a499c11ba) opens each year's reservations in January and limits stays to 14 days. Camp Finder therefore searches current-year stays only, excludes same-day arrivals, and checks the calendar's live lead-time and stay-length rules. The current calendar specifies a two-night weekend minimum and a three-night holiday minimum. Camp Finder conservatively applies those minimums when any occupied night falls in that category; a holiday on checkout day does not count. Unknown rule formats produce an error instead of a misleading availability result.
+
+Each stay is read in paced pages, with at least five seconds between requests. The UI request-delay setting can increase that spacing. All pages must be complete before matches are returned; hidden sites, partially open stays, and pending-only availability are excluded. The normal stay cache, provider-specific cooldown, logs, cancellation, and notification settings apply. This connector needs no credentials and never creates a cart hold. Availability is not a booking guarantee: the provider still checks your account, previous stays, accessibility needs, and other eligibility at checkout.
+
 ## Map and Region Watches
 
 The map is both a navigation tool and a watch builder. Click a park marker or its footprint polygon to see a park summary, quick campground list, result counts, and a Watch Park button. Click a campground marker to load its Recreation.gov campground details, including description text, activities, amenities, active notices, a Recreation.gov details link, a Google Maps directions link, and a campground image when Recreation.gov returns one. Some Recreation.gov campground records do not include media, so the UI shows a simple placeholder instead of guessing with stock imagery. If Recreation.gov does not return a detail record or rate-limits that lookup, Camp Finder falls back to the saved target record instead of blocking the map panel.
@@ -148,7 +163,7 @@ These local footprints are meant for watch selection, not legal park boundaries.
 
 Park, selected-park, state, and map-view watches appear as one regional listing. Expand Campgrounds to inspect individual scan schedules, run a campground check, or pause a member. The group controls edit the shared dates and filters, select all members, pause/resume the region, or delete it after confirmation. A group edit applies to every remaining member. Creation and shared edits are atomic: a failed request does not save half a region.
 
-By default, membership is the set of active imported targets selected when the watch is created. Check **Include future imports** to save a state, exact park-group names, or the current map bounds with the watch. When an active matching target is imported or updated later, it joins the same group and inherits its dates, filters, and Cart Assist setting. The selector is provider-independent: a Washington watch can include federal, Snohomish, and King County targets. Preset-only markers and unconnected source directories are not monitored until a supported target is imported.
+By default, membership is the set of active imported targets selected when the watch is created. Check **Include future imports** to save a state, exact park-group names, or the current map bounds with the watch. When an active matching target is imported or updated later, it joins the same group and inherits its dates, filters, and Cart Assist setting. The selector is provider-independent: a Washington watch can include federal, Snohomish, King, and Skagit County targets. Preset-only markers and unconnected source directories are not monitored until a supported target is imported.
 
 To upgrade an existing regional watch, open its group edit button, choose State, Park group, Selected park groups, or Current map view, enable Include future imports, and save. Saving also adds already imported active targets that match the chosen area. Existing members are retained if you change the inclusion area; remove individual members you no longer want. A saved map area does not move when you pan the dashboard map later. Map membership needs valid coordinates; state and park-group membership do not.
 
@@ -348,7 +363,7 @@ The minimum scan interval controls repeat checks, not how quickly a large region
 
 ## Booking Assist
 
-Availability results include the Recreation.gov booking link plus status actions. Campsite links include the arrival date as `startDate`, so opening a result or Cart Assist checkout task goes straight to a booking page for the watched stay. The dashboard also adds that date before copying booking details, which keeps older saved rows useful after upgrades. Open marks a fresh match as opened, Copy puts a booking brief on your clipboard with the campground, watch, site, loop, type, stay dates, and Recreation.gov link. If the browser blocks clipboard access, the same brief appears above the results for manual selection. Booked records that you successfully reserved it, Dismiss removes it from active attention, and Reopen moves a handled result back to active availability. Future scans preserve booked and dismissed decisions for the same campsite/date result instead of notifying you about the same handled match again.
+Availability results link to their reservation provider and include status actions. Recreation.gov campsite links include the arrival date as `startDate`; the dashboard also adds it to older saved links before opening or copying them. Snohomish links preserve both stay dates. King and Skagit links open the provider map/calendar, where you must re-enter the dates. Open marks a fresh match as opened. Copy puts a booking brief on your clipboard with the campground, watch, site, loop, type, stay dates, and provider link. If the browser blocks clipboard access, the same brief appears above the results for manual selection. Booked records that you successfully reserved it, Dismiss removes it from active attention, and Reopen moves a handled result back to active availability. Future scans preserve booked and dismissed decisions for the same campsite/date result instead of notifying you about the same handled match again.
 
 Each successful scan also revalidates active results for the same watch and date ranges. If a previously active site/date match is not returned again, Camp Finder marks it booked and removes it from the active list. Scan errors and Recreation.gov rate limits do not clear old results, because those runs did not prove the match disappeared.
 

@@ -84,3 +84,13 @@ Regional membership was initially a creation-time snapshot. The opt-in coverage 
 - Reviewed desktop and 390px mobile views, including the saved coverage label and group edit controls. No horizontal overflow or browser console errors. Refreshed screenshots from synthetic data.
 - Backend suite: 179 tests passed. Frontend production build passed. These checks do not establish production storage performance or live alert delivery.
 - Clallam's CampLife search required an account and its direct server endpoint returned 403. Its source remains explicitly unconnected; broad regional selectors do not imply unsupported provider coverage. Production Docker deployment remains unverified.
+
+### Skagit County Integration (2026-11-17)
+
+- Connected Howard Miller Steelhead Park as one target in Everett and North Sound / Snoqualmie and Cascades. Importing it into an opted-in Washington watch uses the existing shared criteria and notification workflow. Other Skagit campgrounds remain outside this connector's coverage.
+- A paced, read-only server search for November 20-22 returned 51 public full-stay matches, including two cabins and seven tent sites. All three pages were validated. Fifteen hidden records and two partially/unavailable public sites were excluded. No account credentials, holds, reservations, or real alerts were used.
+- Added regression checks for incomplete pages, hidden sites, inherited booking rules, lead times, holiday minimums, DST transitions, annual release limits, cancellation, notification deduplication, and regional-watch backup restoration. A failed later page preserves existing matches instead of marking them booked.
+- Backend suite: 215 tests passed, with one existing Starlette/AnyIO deprecation warning. Frontend production build passed. The new holiday-calendar generator is a development-only dependency; it is not bundled into the UI or required in the Python runtime.
+- Checked the source drawer at 1440 x 1000 and 390 x 844. No horizontal overflow or browser console errors. Refreshed desktop and mobile source screenshots using the isolated read-only demo with synthetic dashboard data.
+- `npm audit` still reports seven high-severity findings in the existing Vite/build-tool dependency tree; the new holiday dependency was not implicated. These were recorded, not silently fixed through unrelated package upgrades.
+- Production Docker was not redeployed. Washington State Parks, Tacoma Power, and the remaining county systems still need verified connectors; this change does not make them live sources.
