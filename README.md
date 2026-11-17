@@ -190,6 +190,8 @@ Source definitions describe coverage, grouping, and discovery capabilities. Prov
 
 Washington State Parks uses [GoingToCamp](https://parks.wa.gov/passes-permits/reservations/making-reservations). A normal browser request from the development host returned a firewall denial during the November 17, 2026 integration review. No access workaround was attempted, and no live state-park scanning is claimed. The next integration step requires permitted access and verified campground, accommodation-category, and full-stay responses.
 
+A later read-only inspection in an existing user-operated browser confirmed anonymous camping and cabin search results. This establishes a browser workflow to evaluate, not a working Docker connector. No login, cart, reservation, or provider-notification action was submitted.
+
 Washington State Parks is the next provider priority, ahead of additional county connectors. The intended coverage includes reservable tent/RV sites and roofed stays such as cabins and yurts, using the same regional watches and notification channels. See the [state-park integration notes](docs/washington-state-parks.md) for the access blocker, implementation requirements, and verification checklist. This is planned coverage, not an enabled feature.
 
 [Tacoma Power Parks](https://www.mytpu.org/community-environment-parks/parks-recreation/reservations-fees/) uses its own GoingToCamp service. Its browser page loaded during the same review, but a server-style metadata request received a firewall challenge. It remains unconnected; opening an interactive page is not proof that the Docker crawler can use its API.

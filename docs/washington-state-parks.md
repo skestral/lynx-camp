@@ -10,15 +10,30 @@ The first requirement is a permitted data-access path and its usage limits. Do n
 
 ## Browser-Based Option
 
-The owner reports that the reservation site works in their ordinary browser. That is useful evidence, but does not establish access from a Docker browser or identify why the development browser was denied.
+The reservation workflow was inspected in the owner's existing Edge session on November 17, 2026, after an explicit handoff. Anonymous camping and roofed results loaded there. This does not establish access from a Docker browser or identify why the development browser was denied.
 
-A browser connector is an alternative to a direct API integration where permitted. The next diagnostic is to inspect a working, user-authorized session's normal search interface and confirm complete camping and roofed stays. Do not export challenge cookies or replay browser credentials through a denied API.
+A browser connector is an alternative to a direct API integration where permitted. The next gate is an isolated Docker browser with a private interactive setup path, followed by bounded validation of the same normal workflow. Do not export challenge cookies or replay browser credentials through a denied API.
 
 For unattended remote hosting, the proposed design is a dedicated browser worker alongside Camp Finder, with a separate persistent profile under appdata. It would operate the normal search UI one stay at a time, feed validated results into the existing scan pipeline, and expose waiting/error/cancel states. An authenticated, private interactive console could let the owner handle required login or human-verification steps. It must pause for those steps and stop on denial, not solve or evade them automatically. Manual completion is not a guarantee that unattended use is supported.
 
 [Playwright supports Docker](https://playwright.dev/python/docs/docker), but a production crawler needs a non-root sandboxed browser and private control endpoints. Browser profiles are sensitive; [Playwright's authentication guidance](https://playwright.dev/python/docs/auth) warns against committing stored browser state. Exclude profiles from Git, image build contexts, ordinary settings exports, and diagnostic screenshots. Do not use the owner's everyday browser profile as the server profile.
 
 A local browser helper would require the owner's computer to remain available, so it does not meet the remote-only deployment requirement. A permitted API/feed remains the lighter operational option. Neither approach has been implemented or verified for Washington in Camp Finder yet.
+
+## Interactive Verification
+
+The November 17 inspection used only the normal search interface, with no sign-in, cookie export, direct API replay, notification subscription, reservation, or cart action. These are point-in-time UI observations, not held inventory or proof of unattended access:
+
+- Camping: Bogachiel's Campground list showed Site 2 as Available for November 28-29, 2026, with an enabled Reserve button. Expanded details allowed tents and a van/camper, listed capacity eight, and distinguished `ADA Only: No` from `ADA Accessible: Yes`.
+- Roofed: Lincoln Rock's Deluxe Cabins list showed C7 as Available for November 28-30, 2026, with an enabled Reserve button and capacity six. The cabin was labeled ADA accessible; checkout eligibility was not tested.
+- The Camping search URL used `searchTabGroupId=0` and `bookingCategoryId=0`; Roofed used `1` for both and omitted camping equipment parameters. These are observed browser-navigation parameters, not a verified API contract.
+- Navigation followed region, park, section, and individual site levels. `View more` appeared at regional and campsite levels. Exhausting one page is not a complete inventory scan.
+- Switching the form from Camping to Roofed left the previous camping results visible until a new search was submitted. A collector must match the submitted URL category, park, dates, and rendered results to the requested stay, not merely read the current form selection.
+- Availability initially remained in a loading-placeholder state. The collector must distinguish loading, explicit empty results, and failures, with bounded waits and cancellation. Blank markup is never proof of no availability.
+
+Observed controls include `park-autocomplete-input`, `arrival-date-field`, `departure-date-field`, `nightsTab`, `nights-field`, `actionSearch`, `list-view-button-button`, and `loadMoreButton`. Map-navigation buttons used `mapLink-button-*`; individual-site results expanded into a named Details region with a separate Reserve button. Follow navigation and detail controls only. Never click Reserve to test whether a site is available.
+
+The provider also exposes a Notify me action. Its account requirements, delivery behavior, and automation interface have not been verified; Camp Finder does not subscribe to those alerts.
 
 ## Intended Coverage
 
@@ -71,6 +86,6 @@ I maintain a self-hosted campground availability monitor for personal trip plann
 
 Is there an approved API, data feed, or integration program for retrieving campground metadata and checking complete-stay availability? The application would cache metadata, serialize requests, honor your polling limits and Retry-After responses, and link visitors to your website for booking. It would not create reservations or access customer records.
 
-A normal request from the development host received a firewall denial, so integration testing has stopped. Please advise on the supported access method, any credentials or approval required, acceptable polling and caching intervals, and coverage of cabins and yurts as well as campsites.
+A development browser received a firewall denial, while manual searches in an existing interactive browser worked. Unattended access has not been verified. Please advise on the supported access method, any credentials or approval required, acceptable polling and caching intervals, and coverage of cabins and yurts as well as campsites.
 
 Thank you.
