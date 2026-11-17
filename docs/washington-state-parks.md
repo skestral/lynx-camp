@@ -63,6 +63,31 @@ The [reservation parks directory](https://parks.wa.gov/passes-permits/reservatio
 
 Public source code is a starting point for contract research, not evidence that current Washington responses match it or that unattended requests are permitted.
 
+### GoCamp Review
+
+[peckjon/gocamp](https://github.com/peckjon/gocamp) was reviewed on November 17,
+2026 at commit `21d1000bef6df9f1d53a12881599ad60a87661fd`. It is an MIT-licensed,
+Washington-specific Python HTTP wrapper, not a browser driver. Its API structure
+is useful reference material, but it has not been installed or run against the
+provider in this project.
+
+The [current search code](https://github.com/peckjon/gocamp/blob/21d1000bef6df9f1d53a12881599ad60a87661fd/app.py)
+fixes `bookingCategoryId` to camping and party size to one, passes the same value
+for equipment and sub-equipment, and expects older map fields. It calls
+`requests.get/post(...).json()` without timeouts, HTTP status checks, pacing, or
+Retry-After handling. Its booking helper creates a link; it does not reserve sites.
+Do not infer working cabin coverage from the category menu in its console example.
+
+[Issue 3](https://github.com/peckjon/gocamp/issues/3) records upstream schema changes,
+including missing `mapLinkLocalizedValues`, and a 2022 comment pointing to Camply's
+replacement implementation. These historical reports do not establish today's
+service behavior. The latest repository change is a September 2025 contributor
+workflow; the last `app.py` change is July 2021.
+
+GoCamp is an additional contract reference, not a drop-in connector or a solution
+to denied access. A permitted direct API integration remains an option; the browser
+diagnostic worker does not commit Camp Finder to browser-only scanning.
+
 ## Enablement Checklist
 
 1. Establish a permitted API/feed or browser workflow, authentication requirements if any, request limits, and caching guidance. Keep any credentials outside Git. Resolve the observed denial before unattended testing; do not switch request routes to evade it.

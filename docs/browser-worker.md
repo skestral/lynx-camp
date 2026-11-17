@@ -12,6 +12,35 @@ another computer. Unattended access still needs verification and a permitted
 access path before a scanner can be enabled. See the
 [Washington integration status](washington-state-parks.md).
 
+## Preview on Windows
+
+With Docker Desktop running Linux containers, run this from the repository root
+in PowerShell:
+
+```powershell
+.\scripts\Start-BrowserWorker.ps1 -ShowPassword
+```
+
+The launcher builds and starts a separate `campfinder-browser-local` Compose
+project, waits for health checks, and prints the local console address and login.
+It does not start or change the main Camp Finder container. Use `-Port 6085` if
+6080 is occupied, or `-NoBuild` to reuse an already-built worker image.
+
+The generated password is stored as a Windows DPAPI-encrypted SecureString at
+`%LOCALAPPDATA%\CampFinder\browser-worker\console-password.xml`, outside the repo
+and cloud-synced appdata. The same Windows user can display it again by rerunning
+with `-ShowPassword`. Docker administrators can still inspect container environment
+values, so treat Docker access as privileged and do not share full inspection
+output. This local credential is unrelated to any reservation account.
+
+Open the printed localhost link and enter the credentials yourself. The browser
+starts blank and sends no reservation search automatically. To stop the local
+preview without deleting its profile:
+
+```powershell
+docker --context desktop-linux stop campfinder-browser-local-browser-1
+```
+
 ## Install on a Docker Server
 
 Use a Linux Docker engine with Compose v2 and support for unprivileged user
