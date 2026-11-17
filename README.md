@@ -283,6 +283,8 @@ Each successful scan also revalidates active results for the same watch and date
 
 Results are grouped by national park, campground, and stay dates. When 12 or fewer results match the current filters, campground and stay sections open automatically so sites are immediately visible. Larger result sets start collapsed below the park level. Your explicit expand/collapse choices take precedence until the page is reloaded. The dashboard loads up to 2,000 recent result rows, shows server-side total and active counts, and warns if the loaded working set is clipped. Use the status filter and search field to narrow the dashboard before selecting results. Bulk actions apply to selected results only; Clear All dismisses every active availability result.
 
+Each park/region, campground, and stay-date heading has an X button to dismiss that group's active matches. The confirmation shows the count. It includes collapsed rows but respects the current search/status filters and the browser's loaded working set; it does not dismiss unseen results beyond the 2,000-row limit. Booked results and watches are left unchanged. Use the Dismissed view to find those matches again and Reopen to restore them. Group dismissal is one atomic database operation.
+
 These screenshots use synthetic local test data, not live availability:
 
 ![Availability-first desktop dashboard with sample sites](docs/screenshots/availability-first-demo.png)

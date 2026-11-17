@@ -193,6 +193,17 @@ class ResultStatusUpdate(BaseModel):
     status: Literal["available", "opened", "booked", "dismissed"]
 
 
+class ResultGroupDismiss(BaseModel):
+    result_ids: list[int] = Field(min_length=1, max_length=2000)
+
+    @field_validator("result_ids")
+    @classmethod
+    def positive_result_ids(cls, value: list[int]) -> list[int]:
+        if any(item <= 0 for item in value):
+            raise ValueError("result_ids must be positive")
+        return sorted(set(value))
+
+
 class CartAssistConfigUpdate(BaseModel):
     enabled: bool | None = None
     cooldown_minutes: int | None = Field(default=None, ge=1, le=1440)

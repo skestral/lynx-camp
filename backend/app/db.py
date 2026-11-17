@@ -1017,6 +1017,26 @@ class Store:
                 "active_count": int(row["active_count"] or 0) if row else 0,
             }
 
+    def dismiss_result_group(self, result_ids: list[int]) -> int:
+        ids = sorted(set(result_ids))
+        count = 0
+        now = utc_now()
+        with self.connect() as conn:
+            # Keep large groups atomic while respecting older SQLite parameter limits.
+            for offset in range(0, len(ids), 500):
+                chunk = ids[offset:offset + 500]
+                placeholders = ",".join("?" for _ in chunk)
+                cursor = conn.execute(
+                    f"""UPDATE results
+                    SET status = 'dismissed', active = 0,
+                        dismissed_at = COALESCE(dismissed_at, ?)
+                    WHERE id IN ({placeholders}) AND active = 1
+                        AND status IN ('available', 'opened')""",
+                    [now, *chunk],
+                )
+                count += cursor.rowcount
+        return count
+
     def clear_active_results(self) -> int:
         now = utc_now()
         with self.connect() as conn:

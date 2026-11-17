@@ -2343,6 +2343,31 @@ export default function App() {
     setSelectedResultIds(allVisibleResultsSelected ? [] : visibleResultIds);
   }
 
+  async function dismissResultGroup(label: string, groupResults: Result[]) {
+    if (bulkResultBusy !== null || resultBusyId !== null || clearResultsBusy) return;
+    const ids = groupResults.filter(isActiveAvailability).map((result) => result.id);
+    if (!ids.length || !window.confirm(`Dismiss ${ids.length} active result${ids.length === 1 ? "" : "s"} in ${label}? This applies to loaded matches in the current filtered view, including collapsed rows. Watches and booked results are unchanged.`)) return;
+    setBulkResultBusy("dismissed");
+    setMessage("");
+    try {
+      const result = await api.dismissResultGroup(ids);
+      setSelectedResultIds((current) => current.filter((id) => !ids.includes(id)));
+      setMessage(`Dismissed ${result.dismissed_count} result${result.dismissed_count === 1 ? "" : "s"} in ${label}.`);
+      await refresh({ silent: true });
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unable to dismiss result group.");
+    } finally {
+      setBulkResultBusy(null);
+    }
+  }
+
+  function groupDismissButton(label: string, activeCount: number, groupResults: () => Result[]) {
+    return <button className="icon-only result-group-dismiss" type="button"
+      title={`Dismiss ${activeCount} active results in ${label}`} aria-label={`Dismiss group ${label}`}
+      disabled={!activeCount || bulkResultBusy !== null || resultBusyId !== null || clearResultsBusy}
+      onClick={() => void dismissResultGroup(label, groupResults())}><X size={17} /></button>;
+  }
+
   async function updateSelectedResultsStatus(status: Result["status"]) {
     if (selectedResultIds.length === 0) return;
     setBulkResultBusy(status);
@@ -4948,6 +4973,7 @@ export default function App() {
                 const parkOpen = isResultGroupOpen(park.id);
                 return (
                   <section className="result-group" key={park.id}>
+                    <div className="result-group-heading">
                     <button
                       aria-expanded={parkOpen}
                       className="result-group-header park"
@@ -4962,12 +4988,15 @@ export default function App() {
                         </small>
                       </span>
                     </button>
+                    {groupDismissButton(park.name, park.activeCount, () => park.campgrounds.flatMap((campground) => campground.stays.flatMap((stay) => stay.results)))}
+                    </div>
                     {parkOpen && (
                       <div className="result-group-body">
                         {park.campgrounds.map((campground) => {
                           const campgroundOpen = isResultGroupOpen(campground.id);
                           return (
                             <section className="result-group nested" key={campground.id}>
+                              <div className="result-group-heading">
                               <button
                                 aria-expanded={campgroundOpen}
                                 className="result-group-header campground"
@@ -4983,12 +5012,15 @@ export default function App() {
                                   </small>
                                 </span>
                               </button>
+                              {groupDismissButton(`${park.name} / ${campground.name}`, campground.activeCount, () => campground.stays.flatMap((stay) => stay.results))}
+                              </div>
                               {campgroundOpen && (
                                 <div className="result-group-body nested">
                                   {campground.stays.map((stay) => {
                                     const stayOpen = isResultGroupOpen(stay.id);
                                     return (
                                       <section className="result-stay" key={stay.id}>
+                                        <div className="result-group-heading">
                                         <button
                                           aria-expanded={stayOpen}
                                           className="result-group-header stay"
@@ -5003,6 +5035,8 @@ export default function App() {
                                             </small>
                                           </span>
                                         </button>
+                                        {groupDismissButton(`${campground.name} / ${stay.label}`, stay.activeCount, () => stay.results)}
+                                        </div>
                                         {stayOpen && (
                                           <div className="result-card-list">
                                             {stay.results.map(resultCard)}

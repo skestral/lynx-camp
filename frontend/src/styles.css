@@ -2384,6 +2384,18 @@ th {
   border-color: #e2ebe8;
 }
 
+.result-group-heading {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 42px;
+  align-items: center;
+}
+
+.result-group-dismiss {
+  width: 32px;
+  height: 32px;
+  justify-self: center;
+}
+
 .result-group-header {
   width: 100%;
   min-height: 48px;

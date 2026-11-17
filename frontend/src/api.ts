@@ -73,6 +73,9 @@ export const api = {
       method: "POST", body: JSON.stringify({ watch_ids, action })
     }),
   results: (limit = RESULTS_LIMIT) => request<Result[]>(`/api/results?limit=${limit}`),
+  dismissResultGroup: (result_ids: number[]) => request<{ dismissed_count: number }>("/api/results/dismiss-group", {
+    method: "POST", body: JSON.stringify({ result_ids })
+  }),
   resultSummary: () => request<ResultSummary>("/api/results/summary"),
   scanRuns: () => request<ScanRun[]>("/api/scans"),
   scanEvents: () => request<ScanEvent[]>("/api/scans/events"),

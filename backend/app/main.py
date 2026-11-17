@@ -24,6 +24,7 @@ from .schemas import (
     ConfigBackup,
     NotificationConfigUpdate,
     ResultStatusUpdate,
+    ResultGroupDismiss,
     ScanConfigUpdate,
     TargetCreate,
     TargetUpdate,
@@ -408,6 +409,11 @@ def result_summary() -> dict:
 @app.post("/api/results/clear")
 def clear_results() -> dict:
     return {"cleared_count": store.clear_active_results()}
+
+
+@app.post("/api/results/dismiss-group")
+def dismiss_result_group(payload: ResultGroupDismiss) -> dict:
+    return {"dismissed_count": store.dismiss_result_group(payload.result_ids)}
 
 
 @app.patch("/api/results/{result_id}")
