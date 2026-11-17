@@ -58,6 +58,8 @@ The optional [browser worker guide](browser-worker.md) covers its separate Docke
 setup and offline test harness. It is not started by the main Compose file and has
 no access to the application's database, settings, or notification credentials.
 
+The [Camply probe](camply-probe.md) provides a separate, one-shot Washington library comparison in Docker. It defaults to offline, has its own dependency environment and guard tests, and is not wired into watches or notifications. Do not install Camply into the main backend environment: its Pydantic major version conflicts with ours.
+
 ## Scan Lifecycle
 
 The background scheduler selects due active watches and processes one campground check at a time. A regional watch has a shared group ID but a separate schedule and scan history for each member. Completion schedules the next check using the watch/target interval and global minimum. Finished members are not rechecked within the same pending cycle.

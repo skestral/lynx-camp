@@ -110,3 +110,10 @@ Regional membership was initially a creation-time snapshot. The opt-in coverage 
 - Verified the expanded layout at 1440 x 1000 and 390 x 844, the source shortcut, refresh, and downloaded JSON. The mobile document had no horizontal overflow. Screenshots use a labeled synthetic denial from `scripts/docs_demo.py --washington-access-stop`.
 - Backend suite: 292 tests passed, with the existing Starlette/AnyIO deprecation warning. Frontend production build passed. Tests cover redaction, retention, restart persistence, read-only access, and denial handling when diagnostics fail.
 - A normal Edge catalog and Camping availability request returned HTTP 200 JSON. No cookies were exported or replayed, no booking action was submitted, and the existing Docker denial stop was preserved. The original 403's origin and native full-stay compatibility remain unverified.
+
+### Isolated Camply Probe (2026-11-17)
+
+- Built a separate non-root Docker image with Camply 0.34.4 and Pydantic 1.10.27. The app's dependencies, database, watches, and notification configuration were unchanged.
+- Ten offline tests passed with networking disabled, including Camply's real discovery/availability code with synthetic responses and a distinct schema-error case.
+- The explicitly requested live run at 3:17 PM Pacific made one catalog request and received HTTP 403 HTML containing human-verification markers. No retry or availability/booking request followed. The guarded transport uses a fixed application identity instead of Camply's randomized browser User-Agent.
+- Installation is verified; live Washington support is not. The [probe guide](camply-probe.md) records the exact scope, safe metadata, reproduction commands, and remaining limitations. No frontend or production deployment changed.

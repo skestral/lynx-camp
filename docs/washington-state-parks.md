@@ -74,6 +74,8 @@ The screenshots below use a synthetic denial in the isolated documentation demo,
 
 ## Optional Browser Diagnostics
 
+For a separate library comparison without a browser, use the [Camply Docker probe](camply-probe.md). It is a bounded diagnostic tool, not part of scheduled scanning, and does not read or modify Camp Finder appdata. The November 17 local test installed Camply successfully but received HTTP 403 HTML with human-verification markers on its first catalog request. It stopped without retries; changing libraries did not establish access under the tested application identity.
+
 The reservation workflow was inspected in the owner's existing Edge session on November 17, 2026, after an explicit handoff. Anonymous camping and roofed results loaded there. This does not establish access from a Docker browser or identify why the development browser was denied.
 
 A browser connector is an alternative to a direct API integration where permitted. An [isolated Docker browser worker](browser-worker.md) now provides a private console and read-only inspection of a manually submitted search. Its runtime and synthetic-page checks pass; Washington access from that worker and complete live-result collection have not been verified. Do not export challenge cookies or replay browser credentials through a denied API.
