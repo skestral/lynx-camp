@@ -55,6 +55,13 @@ Campgrounds without valid coordinates remain in the matching results, with a
 separate missing-coordinate count above the map. They are never placed at a
 guessed point. Provider park locations are not individual campsite coordinates.
 
+BC Parks and Parks Canada also use a bundled official-data location reference.
+Existing Canadian targets with missing or placeholder coordinates are repaired
+at startup, without a source reimport or availability scan. The map reports
+unmapped locations in both its status and park queue. Reference points are
+labeled in campground details, with a **Location Source** link. See
+[Canadian map locations](canadian-locations.md) for coverage and upgrade steps.
+
 GoingToCamp publishes some coordinates in `gpsCoordinates`. Camp Finder now
 accepts its decimal latitude/longitude format as well as numeric coordinate
 fields. When the next catalog loads during a scan or a source Preview, existing

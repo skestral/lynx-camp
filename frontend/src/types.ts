@@ -6,6 +6,8 @@ export type Target = {
   state_code: string;
   latitude: number | null;
   longitude: number | null;
+  location_precision?: "park" | "campground";
+  location_source_url?: string;
   booking_url: string;
   release_months: number;
   release_window_value: number;

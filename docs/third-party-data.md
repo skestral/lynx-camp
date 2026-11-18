@@ -30,3 +30,24 @@ copyright OpenStreetMap contributors, available under the
 [Open Database License](https://www.openstreetmap.org/copyright).
 The reservation provider currently returns no site coordinates. The map point
 identifies the campground entrance, not an individual campsite.
+
+## Canadian Location Reference
+
+`backend/app/canadian_locations.json` contains public park/campground names,
+reference coordinates, and source links derived from:
+
+- [BC Parks protected-area directory](https://bcparks.api.gov.bc.ca/api/protected-areas),
+  published by the Province of British Columbia. Each selected park retains its
+  official `bcparks.ca` page URL.
+- [Parks Canada accommodations open dataset](https://open.canada.ca/data/en/dataset/74054d44-68cf-41af-8919-5f09f80dcd02),
+  published by Parks Canada. The generator reads its
+  [accommodation feature layer](https://services2.arcgis.com/wCOMu5IS7YdSyPNx/ArcGIS/rest/services/Accommodation_Hebergement_APCA_OpenOuvert/FeatureServer/0).
+- [Parks Canada national park boundaries](https://services2.arcgis.com/wCOMu5IS7YdSyPNx/ArcGIS/rest/services/PCA_Boundaries_NP/FeatureServer/8),
+  used only to check the park identity of accommodation points.
+
+Changes: selected the supported reservation targets, normalized names for
+matching, rejected ambiguous or geographically dispersed matches, and selected
+one representative accommodation point per matched campground. The reference
+does not reproduce park descriptions, photographs, or boundary geometry and is
+not endorsed by these providers. See [Canadian locations](canadian-locations.md)
+for precision, known gaps, and regeneration instructions.

@@ -31,6 +31,7 @@ Grouped availability and a crawl waiting through a provider cooldown. The follow
 - [First-run setup](#first-run-setup)
 - [Continuous crawling and rate limits](#scanning)
 - [Find a stay on the map](docs/availability-map.md)
+- [Canadian map locations and upgrades](docs/canadian-locations.md)
 - [Discord and other notifications](#notification-setup)
 - [Backups](#configuration-backups) and [upgrades](#upgrading)
 - [Troubleshooting](#diagnosing-api-failures)

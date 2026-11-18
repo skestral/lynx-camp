@@ -16,6 +16,7 @@ import httpx
 from fake_useragent import UserAgent
 
 from .activenet import RequestGate
+from .coordinates import coordinate_pair, location_reference, target_coordinates
 from .request_limiter import limited_request
 from .provider_errors import ProviderResponseError
 from .provider_diagnostics import capture_diagnostic
@@ -138,18 +139,16 @@ def parse_catalog(locations, categories, tenant="wa") -> dict[str, dict]:
             target = {"campground_id": target_id, "name": f"{name} - {KINDS[category]}",
                       "park_name": config["name"], "state_code": config["state"], "timezone": timezone,
                       "poll_interval_minutes": 60, "booking_url": campground_url(target_id), "root_map_id": root_map}
-            coordinates = [item.get("latitude"), item.get("longitude")]
+            coordinates = coordinate_pair(item.get("latitude"), item.get("longitude"))
             # Camis also publishes a decimal latitude/longitude pair as one field.
-            if any(value is None for value in coordinates) and isinstance(item.get("gpsCoordinates"), str):
+            if coordinates is None and isinstance(item.get("gpsCoordinates"), str):
                 parts = item["gpsCoordinates"].split(",")
                 if len(parts) == 2:
-                    try:
-                        coordinates = [float(part.strip()) for part in parts]
-                    except ValueError:
-                        coordinates = [None, None]
-            if all(type(value) in (int, float) and math.isfinite(value) for value in coordinates):
-                if -90 <= coordinates[0] <= 90 and -180 <= coordinates[1] <= 180:
-                    target.update(latitude=coordinates[0], longitude=coordinates[1])
+                    coordinates = coordinate_pair(*parts)
+            coordinates = coordinates or target_coordinates(target)
+            if coordinates:
+                target.update(latitude=coordinates[0], longitude=coordinates[1])
+                target.update(location_reference(target))
             targets[target_id] = target
     if not targets:
         raise unknown("no supported overnight parks returned")

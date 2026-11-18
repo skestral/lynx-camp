@@ -1,0 +1,1018 @@
+{
+  "generated_at": "2026-11-18T05:47:58.632063+00:00",
+  "sources": [
+    "https://bcparks.api.gov.bc.ca/api/protected-areas",
+    "https://services2.arcgis.com/wCOMu5IS7YdSyPNx/ArcGIS/rest/services/Accommodation_Hebergement_APCA_OpenOuvert/FeatureServer/0/query",
+    "https://services2.arcgis.com/wCOMu5IS7YdSyPNx/ArcGIS/rest/services/PCA_Boundaries_NP/FeatureServer/8/query"
+  ],
+  "locations": {
+    "gtc:bc:-2147483486:0": {
+      "name": "Steelhead Provincial Park",
+      "latitude": 50.753424,
+      "longitude": -120.868301,
+      "source_url": "https://bcparks.ca/steelhead-park/",
+      "precision": "park"
+    },
+    "gtc:bc:-2147483487:0": {
+      "name": "Skihist Provincial Park",
+      "latitude": 50.252893,
+      "longitude": -121.508324,
+      "source_url": "https://bcparks.ca/skihist-park/",
+      "precision": "park"
+    },
+    "gtc:bc:-2147483488:0": {
+      "name": "Tribune Bay Provincial Park",
+      "latitude": 49.528235,
+      "longitude": -124.639173,
+      "source_url": "https://bcparks.ca/tribune-bay-park/",
+      "precision": "park"
+    },
+    "gtc:bc:-2147483497:0": {
+      "name": "Allison Lake Provincial Park",
+      "latitude": 49.682479,
+      "longitude": -120.603146,
+      "source_url": "https://bcparks.ca/allison-lake-park/",
+      "precision": "park"
+    },
+    "gtc:bc:-2147483498:0": {
+      "name": "Gwillim Lake Provincial Park",
+      "latitude": 55.415211,
+      "longitude": -121.290783,
+      "source_url": "https://bcparks.ca/gwillim-lake-park/",
+      "precision": "park"
+    },
+    "gtc:bc:-2147483499:0": {
+      "name": "Muncho Lake Provincial Park",
+      "latitude": 58.937816,
+      "longitude": -125.720948,
+      "source_url": "https://bcparks.ca/muncho-lake-park/",
+      "precision": "park"
+    },
+    "gtc:bc:-2147483500:0": {
+      "name": "Yahk Provincial Park",
+      "latitude": 49.0804799999999,
+      "longitude": -116.095861,
+      "source_url": "https://bcparks.ca/yahk-park/",
+      "precision": "park"
+    },
+    "gtc:bc:-2147483502:0": {
+      "name": "Lockhart Beach Provincial Park",
+      "latitude": 49.5087159999999,
+      "longitude": -116.786963,
+      "source_url": "https://bcparks.ca/lockhart-beach-park/",
+      "precision": "park"
+    },
+    "gtc:bc:-2147483503:0": {
+      "name": "Jimsmith Lake Provincial Park",
+      "latitude": 49.482731,
+      "longitude": -115.840979,
+      "source_url": "https://bcparks.ca/jimsmith-lake-park/",
+      "precision": "park"
+    },
+    "gtc:bc:-2147483504:0": {
+      "name": "Norbury Lake Provincial Park",
+      "latitude": 49.540883,
+      "longitude": -115.484652,
+      "source_url": "https://bcparks.ca/norbury-lake-park/",
+      "precision": "park"
+    },
+    "gtc:bc:-2147483508:0": {
+      "name": "Whiteswan Lake Provincial Park",
+      "latitude": 50.140471,
+      "longitude": -115.49763,
+      "source_url": "https://bcparks.ca/whiteswan-lake-park/",
+      "precision": "park"
+    },
+    "gtc:bc:-2147483509:0": {
+      "name": "Whiskers Point Provincial Park",
+      "latitude": 54.906311,
+      "longitude": -122.935609,
+      "source_url": "https://bcparks.ca/whiskers-point-park/",
+      "precision": "park"
+    },
+    "gtc:bc:-2147483513:0": {
+      "name": "Wasa Lake Provincial Park",
+      "latitude": 49.780623,
+      "longitude": -115.739369,
+      "source_url": "https://bcparks.ca/wasa-lake-park/",
+      "precision": "park"
+    },
+    "gtc:bc:-2147483515:0": {
+      "name": "Tyhee Lake Provincial Park",
+      "latitude": 54.706469,
+      "longitude": -127.038423,
+      "source_url": "https://bcparks.ca/tyhee-lake-park/",
+      "precision": "park"
+    },
+    "gtc:bc:-2147483519:0": {
+      "name": "Ten Mile Lake Provincial Park",
+      "latitude": 53.068781,
+      "longitude": -122.443507,
+      "source_url": "https://bcparks.ca/ten-mile-lake-park/",
+      "precision": "park"
+    },
+    "gtc:bc:-2147483521:0": {
+      "name": "Syringa Provincial Park",
+      "latitude": 49.368215,
+      "longitude": -117.907621,
+      "source_url": "https://bcparks.ca/syringa-park/",
+      "precision": "park"
+    },
+    "gtc:bc:-2147483524:0": {
+      "name": "Swan Lake Provincial Park",
+      "latitude": 55.528126,
+      "longitude": -120.028318,
+      "source_url": "https://bcparks.ca/swan-lake-park/",
+      "precision": "park"
+    },
+    "gtc:bc:-2147483525:0": {
+      "name": "Summit Lake Provincial Park",
+      "latitude": 50.155866,
+      "longitude": -117.65404,
+      "source_url": "https://bcparks.ca/summit-lake-park/",
+      "precision": "park"
+    },
+    "gtc:bc:-2147483527:0": {
+      "name": "Strathcona Provincial Park",
+      "latitude": 49.640943,
+      "longitude": -125.723,
+      "source_url": "https://bcparks.ca/strathcona-park/",
+      "precision": "park"
+    },
+    "gtc:bc:-2147483528:0": {
+      "name": "Stemwinder Provincial Park",
+      "latitude": 49.370787,
+      "longitude": -120.136279,
+      "source_url": "https://bcparks.ca/stemwinder-park/",
+      "precision": "park"
+    },
+    "gtc:bc:-2147483530:0": {
+      "name": "Stamp River Provincial Park",
+      "latitude": 49.342913,
+      "longitude": -124.930844,
+      "source_url": "https://bcparks.ca/stamp-river-park/",
+      "precision": "park"
+    },
+    "gtc:bc:-2147483531:0": {
+      "name": "Sproat Lake Provincial Park",
+      "latitude": 49.2971899999999,
+      "longitude": -124.928166,
+      "source_url": "https://bcparks.ca/sproat-lake-park/",
+      "precision": "park"
+    },
+    "gtc:bc:-2147483532:0": {
+      "name": "Sowchea Bay Provincial Park",
+      "latitude": 54.420121,
+      "longitude": -124.449511,
+      "source_url": "https://bcparks.ca/sowchea-bay-park/",
+      "precision": "park"
+    },
+    "gtc:bc:-2147483533:0": {
+      "name": "Smelt Bay Provincial Park",
+      "latitude": 50.031574,
+      "longitude": -124.993325,
+      "source_url": "https://bcparks.ca/smelt-bay-park/",
+      "precision": "park"
+    },
+    "gtc:bc:-2147483534:0": {
+      "name": "Skagit Valley Provincial Park",
+      "latitude": 49.121433,
+      "longitude": -121.159887,
+      "source_url": "https://bcparks.ca/skagit-valley-park/",
+      "precision": "park"
+    },
+    "gtc:bc:-2147483535:0": {
+      "name": "Silver Lake Provincial Park",
+      "latitude": 49.315208,
+      "longitude": -121.412179,
+      "source_url": "https://bcparks.ca/silver-lake-park/",
+      "precision": "park"
+    },
+    "gtc:bc:-2147483536:0": {
+      "name": "Shuswap Lake Provincial Park",
+      "latitude": 50.91051,
+      "longitude": -119.415138,
+      "source_url": "https://bcparks.ca/shuswap-lake-park/",
+      "precision": "park"
+    },
+    "gtc:bc:-2147483539:0": {
+      "name": "Sasquatch Provincial Park",
+      "latitude": 49.349805,
+      "longitude": -121.723289,
+      "source_url": "https://bcparks.ca/sasquatch-park/",
+      "precision": "park"
+    },
+    "gtc:bc:-2147483540:0": {
+      "name": "Saltery Bay Provincial Park",
+      "latitude": 49.782596,
+      "longitude": -124.197307,
+      "source_url": "https://bcparks.ca/saltery-bay-park/",
+      "precision": "park"
+    },
+    "gtc:bc:-2147483541:0": {
+      "name": "Ruckle Provincial Park",
+      "latitude": 48.784649,
+      "longitude": -123.385216,
+      "source_url": "https://bcparks.ca/ruckle-park/",
+      "precision": "park"
+    },
+    "gtc:bc:-2147483542:0": {
+      "name": "Rosebery Provincial Park",
+      "latitude": 50.035202,
+      "longitude": -117.403635,
+      "source_url": "https://bcparks.ca/rosebery-park/",
+      "precision": "park"
+    },
+    "gtc:bc:-2147483543:0": {
+      "name": "Rolley Lake Provincial Park",
+      "latitude": 49.243523,
+      "longitude": -122.386869,
+      "source_url": "https://bcparks.ca/rolley-lake-park/",
+      "precision": "park"
+    },
+    "gtc:bc:-2147483544:0": {
+      "name": "Red Bluff Provincial Park",
+      "latitude": 54.851721,
+      "longitude": -126.181107,
+      "source_url": "https://bcparks.ca/red-bluff-park/",
+      "precision": "park"
+    },
+    "gtc:bc:-2147483545:0": {
+      "name": "Rathtrevor Beach Provincial Park",
+      "latitude": 49.322571,
+      "longitude": -124.26199,
+      "source_url": "https://bcparks.ca/rathtrevor-beach-park/",
+      "precision": "park"
+    },
+    "gtc:bc:-2147483547:0": {
+      "name": "Purden Lake Provincial Park",
+      "latitude": 53.9279569999999,
+      "longitude": -121.908309,
+      "source_url": "https://bcparks.ca/purden-lake-park/",
+      "precision": "park"
+    },
+    "gtc:bc:-2147483548:0": {
+      "name": "Prudhomme Lake Provincial Park",
+      "latitude": 54.240706,
+      "longitude": -130.131805,
+      "source_url": "https://bcparks.ca/prudhomme-lake-park/",
+      "precision": "park"
+    },
+    "gtc:bc:-2147483549:0": {
+      "name": "Premier Lake Provincial Park",
+      "latitude": 49.910611,
+      "longitude": -115.644254,
+      "source_url": "https://bcparks.ca/premier-lake-park/",
+      "precision": "park"
+    },
+    "gtc:bc:-2147483550:0": {
+      "name": "Porteau Cove Provincial Park",
+      "latitude": 49.556322,
+      "longitude": -123.238203,
+      "source_url": "https://bcparks.ca/porteau-cove-park/",
+      "precision": "park"
+    },
+    "gtc:bc:-2147483551:0": {
+      "name": "Porpoise Bay Provincial Park",
+      "latitude": 49.506583,
+      "longitude": -123.7485,
+      "source_url": "https://bcparks.ca/porpoise-bay-park/",
+      "precision": "park"
+    },
+    "gtc:bc:-2147483557:0": {
+      "name": "Paul Lake Provincial Park",
+      "latitude": 50.7422869999999,
+      "longitude": -120.12762,
+      "source_url": "https://bcparks.ca/paul-lake-park/",
+      "precision": "park"
+    },
+    "gtc:bc:-2147483558:0": {
+      "name": "Paarens Beach Provincial Park",
+      "latitude": 54.418483,
+      "longitude": -124.380053,
+      "source_url": "https://bcparks.ca/paarens-beach-park/",
+      "precision": "park"
+    },
+    "gtc:bc:-2147483559:0": {
+      "name": "Otter Lake Provincial Park",
+      "latitude": 49.585847,
+      "longitude": -120.77415,
+      "source_url": "https://bcparks.ca/otter-lake-park/",
+      "precision": "park"
+    },
+    "gtc:bc:-2147483562:0": {
+      "name": "North Thompson River Provincial Park",
+      "latitude": 51.62861,
+      "longitude": -120.081053,
+      "source_url": "https://bcparks.ca/north-thompson-river-park/",
+      "precision": "park"
+    },
+    "gtc:bc:-2147483563:0": {
+      "name": "Saysutshun (Newcastle Island Marine) Park",
+      "latitude": 49.190205,
+      "longitude": -123.934833,
+      "source_url": "https://bcparks.ca/saysutshun-newcastle-island-marine-park/",
+      "precision": "park"
+    },
+    "gtc:bc:-2147483564:0": {
+      "name": "Nairn Falls Provincial Park",
+      "latitude": 50.290407,
+      "longitude": -122.829483,
+      "source_url": "https://bcparks.ca/nairn-falls-park/",
+      "precision": "park"
+    },
+    "gtc:bc:-2147483565:0": {
+      "name": "Moyie Lake Provincial Park",
+      "latitude": 49.372626,
+      "longitude": -115.831636,
+      "source_url": "https://bcparks.ca/moyie-lake-park/",
+      "precision": "park"
+    },
+    "gtc:bc:-2147483567:0": {
+      "name": "Mount Robson Provincial Park",
+      "latitude": 53.050806,
+      "longitude": -119.361587,
+      "source_url": "https://bcparks.ca/mount-robson-park/",
+      "precision": "park"
+    },
+    "gtc:bc:-2147483568:0": {
+      "name": "Mount Fernie Provincial Park",
+      "latitude": 49.488605,
+      "longitude": -115.101665,
+      "source_url": "https://bcparks.ca/mount-fernie-park/",
+      "precision": "park"
+    },
+    "gtc:bc:-2147483570:0": {
+      "name": "Morton Lake Provincial Park",
+      "latitude": 50.124386,
+      "longitude": -125.478719,
+      "source_url": "https://bcparks.ca/morton-lake-park/",
+      "precision": "park"
+    },
+    "gtc:bc:-2147483571:0": {
+      "name": "Montague Harbour Marine Park",
+      "latitude": 48.900101,
+      "longitude": -123.404335,
+      "source_url": "https://bcparks.ca/montague-harbour-marine-park/",
+      "precision": "park"
+    },
+    "gtc:bc:-2147483572:0": {
+      "name": "Monck Provincial Park",
+      "latitude": 50.175223,
+      "longitude": -120.539348,
+      "source_url": "https://bcparks.ca/monck-park/",
+      "precision": "park"
+    },
+    "gtc:bc:-2147483574:0": {
+      "name": "Moberly Lake Provincial Park",
+      "latitude": 55.807388,
+      "longitude": -121.693989,
+      "source_url": "https://bcparks.ca/moberly-lake-park/",
+      "precision": "park"
+    },
+    "gtc:bc:-2147483575:0": {
+      "name": "Miracle Beach Provincial Park",
+      "latitude": 49.847955,
+      "longitude": -125.098065,
+      "source_url": "https://bcparks.ca/miracle-beach-park/",
+      "precision": "park"
+    },
+    "gtc:bc:-2147483576:0": {
+      "name": "Meziadin Lake Provincial Park",
+      "latitude": 56.087899,
+      "longitude": -129.305845,
+      "source_url": "https://bcparks.ca/meziadin-lake-park/",
+      "precision": "park"
+    },
+    "gtc:bc:-2147483577:0": {
+      "name": "McDonald Creek Provincial Park",
+      "latitude": 50.144212,
+      "longitude": -117.807467,
+      "source_url": "https://bcparks.ca/mcdonald-creek-park/",
+      "precision": "park"
+    },
+    "gtc:bc:-2147483578:0": {
+      "name": "Martha Creek Provincial Park",
+      "latitude": 51.148548,
+      "longitude": -118.201962,
+      "source_url": "https://bcparks.ca/martha-creek-park/",
+      "precision": "park"
+    },
+    "gtc:bc:-2147483580:0": {
+      "name": "Mabel Lake Provincial Park",
+      "latitude": 50.458964,
+      "longitude": -118.72581,
+      "source_url": "https://bcparks.ca/mabel-lake-park/",
+      "precision": "park"
+    },
+    "gtc:bc:-2147483581:0": {
+      "name": "Loveland Bay Provincial Park",
+      "latitude": 50.050176,
+      "longitude": -125.44684,
+      "source_url": "https://bcparks.ca/loveland-bay-park/",
+      "precision": "park"
+    },
+    "gtc:bc:-2147483582:0": {
+      "name": "Little Qualicum Falls Provincial Park",
+      "latitude": 49.2933989999999,
+      "longitude": -124.598672,
+      "source_url": "https://bcparks.ca/little-qualicum-falls-park/",
+      "precision": "park"
+    },
+    "gtc:bc:-2147483583:0": {
+      "name": "Liard River Hot Springs Provincial Park",
+      "latitude": 59.419877,
+      "longitude": -126.089826,
+      "source_url": "https://bcparks.ca/liard-river-hot-springs-park/",
+      "precision": "park"
+    },
+    "gtc:bc:-2147483584:0": {
+      "name": "Lakelse Lake Provincial Park",
+      "latitude": 54.409655,
+      "longitude": -128.53381,
+      "source_url": "https://bcparks.ca/lakelse-lake-park/",
+      "precision": "park"
+    },
+    "gtc:bc:-2147483585:0": {
+      "name": "Lac Le Jeune Provincial Park",
+      "latitude": 50.48022,
+      "longitude": -120.471332,
+      "source_url": "https://bcparks.ca/lac-le-jeune-park/",
+      "precision": "park"
+    },
+    "gtc:bc:-2147483586:0": {
+      "name": "Lac La Hache Provincial Park",
+      "latitude": 51.85822,
+      "longitude": -121.63719,
+      "source_url": "https://bcparks.ca/lac-la-hache-park/",
+      "precision": "park"
+    },
+    "gtc:bc:-2147483587:0": {
+      "name": "Kootenay Lake Provincial Park",
+      "latitude": 49.694449,
+      "longitude": -116.91123,
+      "source_url": "https://bcparks.ca/kootenay-lake-park/",
+      "precision": "park"
+    },
+    "gtc:bc:-2147483589:0": {
+      "name": "Kokanee Creek Provincial Park",
+      "latitude": 49.607815,
+      "longitude": -117.122883,
+      "source_url": "https://bcparks.ca/kokanee-creek-park/",
+      "precision": "park"
+    },
+    "gtc:bc:-2147483590:0": {
+      "name": "Kleanza Creek Provincial Park",
+      "latitude": 54.59767,
+      "longitude": -128.396176,
+      "source_url": "https://bcparks.ca/kleanza-creek-park/",
+      "precision": "park"
+    },
+    "gtc:bc:-2147483591:0": {
+      "name": "Kikomun Creek Provincial Park",
+      "latitude": 49.238326,
+      "longitude": -115.25672,
+      "source_url": "https://bcparks.ca/kikomun-creek-park/",
+      "precision": "park"
+    },
+    "gtc:bc:-2147483592:0": {
+      "name": "Kettle River Recreation Area",
+      "latitude": 49.109469,
+      "longitude": -118.98043,
+      "source_url": "https://bcparks.ca/kettle-river-recreation-area/",
+      "precision": "park"
+    },
+    "gtc:bc:-2147483593:0": {
+      "name": "Kentucky-Alleyne Provincial Park",
+      "latitude": 49.908527,
+      "longitude": -120.566905,
+      "source_url": "https://bcparks.ca/kentucky-alleyne-park/",
+      "precision": "park"
+    },
+    "gtc:bc:-2147483594:0": {
+      "name": "Kekuli Bay Provincial Park",
+      "latitude": 50.184034,
+      "longitude": -119.338695,
+      "source_url": "https://bcparks.ca/kekuli-bay-park/",
+      "precision": "park"
+    },
+    "gtc:bc:-2147483595:0": {
+      "name": "Juniper Beach Provincial Park",
+      "latitude": 50.786261,
+      "longitude": -121.08252,
+      "source_url": "https://bcparks.ca/juniper-beach-park/",
+      "precision": "park"
+    },
+    "gtc:bc:-2147483596:0": {
+      "name": "Juan de Fuca Provincial Park",
+      "latitude": 48.480576,
+      "longitude": -124.253927,
+      "source_url": "https://bcparks.ca/juan-de-fuca-park/",
+      "precision": "park"
+    },
+    "gtc:bc:-2147483599:0": {
+      "name": "Inland Lake Provincial Park",
+      "latitude": 49.951547,
+      "longitude": -124.479418,
+      "source_url": "https://bcparks.ca/inland-lake-park/",
+      "precision": "park"
+    },
+    "gtc:bc:-2147483600:0": {
+      "name": "Horsefly Lake Provincial Park",
+      "latitude": 52.389028,
+      "longitude": -121.287026,
+      "source_url": "https://bcparks.ca/horsefly-lake-park/",
+      "precision": "park"
+    },
+    "gtc:bc:-2147483601:0": {
+      "name": "Herald Provincial Park",
+      "latitude": 50.790602,
+      "longitude": -119.203354,
+      "source_url": "https://bcparks.ca/herald-park/",
+      "precision": "park"
+    },
+    "gtc:bc:-2147483603:0": {
+      "name": "Green Lake Provincial Park",
+      "latitude": 51.443748,
+      "longitude": -121.143653,
+      "source_url": "https://bcparks.ca/green-lake-park/",
+      "precision": "park"
+    },
+    "gtc:bc:-2147483604:0": {
+      "name": "Gordon Bay Provincial Park",
+      "latitude": 48.83432,
+      "longitude": -124.198315,
+      "source_url": "https://bcparks.ca/gordon-bay-park/",
+      "precision": "park"
+    },
+    "gtc:bc:-2147483605:0": {
+      "name": "Goldstream Provincial Park",
+      "latitude": 48.471854,
+      "longitude": -123.555082,
+      "source_url": "https://bcparks.ca/goldstream-park/",
+      "precision": "park"
+    },
+    "gtc:bc:-2147483606:0": {
+      "name": "Golden Ears Provincial Park",
+      "latitude": 49.499726,
+      "longitude": -122.450121,
+      "source_url": "https://bcparks.ca/golden-ears-park/",
+      "precision": "park"
+    },
+    "gtc:bc:-2147483607:0": {
+      "name": "Gladstone Provincial Park",
+      "latitude": 49.228326,
+      "longitude": -118.264669,
+      "source_url": "https://bcparks.ca/gladstone-park/",
+      "precision": "park"
+    },
+    "gtc:bc:-2147483610:0": {
+      "name": "French Beach Provincial Park",
+      "latitude": 48.392727,
+      "longitude": -123.942634,
+      "source_url": "https://bcparks.ca/french-beach-park/",
+      "precision": "park"
+    },
+    "gtc:bc:-2147483612:0": {
+      "name": "Fintry Provincial Park",
+      "latitude": 50.136577,
+      "longitude": -119.506861,
+      "source_url": "https://bcparks.ca/fintry-park/",
+      "precision": "park"
+    },
+    "gtc:bc:-2147483613:0": {
+      "name": "Fillongley Provincial Park",
+      "latitude": 49.543568,
+      "longitude": -124.762027,
+      "source_url": "https://bcparks.ca/fillongley-park/",
+      "precision": "park"
+    },
+    "gtc:bc:-2147483614:0": {
+      "name": "Englishman River Falls Provincial Park",
+      "latitude": 49.24728,
+      "longitude": -124.351679,
+      "source_url": "https://bcparks.ca/englishman-river-falls-park/",
+      "precision": "park"
+    },
+    "gtc:bc:-2147483615:0": {
+      "name": "Ellison Provincial Park",
+      "latitude": 50.175104,
+      "longitude": -119.434145,
+      "source_url": "https://bcparks.ca/ellison-park/",
+      "precision": "park"
+    },
+    "gtc:bc:-2147483617:0": {
+      "name": "Elk Falls Provincial Park",
+      "latitude": 50.037745,
+      "longitude": -125.306988,
+      "source_url": "https://bcparks.ca/elk-falls-park/",
+      "precision": "park"
+    },
+    "gtc:bc:-2147483618:0": {
+      "name": "E. C. Manning Provincial Park",
+      "latitude": 49.114511,
+      "longitude": -120.856552,
+      "source_url": "https://bcparks.ca/ec-manning-park/",
+      "precision": "park"
+    },
+    "gtc:bc:-2147483619:0": {
+      "name": "Dry Gulch Provincial Park",
+      "latitude": 50.58602,
+      "longitude": -116.035596,
+      "source_url": "https://bcparks.ca/dry-gulch-park/",
+      "precision": "park"
+    },
+    "gtc:bc:-2147483623:0": {
+      "name": "Cultus Lake Provincial Park",
+      "latitude": 49.045897,
+      "longitude": -121.977774,
+      "source_url": "https://bcparks.ca/cultus-lake-park/",
+      "precision": "park"
+    },
+    "gtc:bc:-2147483624:0": {
+      "name": "Crooked River Provincial Park",
+      "latitude": 54.473227,
+      "longitude": -122.671324,
+      "source_url": "https://bcparks.ca/crooked-river-park/",
+      "precision": "park"
+    },
+    "gtc:bc:-2147483625:0": {
+      "name": "Cowichan River Provincial Park",
+      "latitude": 48.780249,
+      "longitude": -123.917426,
+      "source_url": "https://bcparks.ca/cowichan-river-park/",
+      "precision": "park"
+    },
+    "gtc:bc:-2147483627:0": {
+      "name": "Sx\u0331\u00f3tsaqel / Chilliwack Lake Park",
+      "latitude": 49.070542,
+      "longitude": -121.435171,
+      "source_url": "https://bcparks.ca/sxotsaqel-chilliwack-lake-park/",
+      "precision": "park"
+    },
+    "gtc:bc:-2147483628:0": {
+      "name": "Charlie Lake Provincial Park",
+      "latitude": 56.308185,
+      "longitude": -120.995059,
+      "source_url": "https://bcparks.ca/charlie-lake-park/",
+      "precision": "park"
+    },
+    "gtc:bc:-2147483629:0": {
+      "name": "Champion Lakes Provincial Park",
+      "latitude": 49.184088,
+      "longitude": -117.623864,
+      "source_url": "https://bcparks.ca/champion-lakes-park/",
+      "precision": "park"
+    },
+    "gtc:bc:-2147483632:0": {
+      "name": "Carp Lake Provincial Park",
+      "latitude": 54.720956,
+      "longitude": -123.447094,
+      "source_url": "https://bcparks.ca/carp-lake-park/",
+      "precision": "park"
+    },
+    "gtc:bc:-2147483636:0": {
+      "name": "Bromley Rock Provincial Park",
+      "latitude": 49.4140689999999,
+      "longitude": -120.262372,
+      "source_url": "https://bcparks.ca/bromley-rock-park/",
+      "precision": "park"
+    },
+    "gtc:bc:-2147483637:0": {
+      "name": "T\u0101 Ch'il\u0101 Park [a.k.a. Boya Lake Park]",
+      "latitude": 59.38135,
+      "longitude": -129.087736,
+      "source_url": "https://bcparks.ca/ta-chila-park-aka-boya-lake-park/",
+      "precision": "park"
+    },
+    "gtc:bc:-2147483638:0": {
+      "name": "Bowron Lake Provincial Park",
+      "latitude": 53.174024,
+      "longitude": -121.011214,
+      "source_url": "https://bcparks.ca/bowron-lake-park/",
+      "precision": "park"
+    },
+    "gtc:bc:-2147483639:0": {
+      "name": "Blanket Creek Provincial Park",
+      "latitude": 50.832953,
+      "longitude": -118.083012,
+      "source_url": "https://bcparks.ca/blanket-creek-park/",
+      "precision": "park"
+    },
+    "gtc:bc:-2147483640:0": {
+      "name": "Birkenhead Lake Provincial Park",
+      "latitude": 50.5780939999999,
+      "longitude": -122.741801,
+      "source_url": "https://bcparks.ca/birkenhead-lake-park/",
+      "precision": "park"
+    },
+    "gtc:bc:-2147483641:0": {
+      "name": "Big Bar Lake Provincial Park",
+      "latitude": 51.311037,
+      "longitude": -121.814534,
+      "source_url": "https://bcparks.ca/big-bar-lake-park/",
+      "precision": "park"
+    },
+    "gtc:bc:-2147483643:0": {
+      "name": "Beaumont Provincial Park",
+      "latitude": 54.057282,
+      "longitude": -124.615773,
+      "source_url": "https://bcparks.ca/beaumont-park/",
+      "precision": "park"
+    },
+    "gtc:bc:-2147483644:0": {
+      "name": "Beatton Provincial Park",
+      "latitude": 56.326236,
+      "longitude": -120.943283,
+      "source_url": "https://bcparks.ca/beatton-park/",
+      "precision": "park"
+    },
+    "gtc:bc:-2147483645:0": {
+      "name": "Bear Creek Provincial Park",
+      "latitude": 49.928836,
+      "longitude": -119.516802,
+      "source_url": "https://bcparks.ca/bear-creek-park/",
+      "precision": "park"
+    },
+    "gtc:bc:-2147483646:0": {
+      "name": "Bamberton Provincial Park",
+      "latitude": 48.6059159999999,
+      "longitude": -123.526777,
+      "source_url": "https://bcparks.ca/bamberton-park/",
+      "precision": "park"
+    },
+    "gtc:bc:-2147483647:0": {
+      "name": "Alice Lake Provincial Park",
+      "latitude": 49.7822,
+      "longitude": -123.117494,
+      "source_url": "https://bcparks.ca/alice-lake-park/",
+      "precision": "park"
+    },
+    "gtc:pc:-2147483511:0": {
+      "name": "Banff - Castle Mountain",
+      "latitude": 51.268147237678114,
+      "longitude": -115.91109175238054,
+      "source_url": "https://services2.arcgis.com/wCOMu5IS7YdSyPNx/ArcGIS/rest/services/Accommodation_Hebergement_APCA_OpenOuvert/FeatureServer/0/query",
+      "precision": "campground"
+    },
+    "gtc:pc:-2147483540:0": {
+      "name": "Yoho - Kicking Horse",
+      "latitude": 51.424032894640064,
+      "longitude": -116.43171628262556,
+      "source_url": "https://services2.arcgis.com/wCOMu5IS7YdSyPNx/ArcGIS/rest/services/Accommodation_Hebergement_APCA_OpenOuvert/FeatureServer/0/query",
+      "precision": "campground"
+    },
+    "gtc:pc:-2147483545:0": {
+      "name": "Terra Nova - Newman Sound",
+      "latitude": 48.54206861065208,
+      "longitude": -53.97490555220328,
+      "source_url": "https://services2.arcgis.com/wCOMu5IS7YdSyPNx/ArcGIS/rest/services/Accommodation_Hebergement_APCA_OpenOuvert/FeatureServer/0/query",
+      "precision": "campground"
+    },
+    "gtc:pc:-2147483546:0": {
+      "name": "Terra Nova - Malady Head",
+      "latitude": 48.64870776101975,
+      "longitude": -53.91412125415055,
+      "source_url": "https://services2.arcgis.com/wCOMu5IS7YdSyPNx/ArcGIS/rest/services/Accommodation_Hebergement_APCA_OpenOuvert/FeatureServer/0/query",
+      "precision": "campground"
+    },
+    "gtc:pc:-2147483553:0": {
+      "name": "Riding Mountain - Wasagaming",
+      "latitude": 50.65683465017169,
+      "longitude": -99.95947458905694,
+      "source_url": "https://services2.arcgis.com/wCOMu5IS7YdSyPNx/ArcGIS/rest/services/Accommodation_Hebergement_APCA_OpenOuvert/FeatureServer/0/query",
+      "precision": "campground"
+    },
+    "gtc:pc:-2147483567:0": {
+      "name": "Mount Revelstoke - Snowforest",
+      "latitude": 51.01729604505021,
+      "longitude": -118.20375712321845,
+      "source_url": "https://services2.arcgis.com/wCOMu5IS7YdSyPNx/ArcGIS/rest/services/Accommodation_Hebergement_APCA_OpenOuvert/FeatureServer/0/query",
+      "precision": "campground"
+    },
+    "gtc:pc:-2147483573:0": {
+      "name": "La Mauricie - Rivi\u00e8re-\u00e0-la-P\u00eache",
+      "latitude": 46.75412383315139,
+      "longitude": -72.80578078845915,
+      "source_url": "https://services2.arcgis.com/wCOMu5IS7YdSyPNx/ArcGIS/rest/services/Accommodation_Hebergement_APCA_OpenOuvert/FeatureServer/0/query",
+      "precision": "campground"
+    },
+    "gtc:pc:-2147483575:0": {
+      "name": "La Mauricie - Mistagance",
+      "latitude": 46.66487041150874,
+      "longitude": -72.99337901149194,
+      "source_url": "https://services2.arcgis.com/wCOMu5IS7YdSyPNx/ArcGIS/rest/services/Accommodation_Hebergement_APCA_OpenOuvert/FeatureServer/0/query",
+      "precision": "campground"
+    },
+    "gtc:pc:-2147483578:0": {
+      "name": "La Mauricie - Wapizagonke",
+      "latitude": 46.73479236713392,
+      "longitude": -73.04052779096816,
+      "source_url": "https://services2.arcgis.com/wCOMu5IS7YdSyPNx/ArcGIS/rest/services/Accommodation_Hebergement_APCA_OpenOuvert/FeatureServer/0/query",
+      "precision": "campground"
+    },
+    "gtc:pc:-2147483582:0": {
+      "name": "Kootenay - Redstreak",
+      "latitude": 50.628170442472104,
+      "longitude": -116.05794316898789,
+      "source_url": "https://services2.arcgis.com/wCOMu5IS7YdSyPNx/ArcGIS/rest/services/Accommodation_Hebergement_APCA_OpenOuvert/FeatureServer/0/query",
+      "precision": "campground"
+    },
+    "gtc:pc:-2147483583:0": {
+      "name": "Kootenay - Marble Canyon",
+      "latitude": 51.18446054096324,
+      "longitude": -116.11957087387178,
+      "source_url": "https://services2.arcgis.com/wCOMu5IS7YdSyPNx/ArcGIS/rest/services/Accommodation_Hebergement_APCA_OpenOuvert/FeatureServer/0/query",
+      "precision": "campground"
+    },
+    "gtc:pc:-2147483585:0": {
+      "name": "Kootenay - McLeod Meadows",
+      "latitude": 50.767881289020174,
+      "longitude": -115.94153106241944,
+      "source_url": "https://services2.arcgis.com/wCOMu5IS7YdSyPNx/ArcGIS/rest/services/Accommodation_Hebergement_APCA_OpenOuvert/FeatureServer/0/query",
+      "precision": "campground"
+    },
+    "gtc:pc:-2147483591:0": {
+      "name": "Jasper - Overflow",
+      "latitude": 53.01598852684245,
+      "longitude": -118.08436497164033,
+      "source_url": "https://services2.arcgis.com/wCOMu5IS7YdSyPNx/ArcGIS/rest/services/Accommodation_Hebergement_APCA_OpenOuvert/FeatureServer/0/query",
+      "precision": "campground"
+    },
+    "gtc:pc:-2147483593:0": {
+      "name": "Jasper - Wapiti",
+      "latitude": 52.83804506607339,
+      "longitude": -118.06306592359111,
+      "source_url": "https://services2.arcgis.com/wCOMu5IS7YdSyPNx/ArcGIS/rest/services/Accommodation_Hebergement_APCA_OpenOuvert/FeatureServer/0/query",
+      "precision": "campground"
+    },
+    "gtc:pc:-2147483597:0": {
+      "name": "Jasper - Whistlers",
+      "latitude": 52.84813775863479,
+      "longitude": -118.08093986931415,
+      "source_url": "https://services2.arcgis.com/wCOMu5IS7YdSyPNx/ArcGIS/rest/services/Accommodation_Hebergement_APCA_OpenOuvert/FeatureServer/0/query",
+      "precision": "campground"
+    },
+    "gtc:pc:-2147483599:0": {
+      "name": "Gulf Islands - Sidney Spit",
+      "latitude": 48.635290167307126,
+      "longitude": -123.32832306747747,
+      "source_url": "https://services2.arcgis.com/wCOMu5IS7YdSyPNx/ArcGIS/rest/services/Accommodation_Hebergement_APCA_OpenOuvert/FeatureServer/0/query",
+      "precision": "campground"
+    },
+    "gtc:pc:-2147483600:0": {
+      "name": "Gulf Islands - Prior Centennial",
+      "latitude": 48.76648692178075,
+      "longitude": -123.27487658425306,
+      "source_url": "https://services2.arcgis.com/wCOMu5IS7YdSyPNx/ArcGIS/rest/services/Accommodation_Hebergement_APCA_OpenOuvert/FeatureServer/0/query",
+      "precision": "campground"
+    },
+    "gtc:pc:-2147483601:0": {
+      "name": "Gulf Islands - SMONE\u0106TEN",
+      "latitude": 48.673636729089694,
+      "longitude": -123.42657844192217,
+      "source_url": "https://services2.arcgis.com/wCOMu5IS7YdSyPNx/ArcGIS/rest/services/Accommodation_Hebergement_APCA_OpenOuvert/FeatureServer/0/query",
+      "precision": "campground"
+    },
+    "gtc:pc:-2147483602:0": {
+      "name": "Gros Morne - Shallow Bay",
+      "latitude": 49.93740119110015,
+      "longitude": -57.76075861038117,
+      "source_url": "https://services2.arcgis.com/wCOMu5IS7YdSyPNx/ArcGIS/rest/services/Accommodation_Hebergement_APCA_OpenOuvert/FeatureServer/0/query",
+      "precision": "campground"
+    },
+    "gtc:pc:-2147483603:0": {
+      "name": "Gros Morne - Green Point",
+      "latitude": 49.67752864976927,
+      "longitude": -57.95826380011444,
+      "source_url": "https://services2.arcgis.com/wCOMu5IS7YdSyPNx/ArcGIS/rest/services/Accommodation_Hebergement_APCA_OpenOuvert/FeatureServer/0/query",
+      "precision": "campground"
+    },
+    "gtc:pc:-2147483604:0": {
+      "name": "Gros Morne - Trout River",
+      "latitude": 49.44704271466071,
+      "longitude": -58.12164395201903,
+      "source_url": "https://services2.arcgis.com/wCOMu5IS7YdSyPNx/ArcGIS/rest/services/Accommodation_Hebergement_APCA_OpenOuvert/FeatureServer/0/query",
+      "precision": "campground"
+    },
+    "gtc:pc:-2147483605:0": {
+      "name": "Gros Morne - Lomond",
+      "latitude": 49.45900101505369,
+      "longitude": -57.75931358557794,
+      "source_url": "https://services2.arcgis.com/wCOMu5IS7YdSyPNx/ArcGIS/rest/services/Accommodation_Hebergement_APCA_OpenOuvert/FeatureServer/0/query",
+      "precision": "campground"
+    },
+    "gtc:pc:-2147483606:0": {
+      "name": "Gros Morne - Berry Hill",
+      "latitude": 49.62395224169354,
+      "longitude": -57.92682226115935,
+      "source_url": "https://services2.arcgis.com/wCOMu5IS7YdSyPNx/ArcGIS/rest/services/Accommodation_Hebergement_APCA_OpenOuvert/FeatureServer/0/query",
+      "precision": "campground"
+    },
+    "gtc:pc:-2147483611:0": {
+      "name": "Glacier - Illecillewaet",
+      "latitude": 51.265110856274966,
+      "longitude": -117.49491035452975,
+      "source_url": "https://services2.arcgis.com/wCOMu5IS7YdSyPNx/ArcGIS/rest/services/Accommodation_Hebergement_APCA_OpenOuvert/FeatureServer/0/query",
+      "precision": "campground"
+    },
+    "gtc:pc:-2147483614:0": {
+      "name": "Georgian Bay Islands - Cedar Spring",
+      "latitude": 44.85140925159345,
+      "longitude": -79.86518468797392,
+      "source_url": "https://services2.arcgis.com/wCOMu5IS7YdSyPNx/ArcGIS/rest/services/Accommodation_Hebergement_APCA_OpenOuvert/FeatureServer/0/query",
+      "precision": "campground"
+    },
+    "gtc:pc:-2147483616:0": {
+      "name": "Fundy - Lakeview",
+      "latitude": 45.66087823443822,
+      "longitude": -65.14149048577036,
+      "source_url": "https://services2.arcgis.com/wCOMu5IS7YdSyPNx/ArcGIS/rest/services/Accommodation_Hebergement_APCA_OpenOuvert/FeatureServer/0/query",
+      "precision": "campground"
+    },
+    "gtc:pc:-2147483617:0": {
+      "name": "Fundy - Chignecto",
+      "latitude": 45.60613120569048,
+      "longitude": -64.98223223097027,
+      "source_url": "https://services2.arcgis.com/wCOMu5IS7YdSyPNx/ArcGIS/rest/services/Accommodation_Hebergement_APCA_OpenOuvert/FeatureServer/0/query",
+      "precision": "campground"
+    },
+    "gtc:pc:-2147483620:0": {
+      "name": "Fundy - Cannontown",
+      "latitude": 45.59238678286956,
+      "longitude": -64.95475482306219,
+      "source_url": "https://services2.arcgis.com/wCOMu5IS7YdSyPNx/ArcGIS/rest/services/Accommodation_Hebergement_APCA_OpenOuvert/FeatureServer/0/query",
+      "precision": "campground"
+    },
+    "gtc:pc:-2147483621:0": {
+      "name": "Fundy - Headquarters",
+      "latitude": 45.598920961200385,
+      "longitude": -64.95125288496541,
+      "source_url": "https://services2.arcgis.com/wCOMu5IS7YdSyPNx/ArcGIS/rest/services/Accommodation_Hebergement_APCA_OpenOuvert/FeatureServer/0/query",
+      "precision": "campground"
+    },
+    "gtc:pc:-2147483625:0": {
+      "name": "Forillon - Des-Rosiers",
+      "latitude": 48.82895787406197,
+      "longitude": -64.22271506389127,
+      "source_url": "https://services2.arcgis.com/wCOMu5IS7YdSyPNx/ArcGIS/rest/services/Accommodation_Hebergement_APCA_OpenOuvert/FeatureServer/0/query",
+      "precision": "campground"
+    },
+    "gtc:pc:-2147483626:0": {
+      "name": "Forillon - Petit-Gasp\u00e9",
+      "latitude": 48.80971876876088,
+      "longitude": -64.25679537042554,
+      "source_url": "https://services2.arcgis.com/wCOMu5IS7YdSyPNx/ArcGIS/rest/services/Accommodation_Hebergement_APCA_OpenOuvert/FeatureServer/0/query",
+      "precision": "campground"
+    },
+    "gtc:pc:-2147483627:0": {
+      "name": "Forillon - Cap-Bon-Ami",
+      "latitude": 48.81541524223177,
+      "longitude": -64.2235326022023,
+      "source_url": "https://services2.arcgis.com/wCOMu5IS7YdSyPNx/ArcGIS/rest/services/Accommodation_Hebergement_APCA_OpenOuvert/FeatureServer/0/query",
+      "precision": "campground"
+    },
+    "gtc:pc:-2147483643:0": {
+      "name": "Banff - Two Jack Lakeside",
+      "latitude": 51.224772215054436,
+      "longitude": -115.50053385218318,
+      "source_url": "https://services2.arcgis.com/wCOMu5IS7YdSyPNx/ArcGIS/rest/services/Accommodation_Hebergement_APCA_OpenOuvert/FeatureServer/0/query",
+      "precision": "campground"
+    },
+    "gtc:pc:-2147483644:0": {
+      "name": "Banff - Tunnel Mountain Trailer Court",
+      "latitude": 51.19074674414094,
+      "longitude": -115.53389325373453,
+      "source_url": "https://services2.arcgis.com/wCOMu5IS7YdSyPNx/ArcGIS/rest/services/Accommodation_Hebergement_APCA_OpenOuvert/FeatureServer/0/query",
+      "precision": "campground"
+    },
+    "gtc:pc:-2147483645:0": {
+      "name": "Banff - Two Jack Main",
+      "latitude": 51.23015792583719,
+      "longitude": -115.50925213822961,
+      "source_url": "https://services2.arcgis.com/wCOMu5IS7YdSyPNx/ArcGIS/rest/services/Accommodation_Hebergement_APCA_OpenOuvert/FeatureServer/0/query",
+      "precision": "campground"
+    },
+    "gtc:pc:-2147483646:0": {
+      "name": "Banff - Tunnel Mountain Village 1",
+      "latitude": 51.19502884011081,
+      "longitude": -115.52379040193281,
+      "source_url": "https://services2.arcgis.com/wCOMu5IS7YdSyPNx/ArcGIS/rest/services/Accommodation_Hebergement_APCA_OpenOuvert/FeatureServer/0/query",
+      "precision": "campground"
+    },
+    "gtc:pc:-2147483647:0": {
+      "name": "Banff - Johnston Canyon",
+      "latitude": 51.2419381334963,
+      "longitude": -115.84366303516505,
+      "source_url": "https://services2.arcgis.com/wCOMu5IS7YdSyPNx/ArcGIS/rest/services/Accommodation_Hebergement_APCA_OpenOuvert/FeatureServer/0/query",
+      "precision": "campground"
+    },
+    "gtc:pc:-2147483648:0": {
+      "name": "Banff - Tunnel Mountain Village 2",
+      "latitude": 51.18736361467313,
+      "longitude": -115.54399361225991,
+      "source_url": "https://services2.arcgis.com/wCOMu5IS7YdSyPNx/ArcGIS/rest/services/Accommodation_Hebergement_APCA_OpenOuvert/FeatureServer/0/query",
+      "precision": "campground"
+    }
+  }
+}

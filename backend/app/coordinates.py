@@ -1,5 +1,25 @@
 from __future__ import annotations
 
+import json
+import math
+from pathlib import Path
+
+
+def coordinate_pair(latitude, longitude) -> tuple[float, float] | None:
+    if any(isinstance(value, bool) or value is None or not str(value).strip()
+           for value in (latitude, longitude)):
+        return None
+    try:
+        lat, lon = float(latitude), float(longitude)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if (not math.isfinite(lat) or not math.isfinite(lon)
+            or not -90 <= lat <= 90 or not -180 <= lon <= 180 or (lat, lon) == (0, 0)):
+        return None
+    return lat, lon
+
+
+CANADIAN_LOCATIONS = json.loads(Path(__file__).with_name("canadian_locations.json").read_text(encoding="utf-8"))["locations"]
 
 CAMPGROUND_COORDINATES: dict[str, tuple[float, float]] = {
     "10004932": (48.71571285035326, -121.15153236592884),
@@ -52,3 +72,20 @@ CAMPGROUND_COORDINATES: dict[str, tuple[float, float]] = {
     "259310": (44.9488466, -110.3068792),
     "272300": (33.9922222, -116.0625),
 }
+
+CAMPGROUND_COORDINATES.update({
+    key: point for key, location in CANADIAN_LOCATIONS.items()
+    if (point := coordinate_pair(location["latitude"], location["longitude"])) is not None
+})
+
+
+def target_coordinates(target: dict) -> tuple[float, float] | None:
+    return (coordinate_pair(target.get("latitude"), target.get("longitude"))
+            or CAMPGROUND_COORDINATES.get(str(target.get("campground_id") or "")))
+
+
+def location_reference(target: dict) -> dict:
+    reference = CANADIAN_LOCATIONS.get(str(target.get("campground_id") or ""))
+    if reference and target_coordinates(target) == (reference["latitude"], reference["longitude"]):
+        return {"location_precision": reference["precision"], "location_source_url": reference["source_url"]}
+    return {}

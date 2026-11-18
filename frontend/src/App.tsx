@@ -39,6 +39,7 @@ import { SavedTargets } from "./SavedTargets";
 import { ProviderDiagnostics } from "./ProviderDiagnostics";
 import { AvailabilityDates } from "./AvailabilityDates";
 import { availabilityCounts, selectedStay } from "./availability";
+import { coordinatePair } from "./coordinates";
 import type {
   AvailabilityWindow,
   StayResults,
@@ -383,6 +384,8 @@ type CampgroundMapPoint = {
   active: number;
   imported: boolean;
   bookingUrl: string;
+  locationPrecision?: "park" | "campground";
+  locationSourceUrl?: string;
   activeResultCount: number;
   resultCount: number;
 };
@@ -1196,13 +1199,13 @@ export default function App() {
       if (savedTarget?.active) summary.activeTargetCount += 1;
       const stateCode = savedTarget?.state_code || sourceTarget.state_code || "";
       if (stateCode) summary.stateCodeSet.add(stateCode);
-      const latitude = Number(savedTarget?.latitude ?? sourceTarget.latitude ?? NaN);
-      const longitude = Number(savedTarget?.longitude ?? sourceTarget.longitude ?? NaN);
+      const coordinates = coordinatePair(savedTarget?.latitude ?? sourceTarget.latitude, savedTarget?.longitude ?? sourceTarget.longitude);
       const resultCounts = resultCountsByCampground.get(sourceTarget.campground_id) || {
         resultCount: 0,
         activeResultCount: 0
       };
-      if (Number.isFinite(latitude) && Number.isFinite(longitude) && Math.abs(latitude) <= 90 && Math.abs(longitude) <= 180) {
+      if (coordinates) {
+        const [latitude, longitude] = coordinates;
         summary.campgrounds.push({
           id: sourceTarget.campground_id,
           targetId: savedTarget?.id || null,
@@ -1215,6 +1218,8 @@ export default function App() {
           active: savedTarget?.active || 0,
           imported: Boolean(savedTarget),
           bookingUrl: savedTarget?.booking_url || `https://www.recreation.gov/camping/campgrounds/${sourceTarget.campground_id}`,
+          locationPrecision: savedTarget?.location_precision,
+          locationSourceUrl: savedTarget?.location_source_url,
           activeResultCount: resultCounts.activeResultCount,
           resultCount: resultCounts.resultCount
         });
@@ -1290,6 +1295,7 @@ export default function App() {
   }, [dateFilterActive, dateCounts, parkSummaries]);
   const mappedDateCampgrounds = mapParkSummaries.reduce((total, summary) => total + summary.campgrounds.length, 0);
   const missingDateCoordinates = dateFilterActive ? Math.max(0, dateCounts.size - mappedDateCampgrounds) : 0;
+  const missingCoordinates = parkSummaries.reduce((total, summary) => total + summary.targetCount - summary.campgrounds.length, 0);
   const dateMatchCount = [...dateCounts.values()].reduce((total, count) => total + count, 0);
   const targetById = useMemo(() => new Map(targets.map((target) => [target.id, target])), [targets]);
   const watchParkOptions = useMemo(
@@ -2737,10 +2743,8 @@ export default function App() {
     if (!map) return [];
     const bounds = map.getBounds();
     return activeTargets.filter((target) => {
-      if (target.latitude === null || target.longitude === null) return false;
-      const latitude = Number(target.latitude);
-      const longitude = Number(target.longitude);
-      return Number.isFinite(latitude) && Number.isFinite(longitude) && bounds.contains([latitude, longitude]);
+      const coordinates = coordinatePair(target.latitude, target.longitude);
+      return coordinates !== null && bounds.contains(coordinates);
     });
   }
 
@@ -2898,7 +2902,7 @@ export default function App() {
             <span>
               <strong>{selectedMapPark.parkName}</strong>
               <small>
-                {selectedMapPark.targetCount} campground{selectedMapPark.targetCount === 1 ? "" : "s"} shown{" "}
+                {selectedMapPark.campgrounds.length} campground{selectedMapPark.campgrounds.length === 1 ? "" : "s"} mapped{" "}
                 &middot; {activeImportedCount} active target{activeImportedCount === 1 ? "" : "s"}
               </small>
             </span>
@@ -2996,6 +3000,7 @@ export default function App() {
               <span key={fact}>{fact}</span>
             ))}
             <span>{selectedMapCampground.activeResultCount} active matches</span>
+            {selectedMapCampground.locationPrecision && <span>{selectedMapCampground.locationPrecision === "park" ? "Park reference location" : "Campground reference location"}</span>}
           </div>
           {mapTags.length > 0 && (
             <div className="map-detail-tags">
@@ -3035,6 +3040,9 @@ export default function App() {
               <MapPinned size={16} />
               <span>Google Maps</span>
             </a>
+            {selectedMapCampground.locationSourceUrl && <a className="icon-button" href={selectedMapCampground.locationSourceUrl} rel="noreferrer" target="_blank">
+              <ExternalLink size={16} /><span>Location Source</span>
+            </a>}
           </div>
         </section>
       );
@@ -4746,7 +4754,8 @@ export default function App() {
                     <strong>Stays covering {formatDate(mapStay.arrival)} to {formatDate(mapStay.departure)}</strong>
                     <span>{dateMatchCount} saved matches &middot; {dateCounts.size} campgrounds
                       {missingDateCoordinates > 0 ? ` (${missingDateCoordinates} without map coordinates)` : ""}</span>
-                  </> : !dateFilterActive ? <span>All target campgrounds &middot; All saved dates</span> : null}
+                  </> : !dateFilterActive ? <span>All saved dates &middot; {mappedDateCampgrounds} mapped campgrounds
+                    {missingCoordinates > 0 ? ` (${missingCoordinates} locations unavailable)` : ""}</span> : null}
               </div>
               <div className="map-canvas proper-map">
                 <div className="leaflet-map" ref={mapElementRef} />
@@ -4811,6 +4820,7 @@ export default function App() {
                         <span>
                           <strong>{summary.parkName}</strong>
                           <small>{dateFilterActive ? `${summary.targetCount} matching campgrounds` : `${summary.activeTargetCount}/${summary.targetCount} targets active`}</small>
+                          {summary.targetCount > summary.campgrounds.length && <small>{summary.targetCount - summary.campgrounds.length} locations unavailable</small>}
                         </span>
                         <span className={`status ${summary.activeResultCount ? "success" : "quiet"}`}>
                           {summary.activeResultCount || summary.resultCount}

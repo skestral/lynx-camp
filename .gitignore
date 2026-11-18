@@ -16,4 +16,4 @@ appdata/config/*
 *.log
 *.har
 .playwright-cli/
-output/playwright/
+output/

@@ -76,6 +76,8 @@ delay a digest until the crawl finishes.
 
 The [availability-map guide](availability-map.md) covers date-filtered mapping,
 the two read-only result endpoints, working-set limits, and coordinate backfills.
+The [Canadian location reference](canadian-locations.md) documents official-data
+fallbacks, their precision, the offline startup repair, and the refresh script.
 Date changes must never trigger provider requests. Keep full-stay matching on a
 single result row and retain that result's original booking dates.
 
@@ -219,7 +221,7 @@ Validate both Compose files without printing resolved secrets: `docker compose -
 
 ## Secret Handling
 
-`.gitignore` excludes `.env`, runtime files under `appdata/`, local `data/`, and screenshot working files under `output/playwright/`. Only `.env.example` and `appdata/config/.env.example` are tracked configuration templates. Keep their secret fields blank. `.dockerignore` also excludes `.env`, `appdata`, `data`, `.playwright-cli`, and `output/playwright` from the build context. Browser traces and inspection files must not be uploaded as part of an image build.
+`.gitignore` excludes `.env`, runtime files under `appdata/`, local `data/`, and all working files under `output/`, including browser screenshots and downloaded location catalogs. Only `.env.example` and `appdata/config/.env.example` are tracked configuration templates. Keep their secret fields blank. `.dockerignore` also excludes `.env`, `appdata`, `data`, `.playwright-cli`, and `output` from the build context. Browser traces and inspection files must not be uploaded as part of an image build.
 
 An ignore rule does not untrack an existing file and can be bypassed with `git add -f`. Before committing, inspect `git status --short` and `git diff --cached`; never force-add runtime data. Secret-inclusive exports and backups placed outside ignored directories are not automatically protected. Store those outside the checkout. If a real secret reaches Git history, rotate it with the provider; removing the current file alone is not enough.
 

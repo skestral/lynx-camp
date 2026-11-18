@@ -10,7 +10,7 @@ from typing import Any
 from uuid import uuid4
 
 from .app_settings import EXPORTABLE_APP_SETTING_KEYS, SECRET_APP_SETTING_KEYS, NOTIFICATION_APP_SETTING_KEYS
-from .coordinates import CAMPGROUND_COORDINATES
+from .coordinates import coordinate_pair, location_reference, target_coordinates
 from .provider_ids import campground_url, normalize_result_booking_url, provider_key
 from .regions import RegionScope, matches_region
 
@@ -34,23 +34,11 @@ def _normalize_release_window_unit(value: Any) -> str:
     return "Months"
 
 
-def _optional_float(value: Any) -> float | None:
-    try:
-        if value is None or value == "":
-            return None
-        return float(value)
-    except (TypeError, ValueError):
-        return None
-
-
 def _target_with_coordinates(target: dict[str, Any] | None) -> dict[str, Any] | None:
     if target is None:
         return None
-    if _optional_float(target.get("latitude")) is None or _optional_float(target.get("longitude")) is None:
-        coordinates = CAMPGROUND_COORDINATES.get(str(target.get("campground_id") or ""))
-        if coordinates:
-            target = {**target, "latitude": coordinates[0], "longitude": coordinates[1]}
-    return target
+    latitude, longitude = target_coordinates(target) or (None, None)
+    return {**target, "latitude": latitude, "longitude": longitude, **location_reference(target)}
 
 
 def _campsite_booking_url(campsite_id: Any, arrival_date: Any) -> str:
@@ -255,6 +243,7 @@ class Store:
             self._ensure_column(conn, "results", "notification_pending", "INTEGER NOT NULL DEFAULT 0")
             self._ensure_column(conn, "results", "auto_missing", "INTEGER NOT NULL DEFAULT 0")
             self._backfill_result_booking_urls(conn)
+            self._backfill_canadian_coordinates(conn)
             self._ensure_column(conn, "watches", "group_id", "TEXT")
             conn.execute("CREATE INDEX IF NOT EXISTS watches_group_id ON watches(group_id)")
             conn.execute("""CREATE INDEX IF NOT EXISTS results_active_stay
@@ -285,6 +274,18 @@ class Store:
             conn.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {definition}")
 
     @staticmethod
+    def _backfill_canadian_coordinates(conn: sqlite3.Connection) -> None:
+        rows = conn.execute("""SELECT campground_id, latitude, longitude FROM targets
+            WHERE campground_id LIKE 'gtc:bc:%' OR campground_id LIKE 'gtc:pc:%'""").fetchall()
+        for row in rows:
+            if coordinate_pair(row["latitude"], row["longitude"]) is not None:
+                continue
+            point = target_coordinates(dict(row)) or (None, None)
+            if point != (row["latitude"], row["longitude"]):
+                conn.execute("UPDATE targets SET latitude = ?, longitude = ? WHERE campground_id = ?",
+                             (*point, row["campground_id"]))
+
+    @staticmethod
     def _backfill_result_booking_urls(conn: sqlite3.Connection) -> None:
         conn.execute(
             """
@@ -313,14 +314,15 @@ class Store:
             ]
 
     def fill_missing_target_coordinates(self, catalog: list[dict[str, Any]]) -> None:
-        coordinates = [(target["latitude"], target["longitude"], target["campground_id"])
-                       for target in catalog if "latitude" in target and "longitude" in target]
+        coordinates = [(*point, target["campground_id"]) for target in catalog
+                       if (point := target_coordinates(target)) is not None]
         if not coordinates:
             return
         # Existing target settings, custom coordinates and watch membership stay intact.
         with self.connect() as conn:
             conn.executemany("""UPDATE targets SET latitude = ?, longitude = ?
-                WHERE campground_id = ? AND latitude IS NULL AND longitude IS NULL""", coordinates)
+                WHERE campground_id = ? AND ((latitude IS NULL AND longitude IS NULL)
+                    OR (latitude = 0 AND longitude = 0))""", coordinates)
 
     def delete_target(self, target_id: int) -> bool:
         with self.connect() as conn:
@@ -347,11 +349,7 @@ class Store:
         if merged["release_window_unit"] == "Months":
             merged["release_months"] = int(merged.get("release_window_value") or 6)
         merged["poll_interval_minutes"] = max(int(merged.get("poll_interval_minutes") or 10), min_poll_interval_minutes)
-        coordinates = CAMPGROUND_COORDINATES.get(str(merged.get("campground_id") or ""))
-        latitude = _optional_float(merged.get("latitude"))
-        longitude = _optional_float(merged.get("longitude"))
-        if (latitude is None or longitude is None) and coordinates:
-            latitude, longitude = coordinates
+        latitude, longitude = target_coordinates(merged) or (None, None)
         now = utc_now()
         with self.connect() as conn:
             conn.execute(
@@ -403,11 +401,7 @@ class Store:
         release_window_value = int(data.get("release_window_value") or data.get("release_months") or 6)
         release_window_unit = _normalize_release_window_unit(data.get("release_window_unit") or "Months")
         release_months = release_window_value if release_window_unit == "Months" else int(data.get("release_months") or 6)
-        coordinates = CAMPGROUND_COORDINATES.get(str(data.get("campground_id") or ""))
-        latitude = _optional_float(data.get("latitude"))
-        longitude = _optional_float(data.get("longitude"))
-        if (latitude is None or longitude is None) and coordinates:
-            latitude, longitude = coordinates
+        latitude, longitude = target_coordinates(data) or (None, None)
         with self.connect() as conn:
             conn.execute(
                 """
