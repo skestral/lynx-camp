@@ -238,7 +238,22 @@ Watch filters are optional. If left blank, Camp Finder reports every campsite th
 
 Leave Site type blank to include cabins as well as tent, RV, and other site types returned by connected providers. Where a provider supplies specific type labels, enter `cabin` for a cabin-only watch. For Washington State Parks, select Roofed targets instead; the connector cannot distinguish cabins from yurts. `tent` matches type labels containing that word; it does not infer tent compatibility from a utility campsite's amenities. Cabins must belong to an imported, active campground/facility covered by the watch; this does not search every lodging provider or hotel. A type filter is one substring, not a comma-separated list.
 
-For a Friday-and-Saturday stay, select Friday as the arrival day and set two nights (Sunday checkout). Selecting both Friday and Saturday creates alternate starts, not a requirement to stay both nights.
+**Arrival days** selects possible check-in days; **Nights** sets the length of
+each stay. The live **Stay preview** shows the check-in and check-out weekday for
+each selected arrival, both when creating a watch and when editing one.
+
+- Saturday arrival + 1 night: Saturday check-in, Sunday check-out.
+- Friday and Saturday arrivals + 1 night: either Friday-to-Saturday or
+  Saturday-to-Sunday, as separate alternatives.
+- Friday arrival + 2 nights: Friday check-in, Sunday check-out.
+
+The preview is a schedule, not an availability result. The search window still
+limits which calendar dates are scanned. For specific dates, use **Check-in**
+and **Check-out** instead of weekday selection.
+
+![Saturday overnight watch preview](docs/screenshots/watch-arrival-days-desktop.png)
+
+[Multiple-arrival preview on mobile](docs/screenshots/watch-arrival-days-mobile.png)
 
 ## Cart Assist Boundaries
 

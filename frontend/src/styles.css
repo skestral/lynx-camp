@@ -2317,6 +2317,20 @@ td small {
   align-self: end;
 }
 
+.arrival-days {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.arrival-days legend {
+  padding: 0 0 6px;
+  color: #465550;
+  font-size: 12px;
+  font-weight: 750;
+}
+
 .weekday-toggle {
   display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));
@@ -2324,6 +2338,8 @@ td small {
 }
 
 .weekday-toggle button {
+  min-width: 0;
+  padding: 0 2px;
   min-height: 38px;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -2337,6 +2353,54 @@ td small {
   background: var(--forest);
   border-color: var(--forest);
   color: #ffffff;
+}
+
+.stay-preview {
+  padding: 12px 0;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  font-size: 13px;
+}
+
+.stay-preview-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.stay-preview-heading span,
+.stay-preview small,
+.stay-preview p {
+  color: var(--muted);
+}
+
+.stay-preview ul {
+  display: grid;
+  gap: 12px;
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+}
+
+.stay-preview li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 18px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+}
+
+.stay-preview li strong,
+.stay-preview li small {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.stay-preview li strong {
+  margin-bottom: 3px;
+}
+
+.stay-preview p {
+  margin: 12px 0 0;
 }
 
 .release-row time {

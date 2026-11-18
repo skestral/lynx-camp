@@ -213,6 +213,20 @@ flag). They cover checkout exclusion, whole-stay coverage, invalid dates, DST,
 and unique campground counts. Backend map tests include the 2,000-row boundary
 and startup index migration on a populated database.
 
+`frontend/src/watchSchedule.ts` uses the scanner's Monday-zero weekday numbering
+for the recurring-watch preview. Each arrival day is an independent stay;
+check-out is `(arrival + nights) % 7`. Seven- and fourteen-night stays explicitly
+label the later week. Keep legacy pattern defaults aligned with `PATTERNS` in
+`backend/app/scanner.py` when supporting older watches without arrival weekdays.
+Invalid night counts or no selected days display validation text, not a guessed
+stay. The preview does not contact a reservation provider.
+
+The November 17, 2026 arrival-day UI check passed 15 frontend tests, 14 focused
+scanner tests, and the production frontend build. An isolated Docker fixture
+verified single/regional editing, alternate arrivals, week rollover, invalid
+input, specific-date labels, mobile layout, and a save/reopen round trip. The
+watch screenshots show schedule previews, not live availability.
+
 Use fake availability clients and temporary SQLite stores for scanner changes. Cover cooldown suppression, queue recovery after restart, partial-result notifications, and pause/resume behavior when touching the crawl lifecycle. Successful unit tests do not establish live provider limits, production storage health, or notification delivery.
 
 For watch deletion changes, also run `python -m pytest backend/tests/test_bulk_watch_delete.py -q`. The suite covers cross-batch cascades, transaction rollback, queue recovery, preserved cooldowns, concurrent dashboard reads, exclusion of the crawler, and cancelled requests. It does not send provider requests or notifications.

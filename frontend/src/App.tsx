@@ -1,5 +1,6 @@
 import {
   Activity,
+  ArrowRight,
   Bell,
   CalendarDays,
   CheckCircle2,
@@ -40,6 +41,7 @@ import { ProviderDiagnostics } from "./ProviderDiagnostics";
 import { AvailabilityDates } from "./AvailabilityDates";
 import { availabilityCounts, selectedStay } from "./availability";
 import { coordinatePair } from "./coordinates";
+import { recurringStayPreview, watchArrivalDays, weekdayOptions } from "./watchSchedule";
 import type {
   AvailabilityWindow,
   StayResults,
@@ -419,16 +421,6 @@ const addDays = (days: number) => {
   date.setDate(date.getDate() + days);
   return date.toISOString().slice(0, 10);
 };
-
-const weekdayOptions = [
-  { value: 0, label: "Mon" },
-  { value: 1, label: "Tue" },
-  { value: 2, label: "Wed" },
-  { value: 3, label: "Thu" },
-  { value: 4, label: "Fri" },
-  { value: 5, label: "Sat" },
-  { value: 6, label: "Sun" }
-];
 
 const resultViewOptions: Array<{ value: ResultView; label: string }> = [
   { value: "active", label: "Active" },
@@ -850,6 +842,7 @@ export default function App() {
   const [watchAlertsEnabled, setWatchAlertsEnabled] = useState(false);
   const [selectedWeekdays, setSelectedWeekdays] = useState<number[]>([4]);
   const [watchNights, setWatchNights] = useState(2);
+  const watchStayPreview = recurringStayPreview(selectedWeekdays, watchNights);
   const [windowStart, setWindowStart] = useState(addDays(1));
   const [windowEnd, setWindowEnd] = useState(addDays(180));
   const [specificArrival, setSpecificArrival] = useState(addDays(30));
@@ -1813,7 +1806,7 @@ export default function App() {
     if (scope?.kind === "parks") setSelectedParkGroups(scope.park_names);
     setWatchTarget(String(watch.target_id));
     setWatchMode(watch.mode);
-    setSelectedWeekdays(watch.arrival_weekdays?.length ? watch.arrival_weekdays : [4]);
+    setSelectedWeekdays(watchArrivalDays(watch));
     setWatchNights(watch.nights);
     setCartAssistEnabled(Boolean(watch.cart_assist_enabled));
     setWatchAlertsEnabled(Boolean(watch.alerts_enabled));
@@ -4124,11 +4117,25 @@ export default function App() {
               {watchMode === "weekend" ? (
                 <>
                   <label>
-                    Arrival days
-                    <span className="weekday-toggle" aria-label="Arrival days">
+                    Nights
+                    <input
+                      min="1"
+                      max="14"
+                      step="1"
+                      required
+                      type="number"
+                      value={watchNights}
+                      onChange={(event) => setWatchNights(Number(event.target.value))}
+                    />
+                  </label>
+                  <fieldset className="arrival-days wide-field">
+                    <legend>Arrival days</legend>
+                    <div className="weekday-toggle">
                       {weekdayOptions.map((day) => (
                         <button
                           className={selectedWeekdays.includes(day.value) ? "selected" : ""}
+                          aria-label={day.name}
+                          aria-pressed={selectedWeekdays.includes(day.value)}
                           key={day.value}
                           onClick={() => toggleWeekday(day.value)}
                           type="button"
@@ -4136,18 +4143,21 @@ export default function App() {
                           {day.label}
                         </button>
                       ))}
-                    </span>
-                  </label>
-                  <label>
-                    Nights
-                    <input
-                      min="1"
-                      max="14"
-                      type="number"
-                      value={watchNights}
-                      onChange={(event) => setWatchNights(Number(event.target.value))}
-                    />
-                  </label>
+                    </div>
+                  </fieldset>
+                  <div className="stay-preview wide-field" role="status" aria-label="Stay preview" aria-atomic="true">
+                    <div className="stay-preview-heading">
+                      <strong>Stay preview</strong>
+                      {watchStayPreview.length > 0 && <span>{watchNights} night{watchNights === 1 ? "" : "s"}</span>}
+                    </div>
+                    {watchStayPreview.length > 0 ? <ul>
+                      {watchStayPreview.map(stay => <li key={stay.day}>
+                        <span><strong>{stay.checkIn}</strong><small>Check-in</small></span>
+                        <ArrowRight size={18} aria-hidden="true" />
+                        <span><strong>{stay.checkOut}</strong><small>Check-out{stay.weeksLater > 0 ? ` (${stay.weeksLater} week${stay.weeksLater === 1 ? "" : "s"} later)` : ""}</small></span>
+                      </li>)}
+                    </ul> : <p>{selectedWeekdays.length ? "Enter 1 to 14 whole nights." : "Choose at least one arrival day."}</p>}
+                  </div>
                   <label>
                     Window start
                     <input type="date" value={windowStart} onChange={(event) => setWindowStart(event.target.value)} />
@@ -4160,11 +4170,11 @@ export default function App() {
               ) : (
                 <>
                   <label>
-                    Arrival
+                    Check-in
                     <input type="date" value={specificArrival} onChange={(event) => setSpecificArrival(event.target.value)} />
                   </label>
                   <label>
-                    Departure
+                    Check-out
                     <input type="date" value={specificDeparture} onChange={(event) => setSpecificDeparture(event.target.value)} />
                   </label>
                 </>
