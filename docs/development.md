@@ -52,11 +52,13 @@ Active watches start background work as soon as the server starts. Use the read-
 | `frontend/src/App.tsx`, `WatchGroup.tsx`, `SavedTargets.tsx` | Dashboard, drawers, logs, regional watch controls, grouped target inventory |
 | `frontend/src/api.ts`, `types.ts` | Frontend API calls and response contracts |
 | `backend/tests/` | Unit and API tests with isolated databases and fake providers |
-| `browser_worker/`, `compose.browser.yaml` | Optional isolated browser console and read-only search inspector, not a live provider |
+| `scripts/camply_probe/`, `scripts/check_washington.py` | Standalone library comparison and bounded native connector checks |
 
-The optional [browser worker guide](browser-worker.md) covers its separate Docker
-setup and offline test harness. It is not started by the main Compose file and has
-no access to the application's database, settings, or notification credentials.
+The browser-console prototype and its separate image definition were removed.
+The [retirement guide](browser-worker.md) covers existing installations and Git
+recovery. Playwright can still be used as a developer tool for UI verification;
+it is not a backend or frontend runtime dependency. The main Docker image never
+included the optional worker.
 
 The [Camply probe](camply-probe.md) remains a separate library comparison, with released and pinned PR #398 images. Its successful request behavior is now adapted into `goingtocamp.py`; the full Camply package is not installed into the main backend because its Pydantic major version conflicts with ours. The app uses `fake-useragent==1.4.0`, the same version as the tested PR, and keeps anonymous response cookies in memory. The regular connector supports Roofed as well as Camping; the upstream library probe only searches Camping.
 

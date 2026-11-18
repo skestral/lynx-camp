@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from types import SimpleNamespace
 
 from backend.app.cart_assist import CartAssistant
@@ -166,3 +167,21 @@ def test_cart_assist_status_reports_cooldown_guard_state(tmp_path) -> None:
     assert status["total_attempt_count"] == 1
     assert status["latest_active_attempt_at"] is not None
     assert status["attempt_status_counts"] == {"manual_required": 1}
+
+
+def test_cart_assist_still_prepares_manual_checkout_without_a_browser_worker(tmp_path) -> None:
+    store = Store(tmp_path / "campfinder.db")
+    store.init()
+    assistant = CartAssistant(store, settings(
+        cart_assist_enabled=True,
+        recreation_gov_username="camper@example.com",
+        recreation_gov_password="secret",
+    ))
+    result = create_result(store)
+
+    attempts = asyncio.run(assistant.handle_new_results({"cart_assist_enabled": True}, [result]))
+
+    assert len(attempts) == 1
+    assert attempts[0]["status"] == "manual_required"
+    assert "Automated add-to-cart is not supported" in attempts[0]["message"]
+    assert "browser worker" not in attempts[0]["message"]

@@ -180,8 +180,8 @@ class CartAssistant:
             else:
                 attempt_status = "manual_required"
                 message = (
-                    "High-priority match is ready for manual checkout. Automated add-to-cart is intentionally "
-                    "not performed until a guarded browser worker is configured."
+                    "High-priority match is ready for manual checkout. Automated add-to-cart is not supported; "
+                    "open the provider booking page to complete your reservation."
                 )
 
             attempt, created = self.store.record_cart_attempt(result, attempt_status, message)

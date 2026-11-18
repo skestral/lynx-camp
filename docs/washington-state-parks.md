@@ -16,7 +16,7 @@ Production Unraid access, sustained statewide polling, and every park-specific r
 4. For Friday and Saturday nights, use Friday arrival and two nights. Leave Site type blank for mixed-category regional watches. For cabin/yurt searches, select the desired **Roofed** targets. `Camping` or `Roofed` filters must match the selected target categories. Individual cabin-versus-yurt type, display names such as C7, loop, and capacity are not available from this endpoint; those filters produce an explicit error instead of silently hiding results.
 5. Existing Discord, Home Assistant, and email settings apply to new matches. Review the provider's final rules, party size, equipment, and eligibility before booking. Results are candidates, not reservations or cart holds.
 
-No new environment variable, API key, or browser profile is required. The optional browser worker can remain stopped. Do not delete the database to clear an access problem.
+No new environment variable, API key, or browser profile is required. The old diagnostic browser worker has been removed from the repository; see the [retirement guide](browser-worker.md) for existing installations. Do not delete the database to clear an access problem.
 
 ### Access Stops and Rate Limits
 
@@ -87,17 +87,15 @@ The screenshots below use a synthetic denial in the isolated documentation demo,
 
 [Mobile diagnostics](screenshots/washington-diagnostics-mobile.jpg)
 
-## Optional Browser Diagnostics
+## Historical Browser Research
 
 For a separate library comparison without a browser, use the [Camply Docker probe](camply-probe.md). It is a bounded diagnostic tool, not part of scheduled scanning, and does not read or modify Camp Finder appdata. The first November 17 test received HTTP 403 under a fixed application identity. A later, explicitly requested test of pinned PR #398 with Camply's default User-Agent completed in local Docker and returned 19 Bogachiel Camping candidates for November 28-29. Its retired site-details endpoint returned 404 and used the PR's placeholder fallback. This is working candidate retrieval for one stay, not verified Roofed, statewide, or production coverage, and it does not change the native connector's saved access stop.
 
 The reservation workflow was inspected in the owner's existing Edge session on November 17, 2026, after an explicit handoff. Anonymous camping and roofed results loaded there. This does not establish access from a Docker browser or identify why the development browser was denied.
 
-A browser connector is an alternative to a direct API integration where permitted. An [isolated Docker browser worker](browser-worker.md) now provides a private console and read-only inspection of a manually submitted search. Its runtime and synthetic-page checks pass; Washington access from that worker and complete live-result collection have not been verified. Do not export challenge cookies or replay browser credentials through a denied API.
+The browser-based prototype was not selected as the scanning architecture and has been [removed](browser-worker.md). It only inspected manually submitted pages and never fed watches or notifications. Historical source is retained in Git; existing private profiles and console credentials are not deleted by the cleanup.
 
-The earlier browser-based proposal is not the chosen scanning architecture. The worker remains an optional diagnostic tool with a separate persistent profile and private console. It does not feed watches or notifications, solve challenges, or establish permission for unattended use.
-
-[Playwright supports Docker](https://playwright.dev/python/docs/docker), but a production crawler needs a non-root sandboxed browser and private control endpoints. Browser profiles are sensitive; [Playwright's authentication guidance](https://playwright.dev/python/docs/auth) warns against committing stored browser state. Exclude profiles from Git, image build contexts, ordinary settings exports, and diagnostic screenshots. Do not use the owner's everyday browser profile as the server profile.
+Normal browser searches remain useful for verifying results, but the app has no browser-console dependency. Do not export challenge cookies or replay browser credentials through a denied API.
 
 A local browser helper would require the owner's computer to remain available, so it does not meet the remote-only deployment requirement. The integrated adapter runs entirely in Camp Finder's Docker container; production-host access still needs a check after deployment.
 
@@ -166,8 +164,8 @@ service behavior. The latest repository change is a September 2025 contributor
 workflow; the last `app.py` change is July 2021.
 
 GoCamp is an additional contract reference, not a drop-in connector or a solution
-to denied access. A permitted direct API integration remains an option; the browser
-diagnostic worker does not commit Camp Finder to browser-only scanning.
+to denied access. The integrated adapter uses direct API requests; the retired
+browser prototype is not part of that path.
 
 ## Further Validation
 

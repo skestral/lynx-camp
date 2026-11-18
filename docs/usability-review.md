@@ -133,3 +133,11 @@ Regional membership was initially a creation-time snapshot. The opt-in coverage 
 - Rebuilt the local app container, imported the catalog, and scanned a saved two-campground watch group through the app API. Both scans succeeded and saved 20 results. Repeating both checks used cached availability, kept 20 results, and left the provider diagnostics count unchanged at 12. Crawling was left paused; no real notifications were sent and production was not changed.
 - Backend suite: 340 tests passed with one existing Starlette/AnyIO deprecation warning. Frontend production build passed. Tests include Camping/Roofed Discord and Home Assistant payloads, deduplication, durable notification handoff, cancellation/restart recovery, additive database migration, and preserved user decisions.
 - Refreshed desktop and 390px mobile screenshots from the local Docker instance. Both layouts had no horizontal document overflow, the app reported no browser console errors, and Dashboard returned from Logs correctly. These establish local behavior, not statewide inventory accuracy, ongoing provider acceptance, or production delivery.
+
+### Browser Prototype Retirement (2026-11-17)
+
+- Removed the standalone browser package, its image/Compose definitions, launchers, tests, and console screenshot. The regular backend, frontend, and Docker image had no imports or dependencies on that prototype. UI-development browser tooling remains separate.
+- Replaced the setup guide with retirement and Git-recovery instructions. Existing containers, images, profile volumes, console credentials, and appdata were left untouched.
+- Clarified that Cart Assist still prepares manual-checkout records and does not enable automated holds by configuring a worker. Added a regression check for that path.
+- Backend suite: 341 tests passed with the existing Starlette/AnyIO warning. Frontend production build, local Compose validation, and diff whitespace checks passed. No live provider scans or alerts were sent, and no deployment was changed.
+- Added a source-backed Camply coverage review. Tacoma Power is the first local candidate; BC/Parks Canada and UseDirect providers are follow-ups. NPS's announced 2027 Yellowstone transition means existing Recreation.gov coverage should be audited before adding the legacy concessionaire connector.

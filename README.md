@@ -114,8 +114,9 @@ Sources can be filtered to Puget Sound, Olympic Peninsula, Mount Rainier, Snoqua
 
 The [Washington State Parks setup guide](docs/washington-state-parks.md) covers
 the direct API path. It runs inside the regular Camp Finder container without
-credentials, a browser console, or another service. The optional
-[browser diagnostic worker](docs/browser-worker.md) is separate and is not required.
+credentials, a browser console, or another service. The old browser diagnostic
+prototype has been [retired](docs/browser-worker.md); existing profile data is not
+deleted by an upgrade.
 
 Sources labeled **Live monitoring** or **Experimental API** have Check and Import actions. Check discovers campgrounds from that provider; Import creates or updates targets by provider-qualified ID. Experimental does not mean verified live coverage. Washington access denials persist across restarts, disable Check/Import, and require review before resetting in Sources. **Not connected** and **Directory only** entries cannot be imported into the scanner. An official listing or an open park does not establish nightly campsite availability.
 
@@ -215,7 +216,7 @@ Watch filters are optional. If left blank, Camp Finder reports every campsite th
 - Site text: case-insensitive contains match against site label.
 - Minimum people: excludes known sites with lower max occupancy.
 
-Leave Site type blank to include cabins as well as tent, RV, and other site types returned by connected providers. Enter `cabin` for a cabin-only watch. `tent` matches type labels containing that word; it does not infer tent compatibility from a utility campsite's amenities. Cabins must belong to an imported, active campground/facility covered by the watch; this does not search every lodging provider or hotel. A type filter is one substring, not a comma-separated list.
+Leave Site type blank to include cabins as well as tent, RV, and other site types returned by connected providers. Where a provider supplies specific type labels, enter `cabin` for a cabin-only watch. For Washington State Parks, select Roofed targets instead; the connector cannot distinguish cabins from yurts. `tent` matches type labels containing that word; it does not infer tent compatibility from a utility campsite's amenities. Cabins must belong to an imported, active campground/facility covered by the watch; this does not search every lodging provider or hotel. A type filter is one substring, not a comma-separated list.
 
 For a Friday-and-Saturday stay, select Friday as the arrival day and set two nights (Sunday checkout). Selecting both Friday and Saturday creates alternate starts, not a requirement to stay both nights.
 
@@ -229,9 +230,9 @@ Recreation.gov says booking windows are set by individual facilities and lists b
 - A cooldown prevents repeated attempts from piling up.
 - Credentials, if used, belong in the server `.env` file or in the dashboard-managed appdata settings, not in browser local storage.
 - Attempt records can be marked opened, booked, dismissed, failed, or ready again from the dashboard.
-- This build records readiness and manual-checkout attempts. It does not run an automated browser worker yet, does not submit payment, and does not bypass login, CAPTCHA, or any ambiguous Recreation.gov screen.
+- This build records readiness and manual-checkout attempts. It does not automate add-to-cart, submit payment, or bypass login, CAPTCHA, or any ambiguous Recreation.gov screen.
 
-The next safe step is a separate browser worker that can use one persistent Recreation.gov session, stop on any challenge or uncertainty, and hand the final checkout decision back to you. That worker should be explicitly enabled only after reviewing current Recreation.gov terms and the behavior of your account.
+The retired Washington diagnostic console was never a Cart Assist implementation. Configuring credentials does not create a hold or enable automated checkout. Any future hold integration needs its own provider review and explicit opt-in; manual booking remains the supported workflow.
 
 ## Implementation Guide
 
@@ -521,9 +522,11 @@ On Unraid, `/mnt/user/appdata/...` is a user-share view over local storage, not 
 
 ## Next Useful Phases
 
+The [Camply opportunity review](docs/camply-opportunities.md) prioritizes Tacoma Power, BC/Parks Canada, Oregon Metro, and equipment filters. It also covers Yellowstone's announced 2027 move to Recreation.gov, which changes the case for a separate concessionaire connector.
+
 1. Add the remaining county reservation systems and broaden Washington accommodation metadata. Verify complete-stay camping and cabin coverage before enabling each source.
 2. Add filters for equipment, max vehicle length, accessible sites, and electric/water hookups when the API exposes them consistently.
 3. Persist source definitions and last source-check results in SQLite instead of keeping the catalog code-defined.
 4. Add custom source creation for a Recreation.gov parent area, state, region, or keyword.
 5. Add notification channels such as Pushover, Telegram, or richer email templates.
-6. Add the guarded browser worker for Cart Assist, using one persistent Recreation.gov session and stopping on login challenges, CAPTCHA, unexpected pages, or any payment step.
+6. Evaluate a provider-supported Cart Assist integration separately from availability monitoring; keep checkout manual unless that integration is explicitly implemented and enabled.
