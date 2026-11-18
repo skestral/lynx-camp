@@ -40,14 +40,17 @@ const PROVIDER_REQUEST_TIMEOUT_MS = 300000;
 
 async function request<T>(path: string, options?: RequestInit, timeoutMs?: number): Promise<T> {
   let response: Response;
+  const timeout = AbortSignal.timeout(timeoutMs ?? (options?.method ? 300000 : 15000));
+  const signal = options?.signal ? AbortSignal.any([options.signal, timeout]) : timeout;
   try {
     response = await fetch(path, {
       ...options,
-      signal: options?.signal || AbortSignal.timeout(timeoutMs ?? (options?.method ? 300000 : 15000)),
+      signal,
       headers: { "Content-Type": "application/json", ...(options?.headers || {}) }
     });
   } catch {
-    throw new Error(`${path}: server unreachable or request timed out. Check the connection and server logs.`);
+    if (signal.aborted) throw new Error(`${path}: ${timeout.aborted ? "request timed out" : "request cancelled"}.`);
+    throw new Error(`${path}: server unreachable. Check the connection and server logs.`);
   }
   if (!response.ok) {
     const body = await response.text();
@@ -61,7 +64,12 @@ async function request<T>(path: string, options?: RequestInit, timeoutMs?: numbe
   if (!response.headers.get("content-type")?.includes("application/json")) {
     throw new Error(`${path}: expected JSON but received a web page. Check proxy routing and server version.`);
   }
-  return response.json() as Promise<T>;
+  try {
+    return await response.json() as T;
+  } catch {
+    if (timeout.aborted) throw new Error(`${path}: response timed out.`);
+    throw new Error(`${path}: invalid or interrupted JSON response.`);
+  }
 }
 
 export const api = {

@@ -42,6 +42,7 @@ import { AvailabilityDates } from "./AvailabilityDates";
 import { availabilityCounts, selectedStay } from "./availability";
 import { coordinatePair } from "./coordinates";
 import { recurringStayPreview, watchArrivalDays, weekdayOptions } from "./watchSchedule";
+import { createRefreshGate } from "./dashboardRefresh";
 import type {
   AvailabilityWindow,
   StayResults,
@@ -821,7 +822,9 @@ export default function App() {
   const [cartAttemptBusyId, setCartAttemptBusyId] = useState<number | null>(null);
   const [loadState, setLoadState] = useState<LoadState>("idle");
   const [crawlStatus, setCrawlStatus] = useState<CrawlStatus | null>(null);
-  const [refreshError, setRefreshError] = useState("");
+  const [refreshErrors, setRefreshErrors] = useState<string[]>([]);
+  const [lastRefreshAt, setLastRefreshAt] = useState<string | null>(null);
+  const dashboardRefresh = useRef(createRefreshGate());
   const [message, setMessage] = useState("");
   const [query, setQuery] = useState("");
   const [suggestions, setSuggestions] = useState<SearchSuggestion[]>([]);
@@ -1574,6 +1577,10 @@ export default function App() {
   }
 
   async function refresh(options?: { silent?: boolean }) {
+    return dashboardRefresh.current.run(() => refreshDashboard(options));
+  }
+
+  async function refreshDashboard(options?: { silent?: boolean }) {
     if (!options?.silent) setLoadState("loading");
     const outcomes = await Promise.allSettled([
       api.targets().then((data) => {
@@ -1602,7 +1609,8 @@ export default function App() {
     ]);
     const failures = outcomes.filter((outcome): outcome is PromiseRejectedResult => outcome.status === "rejected");
     setLoadState(failures.length ? "error" : "idle");
-    setRefreshError(failures.map((failure) => failure.reason instanceof Error ? failure.reason.message : "Request failed").join("; "));
+    setRefreshErrors(failures.map((failure) => failure.reason instanceof Error ? failure.reason.message : "Request failed"));
+    if (!failures.length) setLastRefreshAt(new Date().toISOString());
   }
 
   useEffect(() => {
@@ -1629,17 +1637,21 @@ export default function App() {
 
   useEffect(() => {
     if (!scanInProgress) return;
-    const pollLiveScanState = async () => {
-      if (document.visibilityState !== "visible") return;
+    const readLiveScanState = async () => {
       try {
-        const [scanRunData, scanEventData, resultData, resultSummaryData, cartAttemptData, crawlData] = await Promise.all([
+        const reads = [
           api.scanRuns(),
           api.scanEvents(),
           api.results(),
           api.resultSummary(),
           api.cartAttempts(),
           api.crawlStatus()
-        ]);
+        ] as const;
+        const [scanRunData, scanEventData, resultData, resultSummaryData, cartAttemptData, crawlData] = await Promise.all(reads).catch(async error => {
+          // One failed request must not release the poll gate while others run.
+          await Promise.allSettled(reads);
+          throw error;
+        });
         setScanRuns(scanRunData);
         setScanEvents(scanEventData);
         setResults(resultData);
@@ -1650,6 +1662,10 @@ export default function App() {
       } catch {
         // The normal refresh loop and scan completion handler will surface persistent API failures.
       }
+    };
+    const pollLiveScanState = async () => {
+      if (document.visibilityState !== "visible") return;
+      await dashboardRefresh.current.run(readLiveScanState, false);
     };
     void pollLiveScanState();
     const handle = window.setInterval(pollLiveScanState, crawlStatus?.status === "waiting" ? 15000 : 3000);
@@ -3433,7 +3449,18 @@ export default function App() {
         </header>
 
         {message && <div className="notice">{message}</div>}
-        {refreshError && <div className="notice danger" role="alert">Some dashboard data could not be refreshed. Previously loaded data may be stale. {refreshError}</div>}
+        {refreshErrors.length > 0 && <div className="notice danger dashboard-refresh-error" role="alert">
+          <strong>Dashboard refresh interrupted</strong>
+          <span>{refreshErrors.length} requests failed. Previously loaded data may be stale.</span>
+          <small>Last complete refresh: {lastRefreshAt ? formatDateTime(lastRefreshAt) : "Not yet"}</small>
+          <div className="row-actions">
+            <button type="button" className="icon-button" disabled={loadState === "loading"} onClick={() => void refresh()}>
+              <RefreshCw size={16} /><span>Retry refresh</span>
+            </button>
+            <a className="icon-button" href="#logs"><ListChecks size={16} /><span>Logs</span></a>
+          </div>
+          <details><summary>Request details</summary><ul>{refreshErrors.map((error, index) => <li key={index}>{error}</li>)}</ul></details>
+        </div>}
         {crawlStatus && (crawlStatus.total_count > 0 || crawlStatus.cooldown_seconds > 0) && (
           <section className="crawl-status" aria-label="Background crawl" aria-live="polite">
             <div>

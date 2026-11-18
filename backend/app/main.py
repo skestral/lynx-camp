@@ -15,6 +15,7 @@ from fastapi.staticfiles import StaticFiles
 from .cart_assist import CartAssistant
 from .alert_dispatcher import AlertDispatcher
 from .db import Store
+from .background_io import monitor_event_loop
 from .notifications import Notifier
 from .presets import discover_preset_pack, import_discovered_preset_pack, import_preset_pack, list_preset_packs
 from .recreation import RateLimitError
@@ -104,11 +105,13 @@ async def lifespan(app: FastAPI):
     alert_dispatcher.initialize()
     task = asyncio.create_task(scan_loop())
     notification_task = asyncio.create_task(notification_loop())
+    loop_monitor_task = asyncio.create_task(monitor_event_loop())
     try:
         yield
     finally:
         task.cancel()
         notification_task.cancel()
+        loop_monitor_task.cancel()
         try:
             await task
         except asyncio.CancelledError:
@@ -118,6 +121,10 @@ async def lifespan(app: FastAPI):
         except asyncio.CancelledError:
             pass
         await scanner.shutdown()
+        try:
+            await loop_monitor_task
+        except asyncio.CancelledError:
+            pass
 
 
 app = FastAPI(title="Camp Finder", lifespan=lifespan)
@@ -448,7 +455,7 @@ def update_watch(watch_id: int, payload: WatchUpdate) -> dict:
 
 
 @app.get("/api/scans/status")
-async def scan_status() -> dict:
+def scan_status() -> dict:
     return scanner.scan_status()
 
 

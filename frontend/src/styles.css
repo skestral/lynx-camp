@@ -222,6 +222,16 @@ small {
   font-weight: 650;
 }
 
+.dashboard-refresh-error {
+  display: grid;
+  gap: 8px;
+  overflow-wrap: anywhere;
+}
+
+.dashboard-refresh-error summary { cursor: pointer; }
+.dashboard-refresh-error ul { margin: 8px 0 0; padding-left: 20px; }
+.dashboard-refresh-error .row-actions { flex-wrap: wrap; }
+
 .notice.danger {
   background: #fff0ef;
   border-color: #f1c3bd;

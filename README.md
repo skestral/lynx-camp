@@ -555,7 +555,11 @@ Bulk and single-watch deletion run database work off the API event loop, so dash
 
 ## Diagnosing API Failures
 
-The dashboard refreshes sections independently, so a failed settings request no longer hides successfully loaded availability. An error identifies the endpoint and HTTP status. Previously loaded sections remain visible but may be stale. Database lock failures return HTTP 503 with a retry hint; other database failures are logged by the server. The health endpoint checks database reads, not just whether the web process is running.
+The dashboard keeps successfully loaded sections visible if a refresh fails. The warning shows the failed-request count, last complete refresh time, Retry refresh, and a Logs link. Expand Request details to see individual endpoints and errors. Timeouts, connection failures, and unexpected proxy responses are reported separately. Previously loaded data may be stale until a successful refresh.
+
+Live scan polling and full dashboard refreshes share one in-flight gate, so slow requests do not accumulate overlapping poll cycles. The scanner saves results in short worker-thread transactions instead of blocking the API event loop with one transaction per campsite. Stopping waits for the current batch; a partially saved stay is checked again on resume. These changes preserve existing databases, watch rules, and notification history.
+
+Database lock failures return HTTP 503 with a retry hint; other database failures are logged by the server. The health endpoint checks database reads, not just whether the web process is running. See the [dashboard timeout guide](docs/dashboard-timeouts.md) for direct-server checks and the new slow-operation warnings.
 
 For repeated errors, collect `docker compose logs --since 30m --tail 200 campfinder` and check the host path mounted at `/data`. SQLite uses WAL mode to let readers continue during writes. Keep the database on a local disk, not an SMB/NFS mount or an actively cloud-synced directory. WAL does not fix damaged storage or a long-running writer.
 

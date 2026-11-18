@@ -13,7 +13,8 @@ from zoneinfo import ZoneInfo
 from dateutil.relativedelta import relativedelta
 
 from .cart_assist import CartAssistant
-from .db import Store
+from .background_io import database_call
+from .db import RESULT_BATCH_SIZE, Store
 from .notifications import Notifier
 from .recreation import Campsite, RateLimitError
 from .providers import CampgroundClient
@@ -554,7 +555,7 @@ class Scanner:
             if self._crawl_paused:
                 return
             if not self.full_scan_pending:
-                due = self.store.due_watches(limit=10000)
+                due = await database_call(self.store.due_watches, limit=10000)
                 if not due:
                     return
                 self._begin_full_scan(due)
@@ -721,9 +722,9 @@ class Scanner:
                     for site in matching_sites
                     if site_matches_filters(site, watch.get("site_filters"))
                 ]
-                for site in sites:
-                    result, is_new = self.store.upsert_result(
-                        {
+                for offset in range(0, len(sites), RESULT_BATCH_SIZE):
+                    self._raise_if_cancel_requested()
+                    saved = await database_call(self.store.upsert_results, [{
                             "watch_id": watch["id"],
                             "target_id": watch["target_id"],
                             "campground_id": watch["campground_id"],
@@ -735,15 +736,15 @@ class Scanner:
                             "arrival_date": trip.arrival_date.isoformat(),
                             "departure_date": trip.departure_date.isoformat(),
                             "booking_url": site.booking_url or campsite_booking_url(site.campsite_id, trip.arrival_date),
-                        }
-                    )
-                    seen_dedupe_keys.add(result["dedupe_key"])
-                    stay_dedupe_keys.append(result["dedupe_key"])
-                    available_count += 1
-                    if is_new:
-                        new_results.append({**result, "watch_name": watch["name"]})
-                    if result["notification_pending"]:
-                        pending_results[result["id"]] = {**result, "watch_name": watch["name"]}
+                        } for site in sites[offset:offset + RESULT_BATCH_SIZE]])
+                    for result, is_new in saved:
+                        seen_dedupe_keys.add(result["dedupe_key"])
+                        stay_dedupe_keys.append(result["dedupe_key"])
+                        available_count += 1
+                        if is_new:
+                            new_results.append({**result, "watch_name": watch["name"]})
+                        if result["notification_pending"]:
+                            pending_results[result["id"]] = {**result, "watch_name": watch["name"]}
                 if sites:
                     self._log_scan_event(
                         run_id,
@@ -761,9 +762,10 @@ class Scanner:
                 progress["remaining_requests"] = (len({month for t in unfinished
                     for month in months_for_trip(t.arrival_date, t.departure_date)})
                     if provider == "recreation" else len(unfinished))
-                self.store.save_scan_checkpoint(watch["id"], progress)
+                await database_call(self.store.save_scan_checkpoint, watch["id"], progress)
 
-            missing_count = self.store.mark_missing_results_booked(
+            self._raise_if_cancel_requested()
+            missing_count = await database_call(self.store.mark_missing_results_booked,
                 watch["id"],
                 [(trip.arrival_date.isoformat(), trip.departure_date.isoformat()) for trip in trips],
                 seen_dedupe_keys,
@@ -822,6 +824,10 @@ class Scanner:
                 "available_count": available_count,
                 "missing_count": missing_count,
             }
+        except asyncio.CancelledError:
+            await database_call(self.store.finish_scan_run, run_id, "interrupted",
+                                "Scan interrupted; saved matches and date progress are retained.", len(trips), available_count)
+            raise
         except ScanCancelled:
             message = "Scan stopped by user."
             self.store.finish_scan_run(run_id, "cancelled", message, len(trips), available_count)
@@ -873,14 +879,14 @@ class Scanner:
     async def _notify_pending_results(self, results: dict[int, dict]) -> int:
         self._raise_if_cancel_requested()
         # Recheck user actions after fetching later stays or awaiting Cart Assist.
-        pending_ids = self.store.pending_notification_ids(results)
+        pending_ids = await database_call(self.store.pending_notification_ids, results)
         pending = [result for result_id, result in results.items() if result_id in pending_ids]
         if not pending:
             return 0
         notified = await self.notifier.notify_results(pending, self.store, self.max_notification_results)
         # A completed no-channel call consumes the alert too; later configuration
         # must not turn historical matches into a new notification backlog.
-        self.store.complete_result_notifications(pending_ids)
+        await database_call(self.store.complete_result_notifications, pending_ids)
         return notified if isinstance(notified, int) else len(pending)
 
     async def _monthly_availability(self, campground_id: str, month: date) -> dict[str, Campsite]:

@@ -49,6 +49,7 @@ ACTIONABLE_CART_ATTEMPT_STATUSES = {"manual_required", "opened", "hold_queued", 
 FINISHED_CART_ATTEMPT_STATUSES = {"skipped", "disabled", "needs_credentials", "cooldown", "booked", "dismissed", "failed"}
 REGIONAL_RULE_FIELDS = ("name", "mode", "pattern", "arrival_weekdays", "nights", "window_start", "window_end",
                         "site_filters", "specific_ranges", "cart_assist_enabled", "alerts_enabled")
+RESULT_BATCH_SIZE = 100
 
 
 class Store:
@@ -1154,7 +1155,16 @@ class Store:
                 (utc_now(), status, utc_now(), target_id),
             )
 
-    def upsert_result(self, data: dict[str, Any]) -> tuple[dict[str, Any], bool]:
+    def upsert_results(self, items: list[dict[str, Any]]) -> list[tuple[dict[str, Any], bool]]:
+        if len(items) > RESULT_BATCH_SIZE:
+            raise ValueError("Result batch is too large")
+        if not items:
+            return []
+        with self.connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            return [self.upsert_result(item, _conn=conn) for item in items]
+
+    def upsert_result(self, data: dict[str, Any], _conn=None) -> tuple[dict[str, Any], bool]:
         now = utc_now()
         booking_url = (
             _campsite_booking_url(data["campsite_id"], data["arrival_date"])
@@ -1170,7 +1180,7 @@ class Store:
                 data["departure_date"],
             ]
         )
-        with self.connect() as conn:
+        with (nullcontext(_conn) if _conn is not None else self.connect()) as conn:
             existing = conn.execute("SELECT * FROM results WHERE dedupe_key = ?", (dedupe_key,)).fetchone()
             if existing:
                 reappeared = existing["status"] == "booked" and bool(existing["auto_missing"])

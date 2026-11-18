@@ -103,6 +103,12 @@ The `scan_checkpoints` table stores completed date windows and their observed re
 
 Watch deletion uses `Scanner.delete_watches` for both the bulk and individual endpoints. It holds the scanner lock while a worker thread performs the SQLite transaction, then prunes and persists the pending queue. Request cancellation does not release that lock while the worker is still running. Do not replace this with a direct synchronous store call inside an async route, or remove the lock when offloading work.
 
+Result persistence also runs off the event loop. `Store.upsert_results` saves at most 100 matches in one transaction, including their notification flags and finding-journal entries. `background_io.database_call` waits for a running worker even if its caller is cancelled repeatedly; releasing the scanner lock earlier could let deletion or another scan race that worker. A date checkpoint is written only after every batch for that stay succeeds. A cancelled task closes its scan run as interrupted; resuming a partial stay deduplicates already saved matches. Cancellation is cooperative, not a forced termination of SQLite.
+
+The due-watch read, checkpoint writes, missing-result pass, and notification bookkeeping also use this helper. The scan-status GET runs in FastAPI's worker pool because it reads checkpoint summaries. Other small synchronous operations remain; this is not a guarantee against all storage-related stalls. Database worker operations taking at least two seconds and event-loop delays of at least two seconds emit warnings in container logs, without SQL arguments or request bodies.
+
+`frontend/src/dashboardRefresh.ts` serializes full refreshes and live scan polls. A live poll skips its tick while another refresh is active; an explicit refresh waits, then reads fresh data. A failed live request must wait for its sibling requests to settle before releasing the gate. Date-filter requests keep both their caller's cancellation signal and the API timeout. Do not replace the shared gate with independent flags for each polling effect.
+
 `Store.init` creates missing foreign-key child indexes with `CREATE INDEX IF NOT EXISTS`. This startup migration applies to existing databases as well as fresh ones; `cart_attempts.result_id` already has a UNIQUE index. Regression tests in `test_bulk_watch_delete.py` drop the new indexes from a populated database to reproduce the old schema, reopen and migrate it twice, check query plans, and verify retained settings and history.
 
 | Endpoint | Contract |
@@ -229,6 +235,8 @@ watch screenshots show schedule previews, not live availability.
 
 Use fake availability clients and temporary SQLite stores for scanner changes. Cover cooldown suppression, queue recovery after restart, partial-result notifications, and pause/resume behavior when touching the crawl lifecycle. Successful unit tests do not establish live provider limits, production storage health, or notification delivery.
 
+The November 18, 2026 dashboard responsiveness check passed 459 backend tests in Docker with networking disabled, 20 frontend tests, and the production frontend build. `test_scan_responsiveness.py` reproduces slow result persistence while making API reads, repeated cancellation during a held write, partial-stay recovery, batch rollback, dismissal/finding-journal semantics, and event-loop stall logging. The health-read regression failed before worker-thread persistence was introduced. Browser checks used the read-only demo with intercepted API failures: the warning retained existing data, all 16 failed requests were expandable, Retry recovered, and the 390px layout had no horizontal overflow. A second browser check delayed reads by seven seconds while one endpoint failed immediately; live and full refreshes never overlapped requests for the same endpoint during the 38-second observation. These checks do not establish the cause of an overnight production timeout.
+
 For watch deletion changes, also run `python -m pytest backend/tests/test_bulk_watch_delete.py -q`. The suite covers cross-batch cascades, transaction rollback, queue recovery, preserved cooldowns, concurrent dashboard reads, exclusion of the crawler, and cancelled requests. It does not send provider requests or notifications.
 
 Validate both Compose files without printing resolved secrets: `docker compose -f compose.yaml config --quiet` (requires its configured env file) and `docker compose -f docker-compose.yml config --quiet`. Review the [deployment instructions](../README.md#implementation-guide) before updating a running container.
@@ -260,6 +268,8 @@ Current documentation images:
 | Image | View |
 | --- | --- |
 | `dashboard-overview.png` | Crawl cooldown, progress, and grouped results with dismissal controls |
+| `dashboard-timeout-desktop.png` | Compact refresh warning with retained demo results |
+| `dashboard-timeout-mobile.png` | Mobile refresh warning, timestamp, retry, and logs link |
 | `crawl-mobile.png` | Mobile crawl status and summary |
 | `regional-watch-demo.png` | Mobile regional watch and member campgrounds |
 | `regional-coverage.png` | State watch editor with future-import coverage enabled |
