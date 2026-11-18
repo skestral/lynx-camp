@@ -58,7 +58,7 @@ Grouped availability and a crawl waiting through a provider cooldown. The follow
 - Detect a likely release window from Recreation.gov campsite reservation-window data when available.
 - Pause and resume targets or individual watch rules without deleting them.
 - Create watch rules with one or more arrival weekdays and a stay length, such as Friday or Saturday starts for two nights.
-- Create the same watch across one campground, a park group, selected park groups, a state, or the active imported targets currently visible on the map.
+- Create the same watch across individually selected map campgrounds, one campground, a park group, selected park groups, a state, or the active imported targets currently visible on the map.
 - Create exact arrival/departure date watches.
 - Edit watch names, targets, dates, day patterns, stay length, and site filters after creation.
 - Filter watch matches by campsite type, loop text, site text, and minimum people capacity.
@@ -189,6 +189,19 @@ The [county campground page](https://www.explore.skagitcounty.org/skagitcounty/d
 Each stay is read in paced pages, with at least five seconds between requests. The UI request-delay setting can increase that spacing. All pages must be complete before matches are returned; hidden sites, partially open stays, and pending-only availability are excluded. The normal stay cache, provider-specific cooldown, logs, cancellation, and notification settings apply. This connector needs no credentials and never creates a cart hold. Availability is not a booking guarantee: the provider still checks your account, previous stays, accessibility needs, and other eligibility at checkout.
 
 ## Map and Region Watches
+
+Use **Select Campgrounds** to build a watch from individual map pins. Blue checks
+mark the selected campgrounds; the review list supports removal and a checkbox
+picker for overlapping pins. **Add Visible** adds only active imported targets
+displayed inside the current map bounds, honoring the date filter. Selections
+survive panning and date changes. **Create Watch** opens the usual editor with
+those fixed members and, for a new draft, the selected map dates. Set arrival days,
+nights, filters, and alerts, then save with **Add Watch**. No watch is created until
+you save. [Map watch walkthrough](docs/availability-map.md#build-a-watch-from-the-map).
+
+![Build a watch from selected campgrounds](docs/screenshots/map-watch-desktop.png)
+
+[Mobile watch draft](docs/screenshots/map-watch-mobile.png)
 
 The map is both a navigation tool and a watch builder. Hover or keyboard-focus a campground marker for its name, park/state, saved match count, recent observation time, and up to three original stay pairs. Selected map dates limit the summary to stays covering the full interval. Hover uses the complete saved availability aggregate, not the bounded result list, and does not request provider details or run a scan. On touch devices, tap a marker. Click a park marker or a Park Queue row to see a park summary, quick campground list, result counts, and a Watch Park button. Click a campground marker to load its Recreation.gov campground details, including description text, activities, amenities, active notices, a Recreation.gov details link, a Google Maps directions link, and a campground image when Recreation.gov returns one. Some Recreation.gov campground records do not include media, so the UI shows a simple placeholder instead of guessing with stock imagery. If Recreation.gov does not return a detail record or rate-limits that lookup, Camp Finder falls back to the saved target record instead of blocking the map panel.
 

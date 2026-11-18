@@ -322,6 +322,44 @@ An ignore rule does not untrack an existing file and can be bypassed with `git a
 
 ## Documentation Screenshots
 
+### Map Watch Selection
+
+`frontend/src/mapWatch.ts` keeps an ordered, unique selection of active target
+IDs, capped at the watch-group API's 500-member limit. Selection is independent
+of map dates and viewport bounds; deleted or deactivated targets are removed
+after a target refresh. Add Visible intersects rendered campground pins with
+the current viewport, so it does not accidentally select hidden date matches or
+unimported presets. The checkbox picker covers all rendered campgrounds, including
+pins sharing coordinates.
+
+The `campgrounds` form scope submits `POST /api/watch-groups` with explicit
+`target_ids` and `region_scope: null`. It uses the existing group persistence,
+alerts, filters, edits, and export/import behavior. No database migration or new
+provider integration is needed. Failed saves retain the draft; successful saves
+clear the selected pins. The draft is page-local, not a saved browser preference.
+Pin styling and pressed state update without rebuilding Leaflet layers. Enter
+and Space toggle selections; ordinary browse mode retains campground details.
+Double-tap zoom is disabled only during selection to avoid zooming when a touch
+user quickly selects and deselects a pin.
+
+Run `npm test` and `npm run build` from `frontend`. In an isolated writable
+database with the scheduler and notification delivery disabled, verify marker
+and checkbox selection, overlapping coordinates, Add Visible with dates, clearing,
+keyboard controls, draft editing, failed-save retry, and grouped watch persistence.
+Check exact dates and recurring arrival days independently. Never create test
+watches against production or enable a real notification destination for these
+checks. The screenshot demo below is read-only and supports previewing drafts,
+not testing save operations.
+
+Verified November 18, 2026: 33 frontend tests and 36 focused backend watch tests
+passed. Desktop (1440px) and touch/mobile (390px) checks covered fixed-member
+creation, exact dates, one-night Friday/Saturday arrivals, cabin filters, per-watch
+alerts, failed-save retry, and returning from Logs. The writable fixture used a
+temporary database with no scheduler or notification destinations. No live
+provider scans, reservations, or deliveries were part of these checks.
+
+### Capture Workflow
+
 Build the frontend, then run from the repository root:
 
 ```powershell
@@ -344,6 +382,8 @@ Current documentation images:
 
 | Image | View |
 | --- | --- |
+| `map-watch-desktop.png` | Two selected campground pins and the watch review list |
+| `map-watch-mobile.png` | Selected campgrounds and dates in the mobile watch editor |
 | `map-hover-desktop.png` | Campground preview for a selected night, with no unselected polygons |
 | `map-hover-mobile.png` | Preview at 390px with accessible map controls |
 | `results-overview-desktop.png` | Complete rollup of 15,204 synthetic results, with collapsed park groups |

@@ -56,6 +56,48 @@ official park boundaries.
 
 [Mobile preview](screenshots/map-hover-mobile.png)
 
+## Build a Watch from the Map
+
+1. Turn on **Select Campgrounds** above the map. Click or tap campground pins to
+   add or remove them. Selected pins have a blue check mark. Keyboard users can
+   focus a pin and press Enter or Space.
+2. Review **Watch Campgrounds** beside the map. Remove individual entries with
+   their X button, or use **Clear Selection** to start over. **Choose from mapped
+   campgrounds** provides checkboxes for overlapping pins, including camping and
+   cabin areas with the same coordinates.
+3. **Add Visible** adds the active, imported campgrounds currently displayed inside
+   the map bounds. With dates selected, this includes only the matching pins.
+   Previously selected campgrounds remain selected when you pan or change dates,
+   even if they are no longer visible. The review list is the complete selection.
+4. Choose **Create Watch**, review the selected campgrounds, and set dates, nights,
+   filters, and immediate alerts in the usual watch editor. A new map draft starts
+   with the selected map stay, when present. **Edit on Map** returns to selection
+   without losing the draft's dates and filters. **Add Watch** saves one grouped
+   watch for exactly those campgrounds.
+
+Only active, imported targets can be selected. Other pins are dimmed in selection
+mode; opening one still provides its details and import action. Importing a
+campground in this mode adds it to the selection. Enable inactive targets from
+Targets first. One watch can contain up to 500 campgrounds.
+
+Map pins select **campgrounds**, not individual tent pads or cabins. Use the watch
+editor's site type and Specific campsites filters to narrow the inventory within
+those campgrounds. The selected campground list is fixed: it does not enroll
+future imports. Existing state, park-group, and map-area watches retain their
+optional future-import coverage.
+
+Selecting pins does not create watches, scan providers, or send alerts. Failed
+saves retain the selection for retry; a successful save clears it. An unsaved
+selection lasts while the page stays open, including trips to Logs, but is not
+restored after a reload. Saved groups use the existing watch backup/export format.
+
+**Watch View** remains a separate shortcut for all active imported targets within
+the map bounds, regardless of the availability date filter.
+
+![Map watch selection with two campgrounds](screenshots/map-watch-desktop.png)
+
+[Mobile watch draft](screenshots/map-watch-mobile.png)
+
 ## What a Match Means
 
 One saved campsite result must cover the entire interval. The app never joins

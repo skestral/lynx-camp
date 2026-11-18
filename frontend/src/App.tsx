@@ -46,6 +46,7 @@ import { createRefreshGate } from "./dashboardRefresh";
 import { ResultsOverview } from "./ResultsOverview";
 import { campgroundPreviewHtml, mapAvailabilityPreviews } from "./mapPreview";
 import { bindCampgroundPreview } from "./mapTooltip";
+import { addMapWatchTargets, mapWatchTargets, toggleMapWatchTarget, MAP_WATCH_LIMIT } from "./mapWatch";
 import type {
   AvailabilityWindow,
   StayResults,
@@ -83,7 +84,7 @@ type ResultSort = "newest" | "arrival" | "park";
 type DrawerMode = "alerts" | "activity" | "targets" | "watches" | "settings";
 type PageView = "monitor" | "logs";
 type UtilityTab = "release" | "activity" | "settings";
-type WatchScope = "target" | "park" | "state" | "map" | "selection" | "members";
+type WatchScope = "target" | "park" | "state" | "map" | "selection" | "members" | "campgrounds";
 type MapSelection =
   | { kind: "park"; parkName: string }
   | { kind: "campground"; campgroundId: string };
@@ -919,6 +920,10 @@ export default function App() {
   const [mapSelection, setMapSelection] = useState<MapSelection | null>(null);
   const [mapHover, setMapHover] = useState<MapHover | null>(null);
   const [selectedParkGroups, setSelectedParkGroups] = useState<string[]>([]);
+  const [mapWatchMode, setMapWatchMode] = useState(false);
+  const [mapWatchIds, setMapWatchIds] = useState<number[]>([]);
+  const mapWatchSelection = useMemo(() => mapWatchTargets(targets, mapWatchIds), [targets, mapWatchIds]);
+  const mapWatchIdSet = useMemo(() => new Set(mapWatchSelection.map(target => target.id)), [mapWatchSelection]);
   const [campgroundDetails, setCampgroundDetails] = useState<Record<string, CampgroundDetails>>({});
   const [campgroundDetailsBusyId, setCampgroundDetailsBusyId] = useState<string | null>(null);
   const [campgroundDetailsErrors, setCampgroundDetailsErrors] = useState<Record<string, string>>({});
@@ -930,6 +935,13 @@ export default function App() {
   const regionLayersRef = useRef(new Map<string, L.Polygon>());
   const mapFitKeyRef = useRef("");
   const mapViewportBoundsRef = useRef<L.LatLngBounds | null>(null);
+
+  useEffect(() => {
+    setMapWatchIds(current => {
+      const valid = mapWatchTargets(targets, current).map(target => target.id);
+      return valid.length === current.length ? current : valid;
+    });
+  }, [targets]);
 
   const activeTargets = targets.filter((target) => target.active);
   const activeWatches = watches.filter((watch) => watch.active && watch.target_active);
@@ -1430,6 +1442,14 @@ export default function App() {
   }, [pageView]);
 
   useEffect(() => {
+    const map = leafletMapRef.current;
+    if (!map) return;
+    // A quick select/deselect gesture must not also zoom the map on touch devices.
+    if (mapWatchMode) map.doubleClickZoom.disable();
+    else map.doubleClickZoom.enable();
+  }, [pageView, mapWatchMode]);
+
+  useEffect(() => {
     if (pageView !== "monitor") return;
     if (!mapElementRef.current) return;
     const observer = new ResizeObserver(() => {
@@ -1538,7 +1558,15 @@ export default function App() {
         })
           .addTo(markerLayer)
           .on("click", () => {
+            if (mapWatchMode && campground.targetId && campground.active) {
+              setMapWatchIds(current => toggleMapWatchTarget(targets, current, campground.targetId!));
+              return;
+            }
             setMapSelection({ kind: "campground", campgroundId: campground.campgroundId });
+            if (mapWatchMode) {
+              setMessage(campground.imported ? "Enable this target before adding it to a watch." : "Import this campground before adding it to a watch.");
+              return;
+            }
             setResultQuery(campground.name);
             setResultSort("park");
             setResultView(campground.activeResultCount > 0 ? "active" : "all");
@@ -1549,6 +1577,13 @@ export default function App() {
             }));
           });
         marker.getElement()?.setAttribute("aria-label", campground.name);
+        if (mapWatchMode) marker.getElement()?.addEventListener("keydown", event => {
+          if (event.key === " " || event.key === "Enter") {
+            event.preventDefault();
+            event.stopPropagation();
+            marker.fire("click");
+          }
+        });
         bindCampgroundPreview(marker, map, campgroundPreviewHtml(campground, mapPreviews.get(campground.campgroundId), {
           stay: mapStay, loaded: availabilityLoaded, error: Boolean(availabilityError)
         }), () => setMapHover({ kind: "campground", campgroundId: campground.campgroundId }),
@@ -1573,7 +1608,25 @@ export default function App() {
     }
     if (openCampground) campgroundMarkersRef.current.get(openCampground)?.openTooltip();
     if (focusedCampground) campgroundMarkersRef.current.get(focusedCampground)?.getElement()?.focus({ preventScroll: true });
-  }, [pageView, mapSelection, mapParkSummaries, resultQuery, selectedParkGroupSet, selectedParkGroups, dateFilterActive, mapArrival, mapDeparture, mapPreviews, mapStay, availabilityLoaded, availabilityError]);
+  }, [pageView, mapSelection, mapParkSummaries, resultQuery, selectedParkGroupSet, selectedParkGroups, dateFilterActive, mapArrival, mapDeparture, mapPreviews, mapStay, availabilityLoaded, availabilityError, mapWatchMode, targets]);
+
+  useEffect(() => {
+    // Selection changes update existing pins without moving the map or interrupting previews.
+    for (const summary of mapParkSummaries) {
+      for (const campground of summary.campgrounds) {
+        const element = campgroundMarkersRef.current.get(campground.campgroundId)?.getElement();
+        if (!element) continue;
+        const selectable = Boolean(campground.targetId && campground.active);
+        const checked = Boolean(campground.targetId && mapWatchIdSet.has(campground.targetId));
+        element.classList.toggle("watch-selected", checked);
+        element.classList.toggle("watch-unavailable", mapWatchMode && !selectable);
+        element.classList.toggle("watch-selectable", mapWatchMode && selectable);
+        element.setAttribute("aria-label", mapWatchMode && selectable ? `Select ${campground.name} for watch` : campground.name);
+        if (mapWatchMode && selectable) element.setAttribute("aria-pressed", String(checked));
+        else element.removeAttribute("aria-pressed");
+      }
+    }
+  }, [mapWatchIdSet, mapWatchMode, targets, pageView, mapSelection, mapParkSummaries, resultQuery, selectedParkGroupSet, mapPreviews, availabilityLoaded, availabilityError]);
 
   useEffect(() => {
     // Hover styling must not rebuild Leaflet layers or close the open preview.
@@ -2155,8 +2208,9 @@ export default function App() {
       return;
     }
     const baseName = watchName.trim() || generatedWatchName(isSpecific);
-    const regionScope = includeFutureImports && watchScope !== "target" ? watchRegionScope() : null;
-    if (includeFutureImports && watchScope !== "target" && !regionScope) {
+    const supportsFutureImports = watchScope !== "target" && watchScope !== "campgrounds";
+    const regionScope = includeFutureImports && supportsFutureImports ? watchRegionScope() : null;
+    if (includeFutureImports && supportsFutureImports && !regionScope) {
       setMessage("Choose a state, park group, or map area for future imports.");
       return;
     }
@@ -2202,6 +2256,11 @@ export default function App() {
       setWatchName("");
       setCartAssistEnabled(false);
       setWatchAlertsEnabled(false);
+      if (watchScope === "campgrounds") {
+        setMapWatchIds([]);
+        setMapWatchMode(false);
+        resetWatchForm();
+      }
     } else {
       let createdCount = 0;
       let skippedCount = 0;
@@ -2824,6 +2883,7 @@ export default function App() {
     if (watchScope === "selection") {
       return activeTargets.filter((target) => selectedParkGroupSet.has(target.park_name || "Unassigned park"));
     }
+    if (watchScope === "campgrounds") return mapWatchSelection;
     return activeTargetsInMapView();
   }
 
@@ -2837,6 +2897,7 @@ export default function App() {
     if (watchScope === "selection") {
       return `One regional watch, ${selected.length} campgrounds across ${selectedParkGroups.length} selected park groups.`;
     }
+    if (watchScope === "campgrounds") return `One watch across ${selected.length} selected campgrounds.`;
     return `One regional watch, ${selected.length} campgrounds inside the current map view.`;
   }
 
@@ -2905,6 +2966,58 @@ export default function App() {
     openDrawer("watches");
   }
 
+  function editMapWatchSelection() {
+    setDrawerOpen(false);
+    setPageView("monitor");
+    setMapWatchMode(true);
+    window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}#availability-map`);
+    window.setTimeout(() => document.getElementById("availability-map")?.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
+  }
+
+  function openWatchBuilderForSelectedCampgrounds() {
+    if (!mapWatchSelection.length) return;
+    if (watchScope !== "campgrounds" || editingWatchId || editingGroupId) {
+      resetWatchForm();
+      setFilterSiteType("");
+      setFilterLoop("");
+      setFilterSite("");
+      setFilterMinPeople("");
+      if (mapStay) {
+        setWatchMode("specific");
+        setSpecificArrival(mapStay.arrival);
+        setSpecificDeparture(mapStay.departure);
+      }
+    }
+    setWatchScope("campgrounds");
+    setWatchEditorOpen(true);
+    setMapWatchMode(false);
+    openDrawer("watches");
+  }
+
+  function addVisibleMapCampgrounds() {
+    const bounds = leafletMapRef.current?.getBounds();
+    const ids = mapParkSummaries.flatMap(summary => summary.campgrounds)
+      .filter(campground => campground.targetId && campground.active && bounds?.contains([campground.latitude, campground.longitude]))
+      .map(campground => campground.targetId!);
+    setMapWatchIds(current => addMapWatchTargets(targets, current, ids));
+    if (!ids.length) setMessage("No active imported campgrounds in this map view.");
+  }
+
+  function renderMapWatchSelection() {
+    return (
+      <ul className="map-watch-selection" aria-label="Selected watch campgrounds">
+        {mapWatchSelection.map(target => (
+          <li key={target.id} onMouseEnter={() => setMapHover({ kind: "campground", campgroundId: target.campground_id })}
+            onMouseLeave={() => clearCampgroundHover(target.campground_id)}>
+            <span><strong>{target.name}</strong><small>{target.park_name || target.state_code}</small></span>
+            <button className="icon-button" type="button" aria-label={`Remove ${target.name} from watch`} title={`Remove ${target.name}`}
+              onClick={() => setMapWatchIds(current => current.filter(id => id !== target.id))}><X size={16} /></button>
+          </li>
+        ))}
+      </ul>
+    );
+  }
+
   async function importCampgroundFromMap(campground: CampgroundMapPoint) {
     setMessage("");
     try {
@@ -2925,9 +3038,13 @@ export default function App() {
         active: true
       });
       setWatchTarget(String(target.id));
-      setWatchScope("target");
+      if (!mapWatchMode) setWatchScope("target");
       setMessage(`Imported ${target.name}.`);
       await refresh({ silent: true });
+      if (mapWatchMode) {
+        setTargets(current => current.some(item => item.id === target.id) ? current : [...current, target]);
+        setMapWatchIds(current => [...new Set([...current, target.id])].slice(0, MAP_WATCH_LIMIT));
+      }
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Unable to import campground.");
     }
@@ -4117,10 +4234,11 @@ export default function App() {
                     const value = event.target.value as WatchScope;
                     setWatchScope(value);
                     setSavedWatchBounds(null);
-                    if (value === "target" || value === "members") setIncludeFutureImports(false);
+                    if (value === "target" || value === "members" || value === "campgrounds") setIncludeFutureImports(false);
                   }}
                 >
                   {!editingGroupId && <option value="target">One campground</option>}
+                  {!editingGroupId && <option value="campgrounds">Selected campgrounds on map</option>}
                   {editingGroupId && <option value="members">Existing campgrounds</option>}
                   <option value="park">Park group</option>
                   <option value="state">State</option>
@@ -4166,7 +4284,13 @@ export default function App() {
                 <MapPinned size={17} />
                 <span>{watchScopeSummary()}</span>
               </div>
-              {watchScope !== "target" && watchScope !== "members" && (
+              {watchScope === "campgrounds" && (
+                <div className="wide-field">
+                  {renderMapWatchSelection()}
+                  <button className="icon-button" type="button" onClick={editMapWatchSelection}><MapPinned size={16} /><span>Edit on Map</span></button>
+                </div>
+              )}
+              {watchScope !== "target" && watchScope !== "members" && watchScope !== "campgrounds" && (
                 <label className="toggle-field wide-field">
                   <span><strong>Include future imports</strong></span>
                   <input type="checkbox" checked={includeFutureImports} onChange={(event) => setIncludeFutureImports(event.target.checked)} />
@@ -4795,6 +4919,10 @@ export default function App() {
                   <h2>{dateFilterActive ? "Availability Map" : "Target Map"}</h2>
                 </div>
                 <div className="map-actions">
+                  <button className={`icon-button ${mapWatchMode ? "primary" : ""}`} type="button" aria-pressed={mapWatchMode}
+                    onClick={() => setMapWatchMode(current => !current)}>
+                    <MapPin size={17} /><span>Select Campgrounds</span>
+                  </button>
                   <a className="icon-button primary" href="#results" onClick={scrollToResults}>
                     <ListChecks size={17} />
                     <span>View Results</span>
@@ -4819,6 +4947,20 @@ export default function App() {
                   </button>
                 </div>
               </div>
+              {(mapWatchMode || mapWatchSelection.length > 0) && (
+                <div className="map-watch-toolbar" aria-label="Map watch builder">
+                  <strong role="status">{mapWatchSelection.length} selected for watch</strong>
+                  <div className="map-watch-actions">
+                    {mapWatchMode && <button className="icon-button" type="button" onClick={addVisibleMapCampgrounds}
+                      disabled={mapWatchSelection.length >= MAP_WATCH_LIMIT}><Plus size={16} /><span>Add Visible</span></button>}
+                    <button className="icon-button" type="button" disabled={!mapWatchSelection.length} onClick={() => setMapWatchIds([])}>
+                      <X size={16} /><span>Clear Selection</span></button>
+                    <button className="icon-button primary" type="button" disabled={!mapWatchSelection.length} onClick={openWatchBuilderForSelectedCampgrounds}>
+                      <CalendarDays size={16} /><span>Create Watch</span></button>
+                  </div>
+                  {mapWatchSelection.length >= MAP_WATCH_LIMIT && <small>Maximum {MAP_WATCH_LIMIT} campgrounds per watch.</small>}
+                </div>
+              )}
               <AvailabilityDates windows={availability} arrival={mapArrival} departure={mapDeparture}
                 error={mapDateError} onChange={changeMapDates} onFit={fitMatchingCampgrounds}
                 canFit={dateFilterActive && mappedDateCampgrounds > 0} />
@@ -4844,7 +4986,27 @@ export default function App() {
               </div>
             </div>
             <aside className="map-list">
-              {renderMapSelectionPanel()}
+              {(mapWatchMode || mapWatchSelection.length > 0) && (
+                <section className="map-watch-review" aria-label="Watch selection">
+                  <h3>Watch Campgrounds</h3>
+                  {mapWatchSelection.length ? renderMapWatchSelection() : <p>No campgrounds selected.</p>}
+                  <details className="map-watch-picker">
+                    <summary>Choose from mapped campgrounds</summary>
+                    <div className="map-watch-options">
+                      {mapParkSummaries.flatMap(summary => summary.campgrounds).filter(campground => campground.targetId && campground.active).map(campground => (
+                        <label key={campground.campgroundId} onMouseEnter={() => setMapHover({ kind: "campground", campgroundId: campground.campgroundId })}
+                          onMouseLeave={() => clearCampgroundHover(campground.campgroundId)}>
+                          <input type="checkbox" checked={mapWatchIdSet.has(campground.targetId!)}
+                            disabled={!mapWatchIdSet.has(campground.targetId!) && mapWatchSelection.length >= MAP_WATCH_LIMIT}
+                            onChange={() => setMapWatchIds(current => toggleMapWatchTarget(targets, current, campground.targetId!))} />
+                          <span>{campground.name}<small>{campground.parkName}</small></span>
+                        </label>
+                      ))}
+                    </div>
+                  </details>
+                </section>
+              )}
+              {(!mapWatchMode || mapSelection) && renderMapSelectionPanel()}
               <div className="subheading">
                 <strong>{dateFilterActive ? "Matching Parks" : "Park Queue"}</strong>
                 <small>

@@ -754,6 +754,47 @@ small {
   clip: rect(0 0 0 0);
 }
 
+.campground-map-marker.watch-selected {
+  background: #215cba;
+  outline: 3px solid #b5d2ff;
+}
+.campground-map-marker.watch-selected::after {
+  inset: 3px 5px 5px;
+  background: transparent;
+  border: solid white;
+  border-width: 0 2px 2px 0;
+  border-radius: 0;
+  transform: rotate(45deg);
+}
+.campground-map-marker.watch-unavailable { opacity: 0.5; }
+.campground-map-marker.watch-selectable:focus-visible { outline: 3px solid #215cba; }
+.map-watch-toolbar {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+  gap: 10px; padding: 12px 0; border-top: 1px solid var(--line); font-size: 13px;
+}
+.map-watch-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.map-watch-review { border-bottom: 1px solid var(--line); padding-bottom: 12px; min-width: 0; }
+.map-watch-review h3 { font-size: 15px; margin: 0; }
+.map-watch-review p { font-size: 13px; }
+.map-watch-selection {
+  list-style: none; margin: 8px 0; padding: 0; max-height: 240px; overflow: auto;
+}
+.map-watch-selection li {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 8px 0; border-bottom: 1px solid var(--line);
+}
+.map-watch-selection li > span { min-width: 0; overflow-wrap: anywhere; }
+.map-watch-selection strong, .map-watch-selection small { display: block; font-size: 13px; }
+.map-watch-selection small { color: var(--muted); margin-top: 3px; }
+.map-watch-selection .icon-button { width: 36px; height: 36px; padding: 0; flex: 0 0 36px; justify-content: center; }
+.map-watch-picker { font-size: 13px; }
+.map-watch-picker summary { cursor: pointer; padding: 8px 0; }
+.map-watch-options { max-height: 240px; overflow: auto; }
+.map-watch-options label { display: flex; align-items: center; gap: 10px; padding: 8px 0; min-height: 44px; }
+.map-watch-options input { flex: 0 0 18px; width: 18px; height: 18px; }
+.map-watch-options span { min-width: 0; overflow-wrap: anywhere; }
+.map-watch-options small { display: block; color: var(--muted); margin-top: 3px; }
+
 .park-region-box {
   cursor: pointer;
   vector-effect: non-scaling-stroke;
