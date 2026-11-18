@@ -190,8 +190,8 @@ Each stay is read in paced pages, with at least five seconds between requests. T
 
 ## Map and Region Watches
 
-Use **Select Campgrounds** to build a watch from individual map pins. Blue checks
-mark the selected campgrounds; the review list supports removal and a checkbox
+Use **Select Campgrounds** to build a watch from individual map pins. Selected pins
+turn blue with a white checkmark; unselected pins keep their park color. The review list supports removal and a checkbox
 picker for individual provider listings. A combined Camping/Roofed pin selects
 both categories by default. **Add Visible** adds active imported listings at pins
 inside the current map bounds, honoring the date filter. Selections

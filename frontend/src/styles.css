@@ -710,7 +710,9 @@ small {
 }
 
 .campground-map-marker.watch-selected {
+  background: #215cba;
   outline: 3px solid #b5d2ff;
+  box-shadow: 0 6px 18px rgba(33, 92, 186, 0.3);
 }
 .campground-map-marker.watch-partial { outline: 3px dashed #215cba; }
 .park-color-swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 7px; }

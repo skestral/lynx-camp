@@ -33,7 +33,8 @@ both categories; its preview lists their status and separate website links.
 Availability counts include all matching listings at that location.
 
 Campground colors match the swatches in Park Queue. An amber dot marks saved
-availability, and a blue outline/check marks watch selection. There are no
+availability. Selected pins turn solid blue with a white checkmark; deselecting
+restores their park color. There are no
 park-center count markers. Park Queue distinguishes locations from provider
 listings: Mount Rainier has five listings at three known coordinates. Cougar Rock
 and Ohanapecosh each have regular and group-camping listings at the same point;
@@ -77,7 +78,7 @@ official park boundaries.
 
 1. Turn on **Select Campgrounds** above the map. Click or tap campground pins to
    add or remove them. A combined pin selects **Camping and Roofed by default**,
-   provided both are imported and active. Selected pins have a blue check mark;
+   provided both are imported and active. Selected pins turn blue with a white checkmark;
    a dashed outline means only some listings are selected. Keyboard users can
    focus a pin and press Enter or Space.
 2. Review **Watch Campgrounds** beside the map. Remove individual entries with
