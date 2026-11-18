@@ -1,5 +1,25 @@
 # Alerts and Digests
 
+## Notification Links
+
+Open **Settings > Notification Settings**, set **Public app URL** to your externally reachable Camp Finder address, and click **Save Notifications**. Include `https://` (or `http://` for a LAN-only installation). For example, an installation reached at `https://campfinder.den.camp` should use that exact address, not localhost or the container's internal port.
+
+The saved URL takes precedence over `CAMPFINDER_APP_BASE_URL` immediately, without restarting. Digests, Home Assistant `app_url` and `logs_url`, bulk alert review links, ntfy dashboard links, and Cart Assist queue links all use it. Individual campsite booking links still lead to the reservation provider. Test Notifications includes the app URL so you can check the destination before the next scheduled digest; it sends to every configured channel.
+
+![Public app URL in notification settings](screenshots/public-app-url-desktop.png)
+
+[Mobile settings](screenshots/public-app-url-mobile.png). These screenshots show an isolated test installation with no delivery channels configured.
+
+The URL is a non-secret setting included in standard config exports when saved in the UI. Review it after importing a backup into a different environment. Clearing the field and saving restores the environment default. Clear Secrets does not remove it. Credentials, query strings, and fragments are not accepted in the public URL. Changing it affects future alerts; it does not edit or resend a digest that has already arrived.
+
+For environment-managed deployments, including older images without this field, set:
+
+```dotenv
+CAMPFINDER_APP_BASE_URL=https://campfinder.den.camp
+```
+
+Use your own hostname. With the server Compose file, edit `appdata/config/.env` and run `docker compose up -d --force-recreate campfinder`. With an Unraid Docker template, add or edit the `CAMPFINDER_APP_BASE_URL` variable and apply the template. A plain container restart does not reload changed Docker environment variables. Keep the existing appdata mount; no database reset is needed. A saved UI value still overrides the environment value on newer images.
+
 ## Choose What Sends Immediately
 
 Open **Watches**, create or edit a watch, and enable **Immediate availability

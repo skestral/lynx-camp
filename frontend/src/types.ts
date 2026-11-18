@@ -314,6 +314,7 @@ export type NotificationConfig = {
 };
 
 export type NotificationConfigValues = {
+  app_base_url: string;
   digest_frequency: "daily" | "weekly" | "disabled";
   digest_time: string;
   digest_timezone: "America/Los_Angeles" | "server" | "UTC";

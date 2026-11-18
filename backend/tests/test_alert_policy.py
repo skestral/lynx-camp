@@ -130,6 +130,27 @@ def test_digest_new_reappeared_deduped_across_watches_and_not_manual_actions(set
     assert store.digest_summary("2027-01-13", "2027-01-14", 5)["match_count"] == 0
 
 
+def test_public_url_update_changes_future_links_without_replaying_digest(setup):
+    store, watch, notifier, clock, sent = setup
+    dispatcher = AlertDispatcher(store, notifier)
+    dispatcher.initialize(clock[0])
+    finding(store, watch)
+    notifier.update_config({"app_base_url": "https://campfinder.den.camp/"})
+    clock[0] += timedelta(days=1, hours=1)
+    asyncio.run(dispatcher.dispatch_due(clock[0]))
+    assert len(sent) == 2
+    assert all(item["payload"]["app_url"] == "https://campfinder.den.camp" for item in sent)
+    assert all("Review: https://campfinder.den.camp" in item["message"] for item in sent)
+    notifier.update_config({"app_base_url": "https://new.example.test"})
+    asyncio.run(dispatcher.dispatch_due(clock[0]))
+    assert len(sent) == 2
+    store.log_scan_event(None, watch["id"], watch["target_id"], "error", "error", "Synthetic failure")
+    asyncio.run(dispatcher.dispatch_due(clock[0]))
+    assert len(sent) == 3
+    assert sent[-1]["payload"]["app_url"] == "https://new.example.test"
+    assert sent[-1]["payload"]["logs_url"] == "https://new.example.test/#logs"
+
+
 def test_watch_alerts_are_opt_in_and_rechecked_before_send(setup, monkeypatch):
     store, watch, notifier, _, _ = setup
     sent = []

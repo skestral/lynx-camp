@@ -243,6 +243,8 @@ Validate both Compose files without printing resolved secrets: `docker compose -
 
 ## Secret Handling
 
+The notification field registry includes `app_base_url` under the non-secret `notification_app_base_url` app setting. Both the settings API and config import validate HTTP(S) URLs and reject credentials, queries, and fragments. Notification delivery takes the effective URL from the same config snapshot as the channel settings; do not read `Settings.app_base_url` directly when formatting alerts. UI overrides apply without restarting, while deployments with no override retain their environment default. `test_public_app_url.py` covers validation, API errors without credential echoes, persistence, export/import, environment fallback, test notifications, and unchanged provider booking links. The digest policy suite also checks that changing the public URL does not replay a delivered digest.
+
 `.gitignore` excludes `.env`, runtime files under `appdata/`, local `data/`, and all working files under `output/`, including browser screenshots and downloaded location catalogs. Only `.env.example` and `appdata/config/.env.example` are tracked configuration templates. Keep their secret fields blank. `.dockerignore` also excludes `.env`, `appdata`, `data`, `.playwright-cli`, and `output` from the build context. Browser traces and inspection files must not be uploaded as part of an image build.
 
 An ignore rule does not untrack an existing file and can be bypassed with `git add -f`. Before committing, inspect `git status --short` and `git diff --cached`; never force-add runtime data. Secret-inclusive exports and backups placed outside ignored directories are not automatically protected. Store those outside the checkout. If a real secret reaches Git history, rotate it with the provider; removing the current file alone is not enough.
@@ -270,6 +272,8 @@ Current documentation images:
 | `dashboard-overview.png` | Crawl cooldown, progress, and grouped results with dismissal controls |
 | `dashboard-timeout-desktop.png` | Compact refresh warning with retained demo results |
 | `dashboard-timeout-mobile.png` | Mobile refresh warning, timestamp, retry, and logs link |
+| `public-app-url-desktop.png` | Saved public URL in notification settings, no delivery channels configured |
+| `public-app-url-mobile.png` | The same setting in the mobile drawer |
 | `crawl-mobile.png` | Mobile crawl status and summary |
 | `regional-watch-demo.png` | Mobile regional watch and member campgrounds |
 | `regional-coverage.png` | State watch editor with future-import coverage enabled |

@@ -203,6 +203,7 @@ function scanConfigFormFromValues(values: ScanConfigValues): ScanConfigForm {
 }
 
 const DEFAULT_NOTIFICATION_CONFIG_VALUES: NotificationConfigValues = {
+  app_base_url: "",
   digest_frequency: "daily",
   digest_time: "08:00",
   digest_timezone: "America/Los_Angeles",
@@ -335,6 +336,7 @@ const SMTP_NOTIFICATION_FIELDS: NotificationField[] = [
 
 function notificationConfigFormFromValues(values: NotificationConfigValues): NotificationConfigForm {
   return {
+    app_base_url: values.app_base_url ?? "",
     digest_frequency: values.digest_frequency ?? "daily",
     digest_time: values.digest_time ?? "08:00",
     digest_timezone: values.digest_timezone ?? "America/Los_Angeles",
@@ -2307,6 +2309,7 @@ export default function App() {
     setNotificationConfigBusy("save");
     try {
       const payload: Partial<NotificationConfigValues> = {
+        app_base_url: notificationConfigForm.app_base_url.trim(),
         digest_frequency: notificationConfigForm.digest_frequency as NotificationConfigValues["digest_frequency"],
         digest_time: notificationConfigForm.digest_time,
         digest_timezone: notificationConfigForm.digest_timezone as NotificationConfigValues["digest_timezone"],
@@ -3101,7 +3104,7 @@ export default function App() {
           type={field.type || "text"}
           value={notificationConfigForm[field.key]}
         />
-        <small>{field.help}</small>
+        {field.help && <small>{field.help}</small>}
       </label>
     );
   }
@@ -3138,6 +3141,8 @@ export default function App() {
           <span className={`status ${configuredChannelCount > 0 ? "success" : "quiet"}`}>{sourceSummary}</span>
         </div>
         <form className="notification-config-form" onSubmit={saveNotificationConfig}>
+          {renderNotificationField({ key: "app_base_url", label: "Public app URL", type: "url", wide: true,
+            placeholder: "https://campfinder.example.com", help: "" })}
           <fieldset className="notification-schedule wide-field">
             <legend>Digest &amp; Error Reporting</legend>
             {notificationConfig?.configuration_error && <p role="alert" className="notice danger">{notificationConfig.configuration_error}</p>}

@@ -13,6 +13,7 @@ from .app_settings import (
     NOTIFICATION_APP_SETTING_KEYS,
     NOTIFICATION_CONFIG_FIELDS,
     NOTIFICATION_SECRET_SETTING_KEYS,
+    normalize_app_base_url,
 )
 from .settings import Settings
 from . import apprise_alerts
@@ -83,13 +84,13 @@ class Notifier:
             return 0
         config = self._effective_config()
         max_items = int(config.get("max_notification_results") or max_items)
-        message = self._format_results_message(results, max_items)
-        click_url = results[0]["booking_url"] if len(results) == 1 else self.settings.app_base_url
+        message = self._format_results_message(results, max_items, config["app_base_url"])
+        click_url = results[0]["booking_url"] if len(results) == 1 else config["app_base_url"]
         home_assistant = self.home_assistant_config(config)
         if config["webhook_url"]:
             await self._send_webhook(results, message, store, config["webhook_url"])
         if home_assistant["url"]:
-            await self._send_home_assistant(results, message, max_items, store, home_assistant["url"])
+            await self._send_home_assistant(results, message, max_items, store, home_assistant["url"], config["app_base_url"])
         if self._smtp_enabled_for(config):
             await asyncio.to_thread(self._send_email, results, message, store, config)
         if self._ntfy_enabled_for(config):
@@ -100,12 +101,13 @@ class Notifier:
         return len(results)
 
     async def send_test(self) -> dict:
+        config = self._effective_config()
         message = (
             "Camp Finder test notification\n"
-            "If you received this, notifications are configured correctly."
+            "If you received this, notifications are configured correctly.\n"
+            f"Open Camp Finder: {config['app_base_url']}"
         )
         results = []
-        config = self._effective_config()
         home_assistant = self.home_assistant_config(config)
         if config["webhook_url"]:
             results.append(await self._post_webhook(message, config["webhook_url"]))
@@ -124,7 +126,7 @@ class Notifier:
                         "severity": "info",
                         "occurred_at": datetime.now(UTC).isoformat(),
                         "message": message,
-                        "app_url": self.settings.app_base_url,
+                        "app_url": config["app_base_url"],
                     },
                 )
             )
@@ -143,7 +145,7 @@ class Notifier:
             results.append({"channel": "email", "status": "skipped", "message": "Email is not configured."})
 
         if self._ntfy_enabled_for(config):
-            results.append(await self._post_ntfy(message, self.settings.app_base_url, config))
+            results.append(await self._post_ntfy(message, config["app_base_url"], config))
         else:
             results.append({"channel": "ntfy", "status": "skipped", "message": "ntfy is not configured."})
         results.append(await apprise_alerts.send(config["apprise_urls"], message) if config["apprise_urls"] else
@@ -192,6 +194,8 @@ class Notifier:
 
     def update_config(self, data: dict) -> dict:
         validate_schedule(data)
+        if data.get("app_base_url") is not None:
+            data = {**data, "app_base_url": normalize_app_base_url(data["app_base_url"])}
         if not self.store:
             return self.notification_config()
         updates: dict[str, str] = {}
@@ -256,7 +260,7 @@ class Notifier:
                     int(field["minimum"]),
                     int(field["maximum"]),
                 )
-            if setting_key in stored:
+            if setting_key in stored and (public_key != "app_base_url" or stored[setting_key].strip()):
                 raw_value = stored[setting_key]
                 if field["kind"] == "int":
                     values[public_key] = self._coerce_int(
@@ -277,6 +281,7 @@ class Notifier:
                     values[public_key] = value
                     sources[public_key] = "environment" if value else "none"
         values["_sources"] = sources
+        values["app_base_url"] = values["app_base_url"].rstrip("/")
         try:
             validate_schedule(values)
         except ValueError as exc:
@@ -336,8 +341,9 @@ class Notifier:
         max_items: int,
         store: "Store",
         webhook_url: str,
+        app_url: str,
     ) -> None:
-        result = await self._post_home_assistant(webhook_url, self._home_assistant_payload(results, message, max_items))
+        result = await self._post_home_assistant(webhook_url, self._home_assistant_payload(results, message, max_items, app_url))
         self._record_batch_notifications(
             results,
             "home_assistant",
@@ -446,12 +452,13 @@ class Notifier:
         if channel == "email":
             return await asyncio.to_thread(self._post_email, message, config, title)
         if channel == "ntfy":
-            return await self._post_ntfy(message, self.settings.app_base_url, config, title)
+            return await self._post_ntfy(message, config["app_base_url"], config, title)
         return await apprise_alerts.send(config["apprise_urls"], message)
 
-    def _format_results_message(self, results: list[dict], max_items: int = 5) -> str:
+    def _format_results_message(self, results: list[dict], max_items: int = 5, app_url: str | None = None) -> str:
+        app_url = app_url if app_url is not None else self._effective_config()["app_base_url"]
         if len(results) == 1:
-            return self._format_message(results[0])
+            return self._format_message(results[0], app_url)
 
         ordered = sorted(results, key=lambda item: (item["arrival_date"], item["site"]))
         first = ordered[0]
@@ -462,7 +469,7 @@ class Notifier:
             "",
         ]
         if cart_assist_message:
-            lines.extend([f"Cart Assist: {cart_assist_message}", f"Open queue: {self.settings.app_base_url}", ""])
+            lines.extend([f"Cart Assist: {cart_assist_message}", f"Open queue: {app_url}", ""])
         for result in ordered[:max_items]:
             details = [f"site {result['site']}"]
             if result.get("loop"):
@@ -476,10 +483,11 @@ class Notifier:
         remaining = len(results) - max_items
         if remaining > 0:
             lines.append(f"...and {remaining} more match(es).")
-        lines.extend(["", f"Review results: {self.settings.app_base_url}"])
+        lines.extend(["", f"Review results: {app_url}"])
         return "\n".join(lines)
 
-    def _home_assistant_payload(self, results: list[dict], message: str, max_items: int = 5) -> dict:
+    def _home_assistant_payload(self, results: list[dict], message: str, max_items: int = 5, app_url: str | None = None) -> dict:
+        app_url = app_url if app_url is not None else self._effective_config()["app_base_url"]
         ordered = sorted(results, key=lambda item: (item["arrival_date"], item["site"]))
         matches = []
         for result in ordered[:max_items]:
@@ -505,19 +513,20 @@ class Notifier:
             "severity": "info",
             "occurred_at": datetime.now(UTC).isoformat(),
             "message": message,
-            "app_url": self.settings.app_base_url,
+            "app_url": app_url,
             "match_count": len(results),
             "included_match_count": len(matches),
             "matches": matches,
         }
 
-    def _format_message(self, result: dict) -> str:
+    def _format_message(self, result: dict, app_url: str | None = None) -> str:
+        app_url = app_url if app_url is not None else self._effective_config()["app_base_url"]
         lines = [
             "Camp Finder found availability:",
             f"{result['campground_name']} site {result['site']}",
             f"{result['arrival_date']} to {result['departure_date']}",
         ]
         if result.get("cart_assist_message"):
-            lines.extend([f"Cart Assist: {result['cart_assist_message']}", f"Queue: {self.settings.app_base_url}"])
+            lines.extend([f"Cart Assist: {result['cart_assist_message']}", f"Queue: {app_url}"])
         lines.append(f"Book: {result['booking_url']}")
         return "\n".join(lines)

@@ -222,11 +222,14 @@ class ConfigSettings(BaseModel):
     @field_validator("app_settings")
     @classmethod
     def valid_notification_destinations(cls, values):
+        from .app_settings import normalize_app_base_url
         from .apprise_alerts import validate_urls
         from .alert_schedule import validate_schedule
         validate_schedule({key.removeprefix("notification_"): value for key, value in values.items()})
         if values.get("notification_apprise_urls"):
             validate_urls(values["notification_apprise_urls"])
+        if "notification_app_base_url" in values:
+            values["notification_app_base_url"] = normalize_app_base_url(values["notification_app_base_url"])
         return values
 
 
@@ -285,6 +288,14 @@ class ScanConfigUpdate(BaseModel):
 
 
 class NotificationConfigUpdate(BaseModel):
+    app_base_url: str | None = Field(default=None, max_length=2048)
+
+    @field_validator("app_base_url")
+    @classmethod
+    def valid_app_base_url(cls, value):
+        from .app_settings import normalize_app_base_url
+        return normalize_app_base_url(value) if value is not None else None
+
     digest_frequency: Literal["daily", "weekly", "disabled"] | None = None
     digest_time: str | None = Field(default=None, pattern=r"^(?:[01][0-9]|2[0-3]):[0-5][0-9]$")
     digest_timezone: Literal["America/Los_Angeles", "server", "UTC"] | None = None

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from pydantic import AnyHttpUrl, TypeAdapter, ValidationError
+
 
 HOME_ASSISTANT_WEBHOOK_KEY = "home_assistant_webhook_url"
 
@@ -24,6 +26,7 @@ CART_ASSIST_APP_SETTING_KEYS = [
 ]
 
 NOTIFICATION_CONFIG_FIELDS: dict[str, dict[str, Any]] = {
+    "app_base_url": {"setting_key": "notification_app_base_url", "env_name": "CAMPFINDER_APP_BASE_URL", "kind": "string"},
     "digest_frequency": {"setting_key": "notification_digest_frequency", "env_name": "CAMPFINDER_DIGEST_FREQUENCY", "kind": "string"},
     "digest_time": {"setting_key": "notification_digest_time", "env_name": "CAMPFINDER_DIGEST_TIME", "kind": "string"},
     "digest_timezone": {"setting_key": "notification_digest_timezone", "env_name": "CAMPFINDER_DIGEST_TIMEZONE", "kind": "string"},
@@ -135,3 +138,20 @@ SECRET_APP_SETTING_KEYS = sorted(
         *NOTIFICATION_SECRET_SETTING_KEYS,
     }
 )
+
+
+def normalize_app_base_url(value: str) -> str:
+    value = value.strip()
+    if not value:
+        return ""
+    message = "Public app URL must be an HTTP(S) address without credentials, a query, or a fragment."
+    if (len(value) > 2048 or not value.lower().startswith(("http://", "https://"))
+            or any(char.isspace() for char in value) or "\\" in value):
+        raise ValueError(message)
+    try:
+        url = TypeAdapter(AnyHttpUrl).validate_python(value)
+    except ValidationError:
+        raise ValueError(message) from None
+    if url.username is not None or url.password is not None or url.query is not None or url.fragment is not None:
+        raise ValueError(message)
+    return str(url).rstrip("/")

@@ -291,7 +291,7 @@ docker compose -f compose.yaml up -d
 
 Open `http://<server-ip>:8080` from a device on the same network. Do not expose the web UI directly to the public internet; the app does not include login protection yet.
 
-Set `CAMPFINDER_APP_BASE_URL` in `appdata/config/.env` to the address you use from other devices, such as `http://<server-ip>:8080`, so alert links return to the right server. The Docker host must stay running; your browser and personal computer do not need to remain connected.
+Set **Settings > Notification Settings > Public app URL** to the address you use from other devices, such as `https://campfinder.example.com` or `http://<server-ip>:8080`, then save notifications. Digests and other alert links use this address, not the browser's current hostname. `CAMPFINDER_APP_BASE_URL` in `appdata/config/.env` supplies the default when no UI override is saved. See [notification links](docs/alerts-and-digests.md#notification-links) for Docker and Unraid setup. The Docker host must stay running; your browser and personal computer do not need to remain connected.
 
 If GitHub Container Registry requires authentication on the server, run:
 

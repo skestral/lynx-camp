@@ -84,13 +84,13 @@ class AlertDispatcher:
             included += 1
         if summary["group_count"] > included:
             lines.append(f"...and {summary['group_count'] - included} more date/campground groups.")
-        lines.extend(["Availability may have changed since discovery.", f"Review: {self.notifier.settings.app_base_url}"])
+        lines.extend(["Availability may have changed since discovery.", f"Review: {config['app_base_url']}"])
         message = "\n".join(lines)
         payload = {"source": "camp_finder", "event": "digest", "type": "alert", "alert_type": "digest",
                    "severity": "info", "event_id": key, "frequency": config["digest_frequency"],
                    "occurred_at": now.isoformat(), "period_start": schedule["period_start"],
                    "period_end": schedule["period_end"], "timezone": schedule["timezone_label"],
-                   "message": message, "app_url": self.notifier.settings.app_base_url, **summary}
+                   "message": message, "app_url": config["app_base_url"], **summary}
         for channel in channels:
             await self._deliver(key, channel, "digest", message, payload, config, now)
 
@@ -106,8 +106,8 @@ class AlertDispatcher:
                        "severity": "warning" if kind == "provider_rate_limited" else "error",
                        "event_id": key, "occurred_at": event["created_at"], "provider": provider,
                        "watch_id": event["watch_id"], "target_id": event["target_id"],
-                       "message": message, "app_url": self.notifier.settings.app_base_url,
-                       "logs_url": self.notifier.settings.app_base_url.rstrip("/") + "/#logs"}
+                       "message": message, "app_url": config["app_base_url"],
+                       "logs_url": config["app_base_url"].rstrip("/") + "/#logs"}
             await self._deliver(key, "home_assistant", kind, message, payload, config, now,
                                 f"{provider}:{kind}", (now - timedelta(minutes=config["home_assistant_error_cooldown_minutes"])).isoformat())
             runtime["error_cursor"] = event["id"]
