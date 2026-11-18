@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from email.utils import parsedate_to_datetime
 import math
@@ -39,6 +39,9 @@ class Campsite:
     reservation_window_value: int | None = None
     reservation_window_unit: str = ""
     booking_url: str = ""
+    equipment: tuple[str, ...] = ()
+    max_vehicle_length_ft: float | None = None
+    equipment_lengths_ft: dict[str, float] = field(default_factory=dict)
 
     @classmethod
     def from_api(cls, payload: dict[str, Any]) -> "Campsite":
@@ -193,6 +196,28 @@ class RecreationClient:
         )
         campsites = payload.get("campsites") or {}
         return {key: Campsite.from_api(value) for key, value in campsites.items()}
+
+    async def campsite_equipment(self, campground_id: str, campsite_id: str) -> dict:
+        from .provider_errors import ProviderResponseError
+        payload = await self._get(f"/camps/campsites/{campsite_id}", {})
+        site = payload.get("campsite")
+        if not isinstance(site, dict) or str(site.get("campsite_id")) != campsite_id or str(site.get("facility_id")) != campground_id:
+            raise ProviderResponseError("Recreation.gov returned mismatched campsite metadata.")
+        records = site.get("permitted_equipment")
+        if not isinstance(records, list):
+            raise ProviderResponseError("Recreation.gov omitted equipment metadata; compatibility is unknown.")
+        equipment, lengths = set(), {}
+        for record in records:
+            if not isinstance(record, dict) or record.get("is_deactivated") is not False:
+                continue
+            kind = str(record.get("equipment_name") or "").casefold()
+            if kind not in {"tent", "rv", "trailer", "vehicle"}:
+                continue
+            equipment.add(kind)
+            length = record.get("max_length")
+            if type(length) in (int, float) and math.isfinite(length) and 0 < length <= 200:
+                lengths[kind] = min(lengths.get(kind, length), length)
+        return {"equipment": tuple(sorted(equipment)), "equipment_lengths_ft": lengths}
 
     async def detect_release_window(self, campground_id: str, start_month: date | None = None) -> dict[str, Any] | None:
         month = start_month or date.today().replace(day=1)

@@ -1,4 +1,4 @@
-"""Native Washington adapter derived from GoCamp's discovery/search workflow.
+"""Native GoingToCamp adapters derived from GoCamp and Camply's search workflows.
 
 Uses the resourceLocation/availability/map contract and Camply's Chrome header
 generation with anonymous session cookies. No retired site-details calls.
@@ -10,6 +10,7 @@ import json
 import math
 import time
 from datetime import UTC, date, datetime, timedelta
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import httpx
 from fake_useragent import UserAgent
@@ -18,6 +19,7 @@ from .activenet import RequestGate
 from .provider_errors import ProviderResponseError
 from .provider_diagnostics import capture_diagnostic
 from .provider_ids import campground_url, goingtocamp_identity
+from .provider_registry import GTC_TENANTS, gtc_state_key
 from .recreation import Campsite, RateLimitError, _retry_after_seconds
 
 
@@ -28,15 +30,16 @@ KINDS = {0: "Camping", 1: "Roofed"}
 
 
 def unknown(message: str) -> ProviderResponseError:
-    return ProviderResponseError(f"Washington State Parks: {message}; availability is unknown.")
+    return ProviderResponseError(f"GoingToCamp: {message}; availability is unknown.")
 
 
 def validate_watch_filters(filters: dict | None, campground_id: str | None = None):
     filters = filters or {}
     site_type = str(filters.get("site_type") or "").strip().casefold()
-    if (filters.get("min_people") is not None or str(filters.get("loop") or "").strip()
+    if (filters.get("equipment") or filters.get("vehicle_length_ft") is not None
+            or filters.get("min_people") is not None or str(filters.get("loop") or "").strip()
             or str(filters.get("site") or "").strip() or site_type not in {"", "camping", "roofed"}):
-        raise unknown("the API cannot verify site names, capacity, loop, or specific accommodation filters. Select Camping or Roofed targets and leave these filters empty")
+        raise unknown("the API cannot verify equipment, length, site names, capacity, loop, or specific accommodation filters. Select Camping or Roofed targets and leave these filters empty")
     if campground_id and site_type and site_type != KINDS[goingtocamp_identity(campground_id)[1]].casefold():
         raise unknown("the site-type filter does not match this target's Camping or Roofed category")
 
@@ -56,16 +59,18 @@ def localized(record: dict, field: str) -> str:
     values = record.get("localizedValues")
     if not isinstance(values, list):
         raise unknown("missing localized catalog metadata")
+    values = sorted(values, key=lambda item: 0 if isinstance(item, dict) and str(item.get("cultureCode", item.get("culture", ""))).startswith("en") else 1)
     for item in values:
         if isinstance(item, dict) and isinstance(item.get(field), str) and item[field].strip():
             return item[field].strip()
     raise unknown("missing catalog name")
 
 
-def connection_state(store) -> dict:
+def connection_state(store, tenant="wa") -> dict:
     if store is None:
         return {"state": "unverified"}
-    raw = store.get_app_settings([STATE_KEY]).get(STATE_KEY)
+    key = gtc_state_key(tenant)
+    raw = store.get_app_settings([key]).get(key)
     if raw is None:
         return {"state": "unverified"}
     try:
@@ -85,7 +90,8 @@ def connection_state(store) -> dict:
         return {"state": "access_denied", "message": "Saved API connection state needs review."}
 
 
-def parse_catalog(locations, categories) -> dict[str, dict]:
+def parse_catalog(locations, categories, tenant="wa") -> dict[str, dict]:
+    config = GTC_TENANTS[tenant]
     if not isinstance(locations, list) or not locations or not isinstance(categories, list) or not categories:
         raise unknown("incomplete park or accommodation catalog")
     kinds = {}
@@ -102,7 +108,7 @@ def parse_catalog(locations, categories) -> dict[str, dict]:
             kinds[category_id] = 0
         elif name in {"cabin", "cabins", "yurt", "yurts", "rusticcabin", "deluxecabin", "roofedaccommodation"}:
             kinds[category_id] = 1
-    if not {0, 1}.issubset(set(kinds.values())):
+    if not set(config["categories"]).issubset(set(kinds.values())):
         raise unknown("camping and roofed accommodation categories could not both be identified")
     targets = {}
     seen_locations = set()
@@ -116,15 +122,20 @@ def parse_catalog(locations, categories) -> dict[str, dict]:
         resource_categories = item.get("resourceCategoryIds")
         if not isinstance(resource_categories, list):
             raise unknown("missing park accommodation categories")
-        categories_present = {kinds[value] for raw in resource_categories if (value := identifier(raw)) in kinds}
+        categories_present = {kinds[value] for raw in resource_categories if (value := identifier(raw)) in kinds} & set(config["categories"])
         if not categories_present:
             continue
         root_map = identifier(item.get("rootMapId"))
         name = localized(item, "fullName")
+        timezone = item.get("ianaTimeZone") or config["timezone"]
+        try:
+            ZoneInfo(timezone)
+        except (ZoneInfoNotFoundError, TypeError, ValueError) as exc:
+            raise unknown("invalid park timezone") from exc
         for category in sorted(categories_present):
-            target_id = f"gtc:wa:{location_id}:{category}"
+            target_id = f"gtc:{tenant}:{location_id}:{category}"
             target = {"campground_id": target_id, "name": f"{name} - {KINDS[category]}",
-                      "park_name": "Washington State Parks", "state_code": "WA", "timezone": "America/Los_Angeles",
+                      "park_name": config["name"], "state_code": config["state"], "timezone": timezone,
                       "poll_interval_minutes": 60, "booking_url": campground_url(target_id), "root_map_id": root_map}
             coordinates = [item.get("latitude"), item.get("longitude")]
             if all(type(value) in (int, float) and math.isfinite(value) for value in coordinates):
@@ -159,7 +170,9 @@ def parse_map(payload, arrival: date, departure: date, map_id: int, location: in
 
 
 class GoingToCampClient:
-    def __init__(self, store=None, transport: httpx.AsyncBaseTransport | None = None, request_spacing_seconds: float = 5):
+    def __init__(self, store=None, transport: httpx.AsyncBaseTransport | None = None, request_spacing_seconds: float = 5, *, tenant="wa"):
+        self.tenant, self.config = tenant, GTC_TENANTS[tenant]
+        self.state_key = gtc_state_key(tenant)
         self.store, self.transport = store, transport
         self.request_spacing_seconds = request_spacing_seconds
         self._request_lock = asyncio.Lock()
@@ -174,17 +187,17 @@ class GoingToCampClient:
     async def _save_state(self, state: dict):
         self._state = state
         if self.store is not None:
-            await asyncio.to_thread(self.store.set_app_settings, {STATE_KEY: json.dumps(state)})
+            await asyncio.to_thread(self.store.set_app_settings, {self.state_key: json.dumps(state)})
 
     async def _check_state(self):
         if self._state is None:
-            self._state = await asyncio.to_thread(connection_state, self.store)
+            self._state = await asyncio.to_thread(connection_state, self.store, self.tenant)
         if self._state["state"] == "access_denied":
             raise unknown("API access is stopped after a denial. Resolve provider access, then reset the stop in Sources")
         if self._state["state"] == "rate_limited":
             remaining = (datetime.fromisoformat(self._state["retry_at"]) - datetime.now(UTC)).total_seconds()
             if remaining > 0:
-                raise RateLimitError(math.ceil(remaining), "Washington State Parks")
+                raise RateLimitError(math.ceil(remaining), self.config["name"])
             await self._save_state({"state": "unverified"})
 
     async def reset_access_stop(self):
@@ -192,7 +205,7 @@ class GoingToCampClient:
             if self._catalog_lock.locked():
                 raise unknown("a catalog check is still in progress")
             if self._state is None:
-                self._state = await asyncio.to_thread(connection_state, self.store)
+                self._state = await asyncio.to_thread(connection_state, self.store, self.tenant)
             if self._state.get("retry_at") and datetime.fromisoformat(self._state["retry_at"]) > datetime.now(UTC):
                 raise unknown("the recorded cooldown has not elapsed")
             self._catalog = None
@@ -211,18 +224,18 @@ class GoingToCampClient:
             await self._check_state()
             await asyncio.sleep(max(0, self.request_spacing_seconds - (time.monotonic() - self._last_request)))
             if before_request:
-                await before_request("Checking Washington stay" if path == "/availability/map" else "Loading Washington catalog")
+                await before_request(f"{self.config['name']}: " + ("checking stay" if path == "/availability/map" else "loading catalog"))
             started = time.monotonic()
 
             async def record(outcome, response=None, error=None):
                 await asyncio.to_thread(capture_diagnostic, self.store, path, params, time.monotonic() - started,
-                                        outcome=outcome, response=response, error=error)
+                                        outcome=outcome, response=response, error=error, tenant=self.tenant)
             try:
                 async with httpx.AsyncClient(timeout=20, transport=self.transport, follow_redirects=False,
                                              cookies=self._cookies,
                                              headers={"User-Agent": self._user_agents.random,
                                                       "Accept-Language": "en-US,en;q=0.9"}) as client:
-                    response = await client.get(BASE_URL + path, params=params)
+                    response = await client.get(f"https://{self.config['host']}/api" + path, params=params)
                     self._cookies = client.cookies
             except httpx.RequestError as exc:
                 await record("transport_error", error=exc)
@@ -236,7 +249,7 @@ class GoingToCampClient:
                                         "retry_at": (now + timedelta(seconds=delay)).isoformat(),
                                         "message": "API rate limit; waiting for provider cooldown."})
                 await record("rate_limited", response)
-                raise RateLimitError(delay, "Washington State Parks")
+                raise RateLimitError(delay, self.config["name"])
             if (response.status_code in {401, 403} or 300 <= response.status_code < 400
                     or response.status_code == 200 and "json" not in response.headers.get("content-type", "")):
                 await self._save_state({"state": "access_denied", "checked_at": now.isoformat(),
@@ -266,13 +279,13 @@ class GoingToCampClient:
                     return self._catalog
             locations = await self._request("/resourceLocation", before_request=before_request)
             categories = await self._request("/resourcecategory", before_request=before_request)
-            catalog = parse_catalog(locations, categories)
+            catalog = parse_catalog(locations, categories, self.tenant)
             async with self._request_lock:
                 # A concurrent stay request may have stopped access while parsing.
                 await self._check_state()
                 self._catalog, self._catalog_at = catalog, time.monotonic()
                 await self._save_state({"state": "catalog_loaded", "checked_at": datetime.now(UTC).isoformat(),
-                                        "message": "Camping and Roofed catalog loaded. Watches check exact-stay availability."})
+                                        "message": "Overnight catalog loaded. Watches check exact-stay availability."})
             return catalog
 
     async def discover(self):
@@ -282,6 +295,8 @@ class GoingToCampClient:
     async def trip_availability(self, campground_id: str, arrival: date, departure: date,
                                 before_request: RequestGate | None = None) -> list[Campsite]:
         location, category = goingtocamp_identity(campground_id)
+        if campground_id.split(":")[1] != self.tenant or category not in self.config["categories"]:
+            raise unknown("target does not match this provider's supported categories")
         if not 1 <= (departure - arrival).days <= 31:
             raise ValueError("Washington stays must be between one and 31 nights")
         catalog = await self.catalog(before_request)

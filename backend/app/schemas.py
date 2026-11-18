@@ -65,6 +65,22 @@ class SiteFilters(BaseModel):
     loop: str = Field(default="", max_length=80)
     site: str = Field(default="", max_length=80)
     min_people: int | None = Field(default=None, ge=1, le=99)
+    equipment: Literal["", "tent", "rv", "trailer", "vehicle"] = ""
+    vehicle_length_ft: float | None = Field(default=None, gt=0, le=200, allow_inf_nan=False)
+    campsite_ids: list[str] = Field(default_factory=list, max_length=200)
+
+    @field_validator("campsite_ids")
+    @classmethod
+    def valid_site_ids(cls, values):
+        if any(not value or len(value) > 160 for value in values):
+            raise ValueError("Invalid campsite selection")
+        return list(dict.fromkeys(values))
+
+    @model_validator(mode="after")
+    def length_requires_vehicle(self):
+        if self.vehicle_length_ft is not None and self.equipment not in {"rv", "trailer", "vehicle"}:
+            raise ValueError("Choose RV, trailer, or vehicle when specifying its length")
+        return self
 
 
 class WatchBulkUpdate(BaseModel):
@@ -200,6 +216,14 @@ class ConfigSettings(BaseModel):
     app_settings: dict[str, str] = Field(default_factory=dict)
     redacted_keys: list[str] = Field(default_factory=list)
 
+    @field_validator("app_settings")
+    @classmethod
+    def valid_notification_destinations(cls, values):
+        from .apprise_alerts import validate_urls
+        if values.get("notification_apprise_urls"):
+            validate_urls(values["notification_apprise_urls"])
+        return values
+
 
 class ConfigBackup(BaseModel):
     version: int = Field(default=1, ge=1)
@@ -256,6 +280,16 @@ class ScanConfigUpdate(BaseModel):
 
 
 class NotificationConfigUpdate(BaseModel):
+    apprise_urls: str | None = Field(default=None, max_length=16000)
+
+    @field_validator("apprise_urls")
+    @classmethod
+    def valid_apprise_urls(cls, value):
+        from .apprise_alerts import validate_urls
+        if value:
+            validate_urls(value)
+        return value
+
     webhook_url: str | None = Field(default=None, max_length=1000)
     home_assistant_webhook_url: str | None = Field(default=None, max_length=1000)
     ntfy_server: str | None = Field(default=None, max_length=500)

@@ -2950,6 +2950,13 @@ th {
 }
 .provider-diagnostics { min-width: 0; }
 .diagnostics-connection { display: flex; flex-wrap: wrap; gap: 8px 16px; margin-bottom: 16px; font-size: 14px; }
+.provider-diagnostics > label { display: grid; gap: 6px; max-width: 360px; margin-bottom: 16px; }
+.site-picker summary { cursor: pointer; padding: 8px 0; }
+.site-picker-options { max-height: 200px; overflow: auto; margin-top: 8px; }
+.site-picker-options .toggle-field { grid-template-columns: 18px minmax(0, 1fr); gap: 10px; padding: 8px 0; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; background: transparent; }
+.site-picker-options span { overflow-wrap: anywhere; min-width: 0; }
+.notification-config-form textarea { width: 100%; min-width: 0; resize: vertical; font: inherit; padding: 10px 12px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface); color: inherit; }
+.provider-diagnostics > label select { font: inherit; padding: 10px 12px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface); color: inherit; }
 .diagnostics-connection strong { text-transform: capitalize; }
 .diagnostics-error { color: #a62432; overflow-wrap: anywhere; }
 .diagnostics-history { max-height: 520px; overflow: auto; }

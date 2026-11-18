@@ -5,7 +5,7 @@ import json
 import logging
 import time as clock
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
@@ -17,7 +17,9 @@ from .notifications import Notifier
 from .recreation import Campsite, RateLimitError
 from .providers import CampgroundClient
 from .goingtocamp import validate_watch_filters
+from .provider_registry import is_goingtocamp
 from .provider_ids import provider_key, provider_name
+from .provider_errors import ProviderResponseError
 
 
 PATTERNS: dict[str, tuple[set[int], int]] = {
@@ -79,6 +81,15 @@ def find_available_sites(
 
 def site_matches_filters(campsite: Campsite, filters: dict | None) -> bool:
     filters = filters or {}
+    if filters.get("campsite_ids") and campsite.campsite_id not in filters["campsite_ids"]:
+        return False
+    equipment = filters.get("equipment")
+    if equipment and equipment not in campsite.equipment:
+        return False
+    length = filters.get("vehicle_length_ft")
+    maximum = campsite.equipment_lengths_ft.get(equipment, campsite.max_vehicle_length_ft)
+    if length is not None and (maximum is None or float(length) > maximum):
+        return False
     site_type = str(filters.get("site_type") or "").strip().lower()
     loop = str(filters.get("loop") or "").strip().lower()
     site = str(filters.get("site") or "").strip().lower()
@@ -230,6 +241,7 @@ class Scanner:
         self.max_notification_results = max(1, int(max_notification_results))
         self._availability_cache: dict[tuple[str, date], tuple[datetime, dict[str, Campsite]]] = {}
         self._trip_cache: dict[tuple[str, date, date], tuple[datetime, list[Campsite]]] = {}
+        self._equipment_cache: dict[tuple[str, str], tuple[datetime, dict]] = {}
         self._provider_backoffs: dict[str, dict] = {}
         self._provider_last_request: dict[str, datetime] = {}
         self._api_backoff_until: datetime | None = None
@@ -609,8 +621,11 @@ class Scanner:
             }
 
         try:
+            filters = watch.get("site_filters") or {}
+            if (filters.get("equipment") or filters.get("vehicle_length_ft") is not None) and provider not in {"recreation", "ud_ca", "ud_metro"}:
+                raise ProviderResponseError(f"{provider_label} cannot verify equipment compatibility. Remove the equipment filter for this target.")
             for trip_index, trip in enumerate(trips, start=1):
-                if provider == "goingtocamp":
+                if is_goingtocamp(provider):
                     validate_watch_filters(watch.get("site_filters"), watch["campground_id"])
                 self._raise_if_cancel_requested()
                 if trip_index == 1 or trip_index % 25 == 0 or trip_index == len(trips):
@@ -653,6 +668,12 @@ class Scanner:
                     matching_sites = await self._trip_availability(watch["campground_id"], trip)
                     self._current_months_loaded = trip_index
                 self._raise_if_cancel_requested()
+                filters = watch.get("site_filters") or {}
+                if filters.get("equipment") or filters.get("vehicle_length_ft") is not None:
+                    if provider == "recreation":
+                        text_filters = {key: value for key, value in filters.items() if key not in {"equipment", "vehicle_length_ft"}}
+                        matching_sites = [await self._with_equipment(watch["campground_id"], site)
+                                          for site in matching_sites if site_matches_filters(site, text_filters)]
                 sites = [
                     site
                     for site in matching_sites
@@ -830,9 +851,29 @@ class Scanner:
         self._availability_cache[key] = (datetime.now(UTC), campsites)
         return campsites
 
+    async def _with_equipment(self, campground_id: str, site: Campsite) -> Campsite:
+        key = (campground_id, site.campsite_id)
+        cached = self._equipment_cache.get(key)
+        if cached and datetime.now(UTC) - cached[0] < timedelta(hours=24):
+            return replace(site, **cached[1])
+        await self._wait_for_api_slot("recreation")
+        if self._active_run_id is not None:
+            self.store.log_scan_event(self._active_run_id, self._active_watch_id, self._active_target_id,
+                                      "info", "provider_request", "Checking Recreation.gov campsite equipment compatibility.")
+        try:
+            metadata = await self.client.campsite_equipment(campground_id, site.campsite_id)
+        finally:
+            self._last_api_request_at = datetime.now(UTC)
+        if len(self._equipment_cache) >= 2000:
+            self._equipment_cache.pop(next(iter(self._equipment_cache)))
+        self._equipment_cache[key] = (datetime.now(UTC), metadata)
+        return replace(site, **metadata)
+
     async def _trip_availability(self, campground_id: str, trip: TripWindow) -> list[Campsite]:
         provider = provider_key(campground_id)
-        if provider == "goingtocamp" and hasattr(self.client, "washington"):
+        if hasattr(self.client, "ensure_provider_access"):
+            await self.client.ensure_provider_access(campground_id)
+        elif provider == "goingtocamp" and hasattr(self.client, "washington"):
             await self.client.washington.ensure_access()
         key = (campground_id, trip.arrival_date, trip.departure_date)
         cached = self._trip_cache.get(key)

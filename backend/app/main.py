@@ -7,6 +7,7 @@ from contextlib import asynccontextmanager
 from datetime import date
 
 from fastapi import FastAPI, HTTPException, Query
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -21,6 +22,7 @@ from .provider_ids import provider_key, provider_name
 from .provider_errors import ProviderResponseError
 from .provider_diagnostics import HISTORY_LIMIT, read_diagnostics
 from .goingtocamp import connection_state
+from .provider_registry import GTC_TENANTS, USEDIRECT_TENANTS
 from .scan_config import reset_scan_config, scan_config, update_scan_config
 from .scanner import Scanner, generate_trip_windows, release_hints
 from .schemas import (
@@ -108,6 +110,13 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.exception_handler(RequestValidationError)
+async def invalid_request(request, exc):
+    # Validation errors must not echo write-only webhook URLs or credentials.
+    detail = "; ".join(f"{'.'.join(str(part) for part in error['loc'])}: {error['msg']}" for error in exc.errors())
+    return JSONResponse(status_code=422, content={"detail": detail})
 
 
 @app.exception_handler(ProviderResponseError)
@@ -307,21 +316,26 @@ async def import_source_definition(source_id: str) -> dict:
 
 @app.post("/api/sources/{source_id}/reset-access")
 async def reset_source_access(source_id: str) -> dict:
-    if source_id != "washington-state-parks":
+    adapter = client.source_client(source_id)
+    if adapter is None:
         raise HTTPException(status_code=400, detail="This source has no manual access stop.")
-    await client.washington.reset_access_stop()
+    await adapter.reset_access_stop()
     return {"reset": True}
 
 
 @app.get("/api/sources/{source_id}/diagnostics")
 def source_diagnostics(source_id: str) -> dict:
-    if source_id != "washington-state-parks":
+    configs = {**GTC_TENANTS, **{f"ud_{key}": value for key, value in USEDIRECT_TENANTS.items()}}
+    tenant = next((key for key, config in configs.items() if config["source"] == source_id), None)
+    if tenant is None:
         raise HTTPException(status_code=404, detail="No HTTP diagnostics are available for this source.")
-    return {"source_id": source_id, "provider": "Washington State Parks", "history_limit": HISTORY_LIMIT,
-            "connection": connection_state(store), "records": read_diagnostics(store),
-            "client": {"method": "GET", "host": "washington.goingtocamp.com",
+    config = configs[tenant]
+    return {"source_id": source_id, "provider": config["name"], "history_limit": HISTORY_LIMIT,
+            "connection": connection_state(store, tenant), "records": read_diagnostics(store, tenant),
+            "client": {"method": "GET/POST" if tenant.startswith("ud_") else "GET", "host": config.get("host") or config["base"],
                        "user_agent": "Camply-compatible Chrome (fake-useragent 1.4.0)",
-                       "accept": "*/*", "accept_language": "en-US,en;q=0.9", "cookies": "anonymous, memory only",
+                       "accept": "*/*", "accept_language": "not set" if tenant.startswith("ud_") else "en-US,en;q=0.9",
+                       "cookies": "none" if tenant.startswith("ud_") else "anonymous, memory only",
                        "browser_required": False, "automatic_redirects": False}}
 
 

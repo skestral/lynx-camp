@@ -24,6 +24,7 @@ CART_ASSIST_APP_SETTING_KEYS = [
 ]
 
 NOTIFICATION_CONFIG_FIELDS: dict[str, dict[str, Any]] = {
+    "apprise_urls": {"setting_key": "notification_apprise_urls", "env_name": "CAMPFINDER_APPRISE_URLS", "kind": "string", "secret": True},
     "webhook_url": {
         "setting_key": "notification_webhook_url",
         "env_name": "CAMPFINDER_WEBHOOK_URL",

@@ -2,6 +2,11 @@
 
 Camp Finder is a local-network web app for monitoring campground availability across supported reservation providers. Recreation.gov, Washington State Parks, Snohomish County Parks, King County's Tolt-MacDonald campground, and Skagit County's Howard Miller Steelhead Park are currently connected. It runs in Docker, persists its data in SQLite, and notifies you when a configured campground/date rule has availability.
 
+Experimental native connectors also cover Tacoma Power Parks, BC Parks, Parks Canada,
+Oregon Metro's Oxbow facilities, and a conservative ReserveCalifornia campground
+catalog. See [provider coverage and setup](docs/camply-expansion.md) for verified
+checks and limitations. No browser console or separate search worker is required.
+
 The app is still notification-first. Matches link to the reservation provider, and Recreation.gov watches can be flagged as high priority for Cart Assist logging. The current Cart Assist implementation is a guarded audit trail and readiness check; it does not automatically click Add to Cart, submit payment, or try to get around login or CAPTCHA checks.
 
 ## Screenshots
@@ -41,6 +46,8 @@ Current dashboard with grouped availability and a crawl waiting through a provid
 - Create exact arrival/departure date watches.
 - Edit watch names, targets, dates, day patterns, stay length, and site filters after creation.
 - Filter watch matches by campsite type, loop text, site text, and minimum people capacity.
+- Check equipment type and vehicle length for Recreation.gov and UseDirect targets; unknown fit never passes a length filter.
+- Limit a watch to selected campsite IDs from previously loaded availability results.
 - Continuously crawl due watches with a default 60-minute minimum between repeat checks and five-second spacing between uncached availability requests.
 - Reuse fresh monthly responses, increase pacing after HTTP 429, and resume pending checks after the provider cooldown.
 - Temporarily increase scan cadence around calculated release times.
@@ -62,6 +69,7 @@ Current dashboard with grouped availability and a crawl waiting through a provid
 - Use visible park footprint polygons and Park Queue checkboxes to inspect and select campground groups directly from the map.
 - Show notification channel status, configure delivery settings, and send a test notification.
 - Notify by webhook, Home Assistant webhook, ntfy mobile push, and/or SMTP email when configured.
+- Add Pushover, Telegram, or Twilio SMS through Apprise alongside existing channels.
 - Export and restore targets, watches, scan controls, notification settings, and Cart Assist settings.
 - Run as a single Docker Compose service on your local network.
 
@@ -109,7 +117,7 @@ Sources can be filtered to Puget Sound, Olympic Peninsula, Mount Rainier, Snoqua
 - National parks: live Recreation.gov discovery for the requested Olympic, Rainier, Crater Lake, North Cascades, Glacier, Yellowstone, and Grand Teton set.
 - National forests: live Recreation.gov discovery for Washington national forests such as Olympic, Mount Baker-Snoqualmie, Okanogan-Wenatchee, Gifford Pinchot, and Colville.
 - Regions: a Washington Recreation.gov state starter for federal campgrounds that are not covered by a named park or forest source yet.
-- County and regional parks: Snohomish County, King County's Tolt-MacDonald campground, and Skagit County's Howard Miller Steelhead Park have live discovery and exact-stay availability searches. Clallam, Lewis, and Tacoma Power parks have official links but their reservation connectors are not connected. Jefferson County camping is directory-only.
+- County and regional parks: Snohomish County, King County's Tolt-MacDonald campground, and Skagit County's Howard Miller Steelhead Park have live discovery and exact-stay availability searches. Tacoma Power and Oregon Metro have experimental native connectors. Clallam and Lewis remain unconnected; Jefferson County camping is directory-only.
 - Washington State Parks: live GoingToCamp Camping and Roofed targets, using the adapted GoCamp/Camply workflow. Local Docker checks include camping and a browser-confirmed two-night cabin match. WA DNR remains directory-only.
 
 The [Washington State Parks setup guide](docs/washington-state-parks.md) covers
@@ -203,7 +211,7 @@ The November 17, 2026 local Docker check discovered 75 Camping and 27 Roofed tar
 
 Open **Targets > Sources > Washington state > Washington State Parks** and import the source. A Washington watch with **Include future imports** enabled adds the new targets automatically. Leave Site type blank for mixed Camping/Roofed watches; select Roofed targets for cabin/yurt searches. Names, individual cabin-versus-yurt types, loops, and capacities are not supplied by the availability endpoint, so unsupported filters report an error. Existing access stops survive upgrades: pause Washington watches, wait for any cooldown, then explicitly reset the reviewed stop and check the source. See the [state-park guide](docs/washington-state-parks.md).
 
-[Tacoma Power Parks](https://www.mytpu.org/community-environment-parks/parks-recreation/reservations-fees/) uses its own GoingToCamp service. Its browser page loaded during the same review, but a server-style metadata request received a firewall challenge. It remains unconnected; opening an interactive page is not proof that the Docker crawler can use its API.
+[Tacoma Power Parks](https://www.mytpu.org/community-environment-parks/parks-recreation/reservations-fees/) uses its own GoingToCamp service. An earlier server-style request received a challenge; the current Camply-compatible connector subsequently passed catalog and exact-stay checks. It is available as an experimental source. See [current coverage and verification](docs/camply-expansion.md) rather than treating the earlier browser result as proof of API access.
 
 Washington DNR publishes [campground GIS records](https://gis.dnr.wa.gov/site2/rest/services/Recreation/DNR_Recreation_Sites/MapServer/2), but [most DNR camping is first-come, first-served](https://dnr.wa.gov/recreation/find-your-campsite). County coverage also varies: [Jefferson's directory](https://jeffersoncountywa.myrec.com/info/facilities/default.aspx) includes first-come camping, while [Kitsap County does not permit overnight camping in its county parks](https://www.kitsap.gov/parks/Pages/FAQRules.aspx). State parks within Kitsap remain relevant through the state provider. Regional coverage must not manufacture availability for these directories.
 
@@ -461,7 +469,17 @@ CAMPFINDER_HOME_ASSISTANT_WEBHOOK_URL=https://homeassistant.example.com/api/webh
 
 The Home Assistant channel receives structured JSON with `source`, `event`, `message`, `app_url`, match counts, and a bounded `matches` list. That lets an automation use the simple text message or route on fields such as campground, arrival date, and booking URL.
 
-Discord and Home Assistant are independent channels and can be used together. Saving one does not replace the other. ntfy and SMTP can also be enabled alongside them.
+Discord and Home Assistant are independent channels and can be used together. Saving one does not replace the other. ntfy, SMTP, and Apprise can also be enabled alongside them.
+
+For Pushover, Telegram, or Twilio SMS, enter up to ten Apprise URLs in **Settings >
+Apprise destinations**, one per line, and save notifications. These URLs contain
+credentials: saved values are write-only and excluded from normal configuration
+exports. A blank field keeps the existing value; Clear Secrets removes saved
+notification secrets and falls back to environment defaults. A single destination
+can also be supplied as `CAMPFINDER_APPRISE_URLS`. See the
+[setup examples and verification notes](docs/camply-expansion.md#additional-alerts).
+The Test Notifications button sends real messages to every configured channel;
+Twilio SMS may incur charges.
 
 For ntfy phone push, subscribe to a private topic in the ntfy mobile app and set:
 
@@ -522,7 +540,11 @@ On Unraid, `/mnt/user/appdata/...` is a user-share view over local storage, not 
 
 ## Next Useful Phases
 
-The [Camply opportunity review](docs/camply-opportunities.md) prioritizes Tacoma Power, BC/Parks Canada, Oregon Metro, and equipment filters. It also covers Yellowstone's announced 2027 move to Recreation.gov, which changes the case for a separate concessionaire connector.
+The [Camply implementation guide](docs/camply-expansion.md) covers the new providers,
+equipment filters, campsite selection, and alert destinations. The
+[opportunity review](docs/camply-opportunities.md) records the original priorities
+and remaining limits, including Yellowstone's 2027 transition. Tickets and timed
+entry remain outside campground watches.
 
 1. Add the remaining county reservation systems and broaden Washington accommodation metadata. Verify complete-stay camping and cabin coverage before enabling each source.
 2. Add filters for equipment, max vehicle length, accessible sites, and electric/water hookups when the API exposes them consistently.

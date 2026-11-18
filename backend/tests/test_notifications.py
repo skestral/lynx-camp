@@ -47,6 +47,7 @@ def test_test_notification_skips_unconfigured_channels(tmp_path) -> None:
         "home_assistant": "skipped",
         "email": "skipped",
         "ntfy": "skipped",
+        "apprise": "skipped",
     }
 
 

@@ -101,6 +101,9 @@ export type Watch = {
 };
 
 export type SiteFilters = {
+  equipment?: "" | "tent" | "rv" | "trailer" | "vehicle";
+  vehicle_length_ft?: number | null;
+  campsite_ids?: string[];
   site_type: string;
   loop: string;
   site: string;
@@ -294,6 +297,7 @@ export type NotificationConfig = {
 };
 
 export type NotificationConfigValues = {
+  apprise_urls: string;
   webhook_url: string;
   home_assistant_webhook_url: string;
   ntfy_server: string;

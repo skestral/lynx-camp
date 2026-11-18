@@ -1,19 +1,19 @@
 # Camply Integration Opportunities
 
-Reviewed November 17, 2026. These are candidate improvements, not newly enabled
-providers. Camp Finder currently connects Recreation.gov, Washington State Parks,
-Snohomish County, King County's Tolt-MacDonald campground, and Skagit's Howard
-Miller Steelhead Park. Washington already adapts the successful Camply request
-behavior into our async client; the full library is not installed in the app.
+Reviewed and implemented November 17, 2026. The campground-first expansion now
+includes native adapters, equipment filters, a result-backed campsite picker,
+and selected Apprise destinations. See the [implementation guide](camply-expansion.md)
+for installation, verification evidence, and limitations. The full Camply library
+is not installed in the app.
 
 ## Coverage Priorities
 
 | Priority | Candidate | Benefit and next check |
 | --- | --- | --- |
-| 1 | Tacoma Power Parks | Our catalog currently marks this source unconnected. Camply lists its GoingToCamp tenant. Verify the catalog and exact stays before enabling discovery and watches. |
-| 2 | BC Parks and Parks Canada | Camply lists both GoingToCamp tenants. Useful for trips north of Washington; validate each host and accommodation category independently. |
-| 3 | Oregon Metro | Camply has a UseDirect variation for the Portland-area system. This is not Oregon State Parks coverage. Verify the current inventory and booking contract. |
-| 4 | ReserveCalifornia | Another supported UseDirect variation, useful for broader West Coast trips after a shared adapter is proven. |
+| 1 | Tacoma Power Parks | Experimental connector enabled for four Camping locations. Catalog and one exact stay verified; broader seasonal checks remain. |
+| 2 | BC Parks and Parks Canada | Experimental Camping connectors. Catalog verified; exact-stay access remains unverified. No Roofed or backcountry coverage claim. |
+| 3 | Oregon Metro | Experimental UseDirect connector for two Oxbow facilities. Empty-calendar stay verified. This is not Oregon State Parks coverage. |
+| 4 | ReserveCalifornia | Experimental UseDirect connector; 23 full-stay matches verified in Docker at one campground. Discovery is deliberately not exhaustive. |
 | Separate workflow | Recreation.gov tickets and timed entry | Camply provides search implementations, but these need time-slot and quantity models rather than pretending a permit is a campsite night. |
 
 Provider listings establish implementation references, not proof that requests
@@ -38,15 +38,13 @@ See the [current NPS campground notice](https://www.nps.gov/yell/planyourvisit/c
 
 ## Improvements Beyond Coverage
 
-- **Equipment filters:** use Camply's equipment-type and length handling as a
-  reference for RV/trailer compatibility. Our text Site type filter is not an
-  equipment-fit check. Unknown dimensions must remain unknown, not become zero.
-- **More alert destinations:** Apprise, Pushover, Telegram, and SMS are useful
-  references. Add selected channels behind the current notification service so
-  delivery history, secret handling, and pending-result recovery remain shared.
-- **Site selection:** a provider-aware campsite picker could replace some free-text
-  filtering. It must only show names and attributes actually supplied by that
-  provider; Camply cannot recover Washington labels from a retired endpoint.
+- **Equipment filters:** implemented for Recreation.gov and UseDirect. Other
+  providers remain unsupported for fit checks; unknown lengths do not pass.
+- **More alert destinations:** Pushover, Telegram, and Twilio SMS are available
+  through Apprise behind the existing notification service and secret handling.
+- **Site selection:** a picker now uses loaded results and preserves selected IDs
+  in backups. Full inventory browsing remains a follow-up. Washington labels
+  are still unavailable; the picker does not invent campsite names.
 
 Camply documents [equipment filters, site IDs, and notification options](https://juftin.com/camply/command_line_usage/).
 We already have weekday/date windows, consecutive nights, background crawling,
@@ -70,7 +68,8 @@ Do not assume Washington's category IDs or reservation rules apply elsewhere.
 Before marking any new source live, test discovery, full stays, no availability,
 partial/malformed data, cancellation, 403/429 handling, deduplication, alerts,
 and backup restoration. Then make a bounded Docker check and compare a normal
-provider search. No extra providers were polled during this review.
+provider search. See the implementation guide for the checks actually performed;
+synthetic contract tests are not proof of live provider access.
 
 Camply does not supply inventory for first-come-only campgrounds, eliminate
 provider rate limits, establish account eligibility, or turn alerts into holds.

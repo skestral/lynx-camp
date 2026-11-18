@@ -12,6 +12,7 @@ from uuid import uuid4
 
 import httpx
 from pydantic import BaseModel, ConfigDict, Field
+from .provider_registry import gtc_state_key
 
 
 STATE_KEY = "goingtocamp_diagnostics"
@@ -33,8 +34,8 @@ class DiagnosticRecord(BaseModel):
     model_config = ConfigDict(extra="ignore", strict=True)
     id: str = Field(pattern=r"^[0-9a-f]{32}$")
     recorded_at: str = Field(max_length=40)
-    endpoint: Literal["/resourceLocation", "/resourcelocation", "/resourcecategory", "/availability/map"]
-    method: Literal["GET"] = "GET"
+    endpoint: Literal["/resourceLocation", "/resourcelocation", "/resourcecategory", "/availability/map", "/rdr/fd/places", "/rdr/fd/facilities", "/rdr/search/filters", "/rdr/search/grid"]
+    method: Literal["GET", "POST"] = "GET"
     query: dict[str, str] = Field(default_factory=dict)
     status: int | None = Field(default=None, ge=100, le=599)
     outcome: Literal["json_response", "access_denied", "rate_limited", "http_error", "invalid_json", "response_too_large", "transport_error"]
@@ -95,10 +96,11 @@ def sanitize_record(value) -> dict | None:
         return None
 
 
-def read_diagnostics(store) -> list[dict]:
+def read_diagnostics(store, tenant="wa") -> list[dict]:
     if store is None:
         return []
-    raw = store.get_app_settings([STATE_KEY]).get(STATE_KEY, "[]")
+    key = gtc_state_key(tenant, "diagnostics")
+    raw = store.get_app_settings([key]).get(key, "[]")
     try:
         values = json.loads(raw)
         if not isinstance(values, list):
@@ -113,7 +115,7 @@ def diagnostic_record(path: str, params: dict | None, elapsed: float, *, respons
     proxies = getproxies()
     record = {
         "id": uuid4().hex, "recorded_at": datetime.now(UTC).isoformat(), "endpoint": path,
-        "query": safe_query(params), "outcome": outcome,
+        "query": safe_query(params), "outcome": outcome, "method": "POST" if path == "/rdr/search/grid" else "GET",
         "elapsed_ms": max(0, min(86_400_000, int(elapsed * 1000))),
         "proxy_configured": any(proxies.get(key) for key in ("http", "https", "all")),
         "no_proxy_configured": bool(proxies.get("no")),
@@ -155,7 +157,7 @@ def diagnostic_record(path: str, params: dict | None, elapsed: float, *, respons
     return DiagnosticRecord.model_validate(record).model_dump()
 
 
-def save_diagnostic(store, record: dict) -> None:
+def save_diagnostic(store, record: dict, tenant="wa") -> None:
     if store is None:
         return
     # Called under the provider request lock: there is one serialized writer.
@@ -163,17 +165,17 @@ def save_diagnostic(store, record: dict) -> None:
         record = sanitize_record(record)
         if record is None:
             return
-        history = read_diagnostics(store)
-        store.set_app_settings({STATE_KEY: json.dumps([record, *history][:HISTORY_LIMIT])})
+        history = read_diagnostics(store, tenant)
+        store.set_app_settings({gtc_state_key(tenant, "diagnostics"): json.dumps([record, *history][:HISTORY_LIMIT])})
     except Exception:
         logging.getLogger(__name__).warning("Could not persist Washington HTTP diagnostics.")
 
 
-def capture_diagnostic(store, path, params, elapsed, **kwargs) -> None:
+def capture_diagnostic(store, path, params, elapsed, *, tenant="wa", **kwargs) -> None:
     if store is None:
         return
     try:
-        save_diagnostic(store, diagnostic_record(path, params, elapsed, **kwargs))
+        save_diagnostic(store, diagnostic_record(path, params, elapsed, **kwargs), tenant)
     except Exception:
         # Diagnostics must not mask a provider error or disable its access stop.
         logging.getLogger(__name__).warning("Could not capture Washington HTTP diagnostics.")

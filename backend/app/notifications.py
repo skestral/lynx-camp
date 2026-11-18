@@ -14,6 +14,7 @@ from .app_settings import (
     NOTIFICATION_SECRET_SETTING_KEYS,
 )
 from .settings import Settings
+from . import apprise_alerts
 
 if TYPE_CHECKING:
     from .db import Store
@@ -63,6 +64,9 @@ class Notifier:
                     "detail": self._ntfy_url_for(config) if self._ntfy_enabled_for(config) else "Set ntfy topic in Settings or CAMPFINDER_NTFY_TOPIC",
                     "missing": [] if self._ntfy_enabled_for(config) else ["CAMPFINDER_NTFY_TOPIC"],
                 },
+                {"channel": "apprise", "configured": bool(config["apprise_urls"]),
+                 "detail": self._field_detail("apprise_urls", config),
+                 "missing": [] if config["apprise_urls"] else ["CAMPFINDER_APPRISE_URLS"]},
             ]
         }
 
@@ -85,6 +89,9 @@ class Notifier:
             await asyncio.to_thread(self._send_email, results, message, store, config)
         if self._ntfy_enabled_for(config):
             await self._send_ntfy(results, message, click_url, store, config)
+        if config["apprise_urls"]:
+            result = await apprise_alerts.send(config["apprise_urls"], message)
+            self._record_batch_notifications(results, "apprise", result["status"], result["message"], store)
 
     async def send_test(self) -> dict:
         message = (
@@ -129,6 +136,8 @@ class Notifier:
             results.append(await self._post_ntfy(message, self.settings.app_base_url, config))
         else:
             results.append({"channel": "ntfy", "status": "skipped", "message": "ntfy is not configured."})
+        results.append(await apprise_alerts.send(config["apprise_urls"], message) if config["apprise_urls"] else
+                       {"channel": "apprise", "status": "skipped", "message": "Apprise is not configured."})
         return {"results": results}
 
     def home_assistant_config(self, config: dict[str, Any] | None = None) -> dict:

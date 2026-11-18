@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 class RegionScope(BaseModel):
     model_config = ConfigDict(extra="forbid")
     kind: Literal["state", "parks", "bounds"]
-    state_code: str | None = Field(default=None, pattern=r"^[A-Z]{2}$")
+    state_code: str | None = Field(default=None, pattern=r"^(?:[A-Z]{2}|CAN)$")
     park_names: list[Annotated[str, Field(min_length=1, max_length=200)]] = Field(default_factory=list, max_length=100)
     south: float | None = Field(default=None, ge=-90, le=90, allow_inf_nan=False)
     west: float | None = Field(default=None, ge=-180, le=180, allow_inf_nan=False)

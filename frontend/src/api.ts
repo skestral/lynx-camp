@@ -65,7 +65,7 @@ export const api = {
   targets: () => request<Target[]>("/api/targets"),
   presets: () => request<PresetPack[]>("/api/presets"),
   sources: () => request<SourceDefinition[]>("/api/sources"),
-  sourceDiagnostics: () => request<ProviderDiagnostics>("/api/sources/washington-state-parks/diagnostics"),
+  sourceDiagnostics: (sourceId = "washington-state-parks") => request<ProviderDiagnostics>(`/api/sources/${encodeURIComponent(sourceId)}/diagnostics`),
   watches: () => request<Watch[]>("/api/watches"),
   createWatchGroup: (target_ids: number[], watch: Record<string, unknown>, region_scope: RegionScope | null = null) =>
     request<Watch[]>("/api/watch-groups", { method: "POST", body: JSON.stringify({ target_ids, watch, region_scope }) }),

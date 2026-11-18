@@ -5,6 +5,7 @@ from typing import Any
 
 from .db import Store, utc_now
 from .goingtocamp import connection_state
+from .provider_registry import GTC_TENANTS, USEDIRECT_TENANTS
 from .presets import SOURCE_SEARCH_MAX_PAGES, SOURCE_SEARCH_PAGE_SIZE, _normalize_name, _target
 
 SourceQuery = dict[str, Any]
@@ -130,9 +131,6 @@ for source_id, name, counties, areas, url, description in [
     ("jefferson-county-parks", "Jefferson County Parks", ["Jefferson"], ["Olympic Peninsula", "Puget Sound"],
      "https://jeffersoncountywa.myrec.com/info/facilities/default.aspx",
      "Quilcene, Lake Leland, and Oak Bay campgrounds. First-come camping directory; no live nightly availability."),
-    ("tacoma-power-parks", "Tacoma Power Parks", ["Pierce", "Lewis"], ["Mount Rainier", "Puget Sound"],
-     "https://www.mytpu.org/community-environment-parks/parks-recreation/",
-     "Alder Lake, Mayfield Lake, Mossyrock, and Taidnapam. Reservation connector pending; not scanned."),
     ("lewis-county-parks", "Lewis County Parks", ["Lewis"], ["Mount Rainier"],
      "https://lewiscountywa.gov/departments/parks-recreation/parks-venues/",
      "County park and fairground camping. Reservation connector pending; not scanned."),
@@ -146,6 +144,32 @@ for source_id, name, counties, areas, url, description in [
     })
 
 
+for tenant, config in GTC_TENANTS.items():
+    if tenant == "wa":
+        continue
+    SOURCE_DEFINITIONS.append({
+        "id": config["source"], "name": config["name"], "provider": config["name"],
+        "category": "County and regional parks" if tenant == "tacoma" else "Canadian parks",
+        "region": config["state"], "status": "experimental", "source_type": "goingtocamp", "tenant": tenant,
+        "areas": ["Mount Rainier", "Puget Sound"] if tenant == "tacoma" else [],
+        "counties": ["Pierce", "Lewis"] if tenant == "tacoma" else [], "queries": [],
+        "official_url": f"https://{config['host']}/",
+        "description": "Frontcountry Camping searches through the native API. Catalog verified; stay compatibility is under validation. Roofed, group, backcountry and day-use categories are not included.",
+    })
+
+
+for tenant, config in USEDIRECT_TENANTS.items():
+    SOURCE_DEFINITIONS.append({
+        "id": config["source"], "name": config["name"], "provider": config["name"],
+        "category": "County and regional parks" if tenant == "metro" else "State parks",
+        "region": config["state"], "status": "experimental", "source_type": "usedirect", "tenant": tenant,
+        "official_url": config["booking"], "queries": [],
+        "description": ("Oxbow campground and group camp only; not Oregon State Parks. " if tenant == "metro" else
+                        "Conservative campground and lodging catalog; not every California facility is included. ")
+                       + "Occupied-night calendar searches with booking-rule checks. Manual checkout on the provider website.",
+    })
+
+
 def list_source_definitions(store: Store) -> list[dict[str, Any]]:
     existing_targets = store.list_targets()
     sources = deepcopy(SOURCE_DEFINITIONS)
@@ -155,7 +179,9 @@ def list_source_definitions(store: Store) -> list[dict[str, Any]]:
         source["import_supported"] = source["discover_supported"]
         source["imported_count"] = _imported_count_for_source(source, existing_targets)
         if source["source_type"] == "goingtocamp":
-            source["connection"] = connection_state(store)
+            source["connection"] = connection_state(store, source.get("tenant", "wa"))
+        elif source["source_type"] == "usedirect":
+            source["connection"] = connection_state(store, f"ud_{source['tenant']}")
         source.pop("queries", None)
     return sources
 
@@ -169,7 +195,7 @@ async def discover_source(store: Store, client: Any, source_id: str) -> dict[str
     discovered_by_id: dict[str, dict[str, Any]] = {}
     queries = source.get("queries") or []
 
-    if source["source_type"] in {"camava", "activenet", "cedar", "goingtocamp"}:
+    if source["source_type"] in {"camava", "activenet", "cedar", "goingtocamp", "usedirect"}:
         discovered_by_id = {target["campground_id"]: target for target in await client.discover_external(source_id)}
     for query in queries:
         for suggestion in await _source_campgrounds(client, query):
@@ -239,7 +265,7 @@ def _get_source(source_id: str) -> SourceDefinition:
 
 
 def _supports_discovery(source: SourceDefinition) -> bool:
-    if source.get("source_type") == "goingtocamp":
+    if source.get("source_type") in {"goingtocamp", "usedirect"}:
         return source.get("status") in {"ready", "experimental"}
     return source.get("status") == "ready" and source.get("source_type") in {"recreation_search", "camava", "activenet", "cedar"}
 
@@ -298,8 +324,11 @@ def _source_target(suggestion: dict[str, Any], source: SourceDefinition, query: 
 
 
 def _imported_count_for_source(source: SourceDefinition, targets: list[dict[str, Any]]) -> int:
+    if source.get("source_type") == "usedirect":
+        return sum(1 for target in targets if str(target.get("campground_id", "")).startswith(f"ud:{source['tenant']}:"))
     if source.get("source_type") == "goingtocamp":
-        return sum(1 for target in targets if str(target.get("campground_id", "")).startswith("gtc:wa:"))
+        prefix = f"gtc:{source.get('tenant', 'wa')}:"
+        return sum(1 for target in targets if str(target.get("campground_id", "")).startswith(prefix))
     if source.get("source_type") == "cedar":
         return sum(1 for target in targets if target.get("campground_id") == "cedar:skagit:hmsp")
     if source.get("source_type") == "activenet":

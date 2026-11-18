@@ -1,12 +1,25 @@
 from urllib.parse import parse_qs, urlencode, urlsplit
 import re
+from .provider_registry import GTC_TENANTS, USEDIRECT_TENANTS, gtc_provider_key, is_goingtocamp
 
 
 def goingtocamp_identity(campground_id: str) -> tuple[int, int]:
-    match = re.fullmatch(r"gtc:wa:(-?(?:0|[1-9][0-9]{0,9})):(0|1)", campground_id)
+    parts = campground_id.split(":")
+    if len(parts) != 4 or parts[1] not in GTC_TENANTS:
+        raise ValueError("Invalid GoingToCamp campground identity")
+    match = re.fullmatch(r"gtc:[a-z]+:(-?(?:0|[1-9][0-9]{0,9})):(0|1)", campground_id)
     if not match or not -(2 ** 31) <= int(match[1]) < 2 ** 31 or match[1] == "-0":
         raise ValueError("Invalid Washington State Parks campground identity")
+    if int(match[2]) not in GTC_TENANTS[parts[1]]["categories"]:
+        raise ValueError("Unsupported accommodation category for this provider")
     return int(match[1]), int(match[2])
+
+
+def usedirect_identity(campground_id: str) -> tuple[str, int, int]:
+    match = re.fullmatch(r"ud:(metro|ca):([1-9][0-9]{0,9}):([1-9][0-9]{0,9})", campground_id)
+    if not match or any(int(value) >= 2**31 for value in match.groups()[1:]):
+        raise ValueError("Invalid UseDirect campground identity")
+    return match[1], int(match[2]), int(match[3])
 
 
 def provider_key(campground_id: str) -> str:
@@ -19,13 +32,21 @@ def provider_key(campground_id: str) -> str:
         return "king"
     if campground_id == "cedar:skagit:hmsp":
         return "skagit"
-    if campground_id.startswith("gtc:wa:"):
+    if campground_id.startswith("gtc:"):
         goingtocamp_identity(campground_id)
-        return "goingtocamp"
+        return gtc_provider_key(parts[1])
+    if campground_id.startswith("ud:"):
+        tenant, _, _ = usedirect_identity(campground_id)
+        return f"ud_{tenant}"
     raise ValueError(f"Unsupported campground provider: {campground_id}")
 
 
 def provider_name(campground_id: str) -> str:
+    if campground_id.startswith("gtc:"):
+        goingtocamp_identity(campground_id)
+        return GTC_TENANTS[campground_id.split(":")[1]]["name"]
+    if campground_id.startswith("ud:"):
+        return USEDIRECT_TENANTS[usedirect_identity(campground_id)[0]]["name"]
     return {"snohomish": "Snohomish County Parks", "king": "King County Parks", "skagit": "Skagit County Parks",
             "goingtocamp": "Washington State Parks",
             "recreation": "Recreation.gov"}[provider_key(campground_id)]
@@ -34,7 +55,7 @@ def provider_name(campground_id: str) -> str:
 def normalize_result_booking_url(campground_id: str, arrival: str, departure: str, *,
                                  campsite_id: str, booking_url: str | None = None) -> str:
     fallback = campground_url(campground_id, arrival, departure, campsite_id=campsite_id)
-    if provider_key(campground_id) != "goingtocamp" or not booking_url:
+    if not is_goingtocamp(provider_key(campground_id)) or not booking_url:
         return fallback
     try:
         supplied = urlsplit(booking_url)
@@ -56,7 +77,11 @@ def normalize_result_booking_url(campground_id: str, arrival: str, departure: st
 
 def campground_url(campground_id: str, arrival: str | None = None, departure: str | None = None,
                    *, campsite_id: str | None = None) -> str:
-    if provider_key(campground_id) == "goingtocamp":
+    if provider_key(campground_id).startswith("ud_"):
+        tenant, place, facility = usedirect_identity(campground_id)
+        base = USEDIRECT_TENANTS[tenant]["booking"]
+        return f"{base}/park/{place}/{facility}" if tenant == "ca" else base
+    if is_goingtocamp(provider_key(campground_id)):
         from datetime import date
 
         location, category = goingtocamp_identity(campground_id)
@@ -77,7 +102,8 @@ def campground_url(campground_id: str, arrival: str | None = None, departure: st
             if not 1 <= (end - start).days <= 31:
                 raise ValueError("Invalid Washington State Parks stay length")
             params.update(startDate=start.isoformat(), endDate=end.isoformat(), nights=str((end - start).days))
-        return "https://washington.goingtocamp.com/create-booking/results?" + urlencode(params)
+        host = GTC_TENANTS[campground_id.split(":")[1]]["host"]
+        return f"https://{host}/create-booking/results?" + urlencode(params)
     if provider_key(campground_id) == "recreation":
         return f"https://www.recreation.gov/camping/campgrounds/{campground_id}"
     if provider_key(campground_id) == "skagit":

@@ -194,6 +194,7 @@ function scanConfigFormFromValues(values: ScanConfigValues): ScanConfigForm {
 }
 
 const DEFAULT_NOTIFICATION_CONFIG_VALUES: NotificationConfigValues = {
+  apprise_urls: "",
   webhook_url: "",
   home_assistant_webhook_url: "",
   ntfy_server: "https://ntfy.sh",
@@ -319,6 +320,7 @@ const SMTP_NOTIFICATION_FIELDS: NotificationField[] = [
 
 function notificationConfigFormFromValues(values: NotificationConfigValues): NotificationConfigForm {
   return {
+    apprise_urls: "",
     webhook_url: "",
     home_assistant_webhook_url: "",
     ntfy_server: String(values.ntfy_server || DEFAULT_NOTIFICATION_CONFIG_VALUES.ntfy_server),
@@ -555,6 +557,8 @@ function notificationChannelLabel(channel: string) {
 
 function filterSummary(filters: Watch["site_filters"]) {
   const parts = [
+    filters.equipment ? `${filters.equipment}${filters.vehicle_length_ft ? ` ${filters.vehicle_length_ft} ft` : ""}` : "",
+    filters.campsite_ids?.length ? `${filters.campsite_ids.length} selected sites` : "",
     filters.site_type ? `type ${filters.site_type}` : "",
     filters.loop ? `loop ${filters.loop}` : "",
     filters.site ? `site ${filters.site}` : "",
@@ -872,6 +876,10 @@ export default function App() {
   const [filterLoop, setFilterLoop] = useState("");
   const [filterSite, setFilterSite] = useState("");
   const [filterMinPeople, setFilterMinPeople] = useState("");
+  const [filterEquipment, setFilterEquipment] = useState<NonNullable<Watch["site_filters"]["equipment"]>>("");
+  const [filterLength, setFilterLength] = useState("");
+  const [filterSiteIds, setFilterSiteIds] = useState<string[]>([]);
+  const [diagnosticSource, setDiagnosticSource] = useState("washington-state-parks");
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [drawerMode, setDrawerMode] = useState<DrawerMode>("targets");
   const [pageView, setPageView] = useState<PageView>(() => (window.location.hash === "#logs" ? "logs" : "monitor"));
@@ -1681,6 +1689,9 @@ export default function App() {
     setEditingWatchId(null);
     setEditingGroupId(null);
     setWatchEditorOpen(false);
+    setFilterEquipment("");
+    setFilterLength("");
+    setFilterSiteIds([]);
     setWatchName("");
     setWatchScope("target");
     setIncludeFutureImports(false);
@@ -1713,6 +1724,9 @@ export default function App() {
     setFilterLoop(watch.site_filters?.loop || "");
     setFilterSite(watch.site_filters?.site || "");
     setFilterMinPeople(watch.site_filters?.min_people ? String(watch.site_filters.min_people) : "");
+    setFilterEquipment(watch.site_filters?.equipment || "");
+    setFilterLength(watch.site_filters?.vehicle_length_ft ? String(watch.site_filters.vehicle_length_ft) : "");
+    setFilterSiteIds(watch.site_filters?.campsite_ids || []);
     setMessage(`Editing ${watch.name}.`);
   }
 
@@ -1974,6 +1988,10 @@ export default function App() {
     event.preventDefault();
     if (watchSaveBusy) return;
     const selectedTargets = selectedWatchTargets();
+    if (filterEquipment && selectedTargets.some(target => !/^\d+$|^ud:/.test(target.campground_id))) {
+      setMessage("Equipment filters require Recreation.gov or UseDirect targets. Remove this filter or choose compatible targets.");
+      return;
+    }
     if (selectedTargets.length === 0) {
       setMessage(
         watchScope === "map"
@@ -2005,6 +2023,9 @@ export default function App() {
       window_start: isSpecific ? specificArrival : windowStart,
       window_end: isSpecific ? specificDeparture : windowEnd,
       site_filters: {
+        equipment: filterEquipment,
+        vehicle_length_ft: filterLength ? Number(filterLength) : null,
+        campsite_ids: filterSiteIds,
         site_type: filterSiteType.trim(),
         loop: filterLoop.trim(),
         site: filterSite.trim(),
@@ -2180,6 +2201,7 @@ export default function App() {
         max_notification_results: Math.round(notificationConfigNumber("max_notification_results"))
       };
       const secretFields = [
+        "apprise_urls",
         "webhook_url",
         "home_assistant_webhook_url",
         "ntfy_topic",
@@ -2598,7 +2620,7 @@ export default function App() {
   }
 
   function watchRegionScope(): RegionScope | null {
-    if (watchScope === "state" && /^[A-Z]{2}$/.test(watchStateCode)) return { kind: "state", state_code: watchStateCode };
+    if (watchScope === "state" && /^(?:[A-Z]{2}|CAN)$/.test(watchStateCode)) return { kind: "state", state_code: watchStateCode };
     if (watchScope === "park" && watchPark) return { kind: "parks", park_names: [watchPark] };
     if (watchScope === "selection" && selectedParkGroups.length) return { kind: "parks", park_names: selectedParkGroups };
     if (watchScope === "map") {
@@ -2641,6 +2663,15 @@ export default function App() {
       return `One regional watch, ${selected.length} campgrounds across ${selectedParkGroups.length} selected park groups.`;
     }
     return `One regional watch, ${selected.length} campgrounds inside the current map view.`;
+  }
+
+  function campsiteSelectionOptions() {
+    const targetIds = new Set(selectedWatchTargets().map(target => target.id));
+    const options = new Map(filterSiteIds.map(id => [id, id]));
+    for (const result of results) {
+      if (targetIds.has(result.target_id)) options.set(result.campsite_id, `${result.campground_name}: ${result.site}`);
+    }
+    return Array.from(options.entries());
   }
 
   function openWatchBuilderForPark(parkName: string) {
@@ -2968,6 +2999,13 @@ export default function App() {
           {renderNotificationSection("Webhooks", "Discord-compatible and Home Assistant endpoints.", WEBHOOK_NOTIFICATION_FIELDS)}
           {renderNotificationSection("ntfy", "Push topic, server, priority, and token.", NTFY_NOTIFICATION_FIELDS)}
           {renderNotificationSection("SMTP Email", "Server, mailbox credentials, recipient, and batch size.", SMTP_NOTIFICATION_FIELDS)}
+          <label className="wide-field">Apprise destinations
+            <textarea rows={3} autoComplete="off" spellCheck={false} maxLength={16000}
+              value={notificationConfigForm.apprise_urls}
+              onChange={event => updateNotificationConfigFormValue("apprise_urls", event.target.value)}
+              placeholder={notificationConfig?.configured.apprise_urls ? "Configured. Leave blank to keep saved destinations." : "pushover://...\ntgram://...\ntwilio://..."} />
+            <small>Pushover, Telegram, or Twilio URLs, one per line. Twilio SMS may incur charges.</small>
+          </label>
           <div className="notification-config-actions wide-field">
             <button className="icon-button" disabled={notificationConfigBusy !== null} type="submit">
               <Save size={17} />
@@ -3645,8 +3683,8 @@ export default function App() {
                               <RotateCcw size={17} />
                             </button>
                           )}
-                          {source.id === "washington-state-parks" && (
-                            <a className="icon-only quiet" href="#logs" onClick={() => setDrawerOpen(false)} title="View Washington API diagnostics" aria-label="View Washington API diagnostics">
+                          {["goingtocamp", "usedirect"].includes(source.source_type) && (
+                            <a className="icon-only quiet" href="#logs" onClick={() => { setDiagnosticSource(source.id); setDrawerOpen(false); }} title={`View ${source.name} diagnostics`} aria-label={`View ${source.name} diagnostics`}>
                               <ListChecks size={16} />
                             </a>
                           )}
@@ -3863,7 +3901,7 @@ export default function App() {
               {!editingGroupId && (editingWatchId || watchScope === "target") && (
                 <label>
                   Target
-                  <select value={watchTarget} onChange={(event) => setWatchTarget(event.target.value)}>
+                  <select value={watchTarget} onChange={(event) => { setWatchTarget(event.target.value); setFilterSiteIds([]); }}>
                     {targets.map((target) => (
                       <option key={target.id} value={target.id}>{target.name}</option>
                     ))}
@@ -3963,6 +4001,39 @@ export default function App() {
                 Site type
                 <input value={filterSiteType} onChange={(event) => setFilterSiteType(event.target.value)} placeholder="Tent, RV, Camping, Roofed" />
               </label>
+              <label>Equipment
+                <select value={filterEquipment} onChange={event => {
+                  const value = event.target.value as typeof filterEquipment;
+                  setFilterEquipment(value);
+                  if (!value || value === "tent") setFilterLength("");
+                }}>
+                  <option value="">Any equipment</option><option value="tent">Tent</option>
+                  <option value="rv">RV / motorhome</option><option value="trailer">Trailer</option><option value="vehicle">Vehicle</option>
+                </select>
+              </label>
+              <label>Vehicle length (ft)
+                <input type="number" min="1" max="200" step="0.5" value={filterLength}
+                  disabled={!filterEquipment || filterEquipment === "tent"} onChange={event => setFilterLength(event.target.value)} />
+              </label>
+              {filterEquipment && selectedWatchTargets().some(target => !/^\d+$|^ud:/.test(target.campground_id)) && (
+                <p className="wide-field" role="status">Equipment compatibility is only available for Recreation.gov and UseDirect targets.</p>
+              )}
+              <details className="wide-field site-picker">
+                <summary>Specific campsites {filterSiteIds.length ? `(${filterSiteIds.length} selected)` : "(any)"}</summary>
+                <button type="button" className="icon-button" onClick={() => setFilterSiteIds([])} disabled={!filterSiteIds.length}>
+                  <X size={16} /><span>Clear Selection</span>
+                </button>
+                <div className="site-picker-options">
+                  {campsiteSelectionOptions().map(([id, label]) => (
+                    <label key={id} className="toggle-field">
+                      <input type="checkbox" checked={filterSiteIds.includes(id)}
+                        disabled={!filterSiteIds.includes(id) && filterSiteIds.length >= 200}
+                        onChange={event => setFilterSiteIds(current => event.target.checked ? [...current, id] : current.filter(value => value !== id))} />
+                      <span>{label}</span>
+                    </label>
+                  ))}
+                </div>
+              </details>
               <label>
                 Loop
                 <input value={filterLoop} onChange={(event) => setFilterLoop(event.target.value)} placeholder="A, river, meadow" />
@@ -4380,7 +4451,7 @@ export default function App() {
               </div>
             </section>
 
-            <ProviderDiagnostics />
+            <ProviderDiagnostics key={diagnosticSource} sourceId={diagnosticSource} sources={sources} onSourceChange={setDiagnosticSource} />
             <div className="logs-layout">
               <section className="panel log-stream-panel">
                 <div className="panel-heading">

@@ -1,9 +1,11 @@
 import { Download, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "./api";
-import type { ProviderDiagnostics as DiagnosticReport } from "./types";
+import type { ProviderDiagnostics as DiagnosticReport, SourceDefinition } from "./types";
 
-export function ProviderDiagnostics() {
+export function ProviderDiagnostics({ sourceId, sources, onSourceChange }: {
+  sourceId: string; sources: SourceDefinition[]; onSourceChange: (id: string) => void;
+}) {
   const [report, setReport] = useState<DiagnosticReport | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -15,7 +17,7 @@ export function ProviderDiagnostics() {
     pending.current = true;
     setBusy(true);
     try {
-      const data = await api.sourceDiagnostics();
+      const data = await api.sourceDiagnostics(sourceId);
       if (!mounted.current) return;
       setReport(data);
       setError("");
@@ -23,7 +25,7 @@ export function ProviderDiagnostics() {
         const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }));
         const link = document.createElement("a");
         link.href = url;
-        link.download = "campfinder-washington-diagnostics.json";
+        link.download = `campfinder-${sourceId}-diagnostics.json`;
         link.click();
         window.setTimeout(() => URL.revokeObjectURL(url), 1000);
       }
@@ -33,7 +35,7 @@ export function ProviderDiagnostics() {
       pending.current = false;
       if (mounted.current) setBusy(false);
     }
-  }, []);
+  }, [sourceId]);
 
   useEffect(() => {
     mounted.current = true;
@@ -49,7 +51,7 @@ export function ProviderDiagnostics() {
       <div className="panel-heading">
         <div>
           <h2>Provider Diagnostics</h2>
-          <p>Washington State Parks &middot; Last {report?.history_limit ?? 30} HTTP requests</p>
+          <p>{report?.provider || sources.find(source => source.id === sourceId)?.name} &middot; Last {report?.history_limit ?? 30} HTTP requests</p>
         </div>
         <div className="panel-action-row inline">
           <button className="icon-button" onClick={() => void refresh()} disabled={busy} title="Refresh saved diagnostics" aria-label="Refresh saved diagnostics">
@@ -60,10 +62,19 @@ export function ProviderDiagnostics() {
           </button>
         </div>
       </div>
+      <label>Provider
+        <select value={sourceId} onChange={event => onSourceChange(event.target.value)}>
+          {sources.filter(source => ["goingtocamp", "usedirect"].includes(source.source_type)).map(source => (
+            <option key={source.id} value={source.id}>{source.name}</option>
+          ))}
+        </select>
+      </label>
       {error && <p role="alert" className="diagnostics-error">{error} {report ? "Previously loaded diagnostics may be stale." : ""}</p>}
       {report && <div className="diagnostics-connection">
         <strong>{report.connection.state.split("_").join(" ")}</strong>
-        <span>{report.connection.message || "No provider access check recorded."}</span>
+        <span>{report.connection.message || (report.connection.checked_at
+          ? `Last checked ${new Date(report.connection.checked_at).toLocaleString()}`
+          : "No provider access check recorded.")}</span>
         {report.connection.retry_at && <span>Cooldown until {new Date(report.connection.retry_at).toLocaleString()}</span>}
       </div>}
       {!report && !error && <p className="empty" role="status">Loading diagnostics...</p>}

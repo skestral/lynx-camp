@@ -43,7 +43,9 @@ Active watches start background work as soon as the server starts. Use the read-
 | `backend/app/main.py` | FastAPI routes, application lifecycle, background scheduler |
 | `backend/app/scanner.py` | Stay windows, queued campground checks, pacing, cancellation, cooldowns, ETA |
 | `backend/app/recreation.py` | Recreation.gov client and HTTP 429/Retry-After handling |
-| `backend/app/provider_diagnostics.py`, `frontend/src/ProviderDiagnostics.tsx` | Allowlisted Washington HTTP evidence, bounded retention, Logs viewer and download |
+| `backend/app/provider_diagnostics.py`, `frontend/src/ProviderDiagnostics.tsx` | Allowlisted tenant-specific HTTP evidence, bounded retention, Logs viewer and download |
+| `backend/app/provider_registry.py`, `goingtocamp.py`, `usedirect.py` | Fixed tenant hosts, discovery, exact stays, persisted access stops |
+| `backend/app/apprise_alerts.py` | Allowlisted alert services, URL validation, bounded delivery, redacted status |
 | `backend/app/providers.py`, `provider_ids.py`, `camava.py`, `activenet.py`, `cedar.py` | Provider routing, namespaced IDs, and county search clients |
 | `backend/app/db.py` | SQLite schema, transactions, watch groups, results, logs, saved settings |
 | `backend/app/notifications.py` | Channel configuration, alert formatting, tests, delivery records |
@@ -101,6 +103,30 @@ Watch deletion uses `Scanner.delete_watches` for both the bulk and individual en
 A 429 leaves that provider's checks pending. The scanner waits for the longer of its Retry-After and exponential local backoff, while eligible checks for other providers continue. Cooldowns survive restart. Successful cycles gradually reduce adaptive spacing toward the configured minimum. ETA counts monthly requests for Recreation.gov and full-stay searches for county providers, plus spacing, observed latency, and known cooldown. A county stay can require several paginated or rule-check requests, so initial estimates can be low. It is not a completion deadline.
 
 ## Adding Providers
+
+The [Camply expansion guide](camply-expansion.md) records the latest coverage and
+live verification. Additional GoingToCamp IDs are `gtc:tacoma:`, `gtc:bc:`, and
+`gtc:pc:`; Washington keeps `gtc:wa:`. UseDirect IDs are
+`ud:<metro|ca>:<place-id>:<facility-id>`, with a unit ID appended for results.
+Provider hosts, categories, and state keys are allowlisted in `provider_registry.py`.
+`CAN` is also accepted as a region code for country-wide Parks Canada watches.
+
+UseDirect grid dates are inclusive occupied nights. Subtract one day from checkout
+when requesting a grid and verify echoed dates, counts, rules, and every night.
+Unit dictionary keys are sort keys, not campsite IDs. Only `UnitId` is stable.
+Never persist raw grid bodies: reservation IDs and temporary lock details may be
+present. HTTP diagnostics accept only named endpoints and drop the POST body.
+
+Equipment filters and campsite selections remain in `site_filters_json`; no
+migration is required. Equipment metadata is fetched on demand and cached only in
+memory. Pacing and cancellation apply to those additional requests. Unknown
+equipment/length never satisfies an explicit compatibility requirement.
+
+Apprise 2.2.0 supports only the three URL schemes enabled in `apprise_alerts.py`.
+Keep its library logs isolated from application logs, validate saved/imported URLs,
+and never include a submitted secret in a validation response. Configuration
+exports use the existing secret allowlist. The new tests run with DNS blocked;
+the complete suite also passes with Docker networking disabled.
 
 Recreation.gov IDs stay unchanged. Snohomish IDs use `camava:snoco:<park-id>`; campsite IDs use the same prefix with the site ID. King County currently allows only `activenet:king:66`, the verified Tolt-MacDonald center; its site IDs use `activenet:king:<facility-id>`. Skagit County allows only `cedar:skagit:hmsp`, Howard Miller Steelhead Park; site IDs use `cedar:skagit:<venue-portion-uuid>`. The namespace prevents numeric collisions without rewriting existing target/watch IDs or foreign keys. `provider_ids.py` is the allowlist for routing and booking URLs. Never accept a user-supplied provider host as an HTTP destination.
 
@@ -211,5 +237,8 @@ Current documentation images:
 | `washington-live-results.png` | Live two-night Camping and Roofed results, with the cabin group expanded |
 | `washington-live-mobile.png` | The same live Roofed result at 390px |
 | `saved-targets-mobile.png` | Searchable saved inventory with an expanded campground group |
+| `equipment-watch.png`, `equipment-watch-mobile.png` | Equipment controls and result-backed campsite selection in an unsaved local watch draft |
+| `apprise-settings-mobile.png` | Unconfigured Apprise destinations; placeholders only, no credentials |
+| `provider-diagnostics.png` | Four redacted requests from the ReserveCalifornia Docker smoke check |
 
 Never capture a real webhook input, secret-inclusive export, account credential, or private delivery error for public documentation. Describe demo data as simulated; configured channels and seeded delivery records are not live verification.
