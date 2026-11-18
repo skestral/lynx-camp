@@ -13,6 +13,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from .cart_assist import CartAssistant
+from .alert_dispatcher import AlertDispatcher
 from .db import Store
 from .notifications import Notifier
 from .presets import discover_preset_pack, import_discovered_preset_pack, import_preset_pack, list_preset_packs
@@ -48,6 +49,7 @@ from .sources import discover_source, import_source, list_source_definitions
 store = Store(settings.database_path)
 client = CampgroundClient(store)
 notifier = Notifier(settings, store)
+alert_dispatcher = AlertDispatcher(store, notifier)
 cart_assistant = CartAssistant(store, settings)
 scanner = Scanner(
     store,
@@ -84,19 +86,35 @@ async def scan_loop() -> None:
         await asyncio.sleep(settings.scan_loop_seconds)
 
 
+async def notification_loop() -> None:
+    while True:
+        try:
+            await alert_dispatcher.dispatch_due()
+        except Exception:
+            logging.getLogger(__name__).exception("Scheduled notification cycle failed")
+        await asyncio.sleep(30)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     store.init()
     apply_scan_config()
     scanner.restore_runtime_state()
     store.cancel_running_scan_runs("Server restarted before this scan finished.", status="interrupted")
+    alert_dispatcher.initialize()
     task = asyncio.create_task(scan_loop())
+    notification_task = asyncio.create_task(notification_loop())
     try:
         yield
     finally:
         task.cancel()
+        notification_task.cancel()
         try:
             await task
+        except asyncio.CancelledError:
+            pass
+        try:
+            await notification_task
         except asyncio.CancelledError:
             pass
         await scanner.shutdown()

@@ -107,6 +107,7 @@ class WatchCreate(BaseModel):
     site_filters: SiteFilters = Field(default_factory=SiteFilters)
     specific_ranges: list[DateRange] = Field(default_factory=list)
     cart_assist_enabled: bool = False
+    alerts_enabled: bool = False
     active: bool = True
 
     @field_validator("window_end")
@@ -148,6 +149,7 @@ class WatchUpdate(BaseModel):
     site_filters: SiteFilters | None = None
     specific_ranges: list[DateRange] | None = None
     cart_assist_enabled: bool | None = None
+    alerts_enabled: bool | None = None
     active: bool | None = None
 
     @field_validator("arrival_weekdays")
@@ -185,6 +187,7 @@ class ConfigWatch(BaseModel):
     site_filters: SiteFilters = Field(default_factory=SiteFilters)
     specific_ranges: list[DateRange] = Field(default_factory=list)
     cart_assist_enabled: bool = False
+    alerts_enabled: bool = False
     active: bool = True
 
     @field_validator("window_end")
@@ -220,6 +223,8 @@ class ConfigSettings(BaseModel):
     @classmethod
     def valid_notification_destinations(cls, values):
         from .apprise_alerts import validate_urls
+        from .alert_schedule import validate_schedule
+        validate_schedule({key.removeprefix("notification_"): value for key, value in values.items()})
         if values.get("notification_apprise_urls"):
             validate_urls(values["notification_apprise_urls"])
         return values
@@ -280,6 +285,12 @@ class ScanConfigUpdate(BaseModel):
 
 
 class NotificationConfigUpdate(BaseModel):
+    digest_frequency: Literal["daily", "weekly", "disabled"] | None = None
+    digest_time: str | None = Field(default=None, pattern=r"^(?:[01][0-9]|2[0-3]):[0-5][0-9]$")
+    digest_timezone: Literal["America/Los_Angeles", "server", "UTC"] | None = None
+    digest_weekday: int | None = Field(default=None, ge=0, le=6)
+    home_assistant_errors_enabled: bool | None = None
+    home_assistant_error_cooldown_minutes: int | None = Field(default=None, ge=1, le=10080)
     apprise_urls: str | None = Field(default=None, max_length=16000)
 
     @field_validator("apprise_urls")

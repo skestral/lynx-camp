@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from .app_settings import EXPORTABLE_APP_SETTING_KEYS, SECRET_APP_SETTING_KEYS
+from .app_settings import EXPORTABLE_APP_SETTING_KEYS, SECRET_APP_SETTING_KEYS, NOTIFICATION_APP_SETTING_KEYS
 from .coordinates import CAMPGROUND_COORDINATES
 from .provider_ids import campground_url, normalize_result_booking_url, provider_key
 from .regions import RegionScope, matches_region
@@ -60,7 +60,7 @@ def _campsite_booking_url(campsite_id: Any, arrival_date: Any) -> str:
 ACTIONABLE_CART_ATTEMPT_STATUSES = {"manual_required", "opened", "hold_queued", "hold_attempted"}
 FINISHED_CART_ATTEMPT_STATUSES = {"skipped", "disabled", "needs_credentials", "cooldown", "booked", "dismissed", "failed"}
 REGIONAL_RULE_FIELDS = ("name", "mode", "pattern", "arrival_weekdays", "nights", "window_start", "window_end",
-                        "site_filters", "specific_ranges", "cart_assist_enabled")
+                        "site_filters", "specific_ranges", "cart_assist_enabled", "alerts_enabled")
 
 
 class Store:
@@ -181,6 +181,27 @@ class Store:
                     dedupe_key TEXT NOT NULL UNIQUE
                 );
 
+                CREATE TABLE IF NOT EXISTS availability_findings (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    result_id INTEGER NOT NULL REFERENCES results(id) ON DELETE CASCADE,
+                    found_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS findings_result_id ON availability_findings(result_id);
+                CREATE INDEX IF NOT EXISTS findings_found_at ON availability_findings(found_at);
+
+                CREATE TABLE IF NOT EXISTS notification_dispatches (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    event_key TEXT NOT NULL,
+                    channel TEXT NOT NULL,
+                    event_type TEXT NOT NULL,
+                    dedupe_group TEXT NOT NULL DEFAULT '',
+                    status TEXT NOT NULL DEFAULT 'sending',
+                    message TEXT NOT NULL,
+                    sent_at TEXT NOT NULL,
+                    UNIQUE(event_key, channel)
+                );
+                CREATE INDEX IF NOT EXISTS dispatches_dedupe ON notification_dispatches(dedupe_group, channel, sent_at);
+
                 CREATE TABLE IF NOT EXISTS notification_events (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     result_id INTEGER NOT NULL REFERENCES results(id) ON DELETE CASCADE,
@@ -222,6 +243,7 @@ class Store:
             self._ensure_column(conn, "watches", "arrival_weekdays_json", "TEXT")
             self._ensure_column(conn, "watches", "site_filters_json", "TEXT")
             self._ensure_column(conn, "watches", "cart_assist_enabled", "INTEGER NOT NULL DEFAULT 0")
+            self._ensure_column(conn, "watches", "alerts_enabled", "INTEGER NOT NULL DEFAULT 0")
             self._ensure_column(conn, "targets", "release_window_value", "INTEGER NOT NULL DEFAULT 6")
             self._ensure_column(conn, "targets", "release_window_unit", "TEXT NOT NULL DEFAULT 'Months'")
             self._ensure_column(conn, "targets", "latitude", "REAL")
@@ -473,8 +495,8 @@ class Store:
                 INSERT INTO watches (
                     target_id, name, mode, pattern, nights, window_start, window_end,
                     arrival_weekdays_json, site_filters_json, specific_ranges_json,
-                    active, cart_assist_enabled, next_scan_at, created_at, updated_at, group_id
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    active, cart_assist_enabled, next_scan_at, created_at, updated_at, group_id, alerts_enabled
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     int(data["target_id"]),
@@ -493,6 +515,7 @@ class Store:
                     now,
                     now,
                     data.get("group_id"),
+                    int(bool(data.get("alerts_enabled", False))),
                 ),
             )
             watch_id = int(cursor.lastrowid)
@@ -699,6 +722,7 @@ class Store:
             "site_filters",
             "specific_ranges",
             "cart_assist_enabled",
+            "alerts_enabled",
         ]
         targets = {
             target["id"]: {
@@ -716,6 +740,7 @@ class Store:
                 {
                     **{field: watch.get(field) for field in watch_fields},
                     "cart_assist_enabled": bool(watch.get("cart_assist_enabled", False)),
+                    "alerts_enabled": bool(watch.get("alerts_enabled", False)),
                     "active": bool(watch.get("active", True)),
                 }
             )
@@ -837,6 +862,7 @@ class Store:
                     "site_filters": watch_config.get("site_filters") or {},
                     "specific_ranges": watch_config.get("specific_ranges") or [],
                     "cart_assist_enabled": bool(watch_config.get("cart_assist_enabled", False)),
+                    "alerts_enabled": bool(watch_config.get("alerts_enabled", False)),
                     "active": bool(watch_config.get("active", True)),
                 }
                 existing_watch = self.get_watch_by_target_and_name(target["id"], watch_name, watch_payload["group_id"])
@@ -941,8 +967,12 @@ class Store:
         if "cart_assist_enabled" in updates:
             set_parts.append("cart_assist_enabled = ?")
             values.append(1 if updates["cart_assist_enabled"] else 0)
-        should_rescan = bool(set(updates) - {"active"}) and bool(updates.get("active", current["active"]))
-        if updates.get("active") is True or should_rescan:
+        if "alerts_enabled" in updates:
+            set_parts.append("alerts_enabled = ?")
+            values.append(int(bool(updates["alerts_enabled"])))
+        changed_fields = {key for key, value in updates.items() if value != current.get(key)}
+        should_rescan = bool(changed_fields - {"active", "alerts_enabled"}) and bool(updates.get("active", current["active"]))
+        if ("active" in changed_fields and updates.get("active") is True) or should_rescan:
             set_parts.append("next_scan_at = ?")
             values.append(utc_now())
         set_parts.append("updated_at = ?")
@@ -951,7 +981,7 @@ class Store:
 
         with (nullcontext(_conn) if _conn is not None else self.connect()) as conn:
             conn.execute(f"UPDATE watches SET {', '.join(set_parts)} WHERE id = ?", values)
-            if set(updates) - {"active", "name", "group_id"}:
+            if changed_fields - {"active", "name", "group_id", "alerts_enabled"}:
                 conn.execute("DELETE FROM scan_checkpoints WHERE watch_id = ?", (watch_id,))
         return self.get_watch(watch_id, _conn)
 
@@ -1164,6 +1194,8 @@ class Store:
                      None if reappeared else existing["booked_at"], dedupe_key),
                 )
                 row = conn.execute("SELECT * FROM results WHERE dedupe_key = ?", (dedupe_key,)).fetchone()
+                if reappeared:
+                    conn.execute("INSERT INTO availability_findings(result_id, found_at) VALUES (?, ?)", (row["id"], now))
                 return _row_to_dict(row) or {}, False
 
             conn.execute(
@@ -1192,7 +1224,75 @@ class Store:
                 ),
             )
             row = conn.execute("SELECT * FROM results WHERE dedupe_key = ?", (dedupe_key,)).fetchone()
+            conn.execute("INSERT INTO availability_findings(result_id, found_at) VALUES (?, ?)", (row["id"], now))
             return _row_to_dict(row) or {}, True
+
+    def digest_summary(self, start: str, end: str, limit: int) -> dict:
+        with self.connect() as conn:
+            rows = conn.execute("""
+                WITH found AS (
+                    SELECT DISTINCT r.campground_id, r.campsite_id, r.arrival_date, r.departure_date,
+                                    r.campground_name, t.park_name
+                    FROM availability_findings f JOIN results r ON r.id = f.result_id
+                    JOIN targets t ON t.id = r.target_id
+                    WHERE f.found_at >= ? AND f.found_at < ?
+                )
+                SELECT campground_id, campground_name, park_name, arrival_date, departure_date,
+                       COUNT(*) AS match_count
+                FROM found GROUP BY campground_id, campground_name, park_name, arrival_date, departure_date
+                ORDER BY arrival_date, park_name, campground_name
+            """, (start, end)).fetchall()
+        groups = [dict(row) for row in rows]
+        return {"match_count": sum(row["match_count"] for row in groups),
+                "campground_count": len({row["campground_id"] for row in groups}),
+                "group_count": len(groups), "groups": groups[:limit]}
+
+    def claim_notification_dispatch(self, event_key: str, channel: str, event_type: str, message: str,
+                                    now: str, dedupe_group: str = "", cooldown_since: str | None = None) -> int | None:
+        with self.connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            if cooldown_since and conn.execute(
+                "SELECT 1 FROM notification_dispatches WHERE dedupe_group = ? AND channel = ? AND sent_at >= ? LIMIT 1",
+                (dedupe_group, channel, cooldown_since)).fetchone():
+                return None
+            row = conn.execute("""INSERT OR IGNORE INTO notification_dispatches
+                (event_key, channel, event_type, dedupe_group, message, sent_at) VALUES (?, ?, ?, ?, ?, ?)""",
+                (event_key, channel, event_type, dedupe_group, message, now))
+            return row.lastrowid if row.rowcount else None
+
+    def finish_notification_dispatch(self, dispatch_id: int, status: str, message: str) -> None:
+        with self.connect() as conn:
+            conn.execute("UPDATE notification_dispatches SET status = ?, message = ? WHERE id = ?",
+                         (status, message, dispatch_id))
+
+    def notification_dispatch_channels(self, event_key: str) -> set[str]:
+        with self.connect() as conn:
+            return {row[0] for row in conn.execute("SELECT channel FROM notification_dispatches WHERE event_key = ?", (event_key,))}
+
+    def recover_notification_dispatches(self) -> None:
+        with self.connect() as conn:
+            conn.execute("UPDATE notification_dispatches SET status = 'unknown', "
+                         "message = 'Delivery was interrupted; receipt is unknown. Not automatically resent.' WHERE status = 'sending'")
+
+    def latest_scan_event_id(self, before: str | None = None) -> int:
+        with self.connect() as conn:
+            if before:
+                return conn.execute("SELECT COALESCE(MAX(id), 0) FROM scan_events WHERE created_at < ?", (before,)).fetchone()[0]
+            return conn.execute("SELECT COALESCE(MAX(id), 0) FROM scan_events").fetchone()[0]
+
+    def error_events_after(self, cursor: int, limit: int = 100) -> list[dict]:
+        with self.connect() as conn:
+            return [dict(row) for row in conn.execute("""
+                SELECT e.id, e.event_type, e.created_at, e.watch_id, e.target_id,
+                       t.name AS target_name, t.campground_id
+                FROM scan_events e LEFT JOIN targets t ON t.id = e.target_id
+                WHERE e.id > ? AND e.event_type IN ('error', 'rate_limited') ORDER BY e.id LIMIT ?
+            """, (cursor, limit))]
+
+    def prune_alert_history(self, cutoff: str) -> None:
+        with self.connect() as conn:
+            conn.execute("DELETE FROM availability_findings WHERE found_at < ?", (cutoff,))
+            conn.execute("DELETE FROM notification_dispatches WHERE sent_at < ?", (cutoff,))
 
     def scan_checkpoint(self, watch_id: int) -> dict:
         with self.connect() as conn:
@@ -1450,6 +1550,12 @@ class Store:
                 rows = conn.execute("SELECT key, value FROM app_settings").fetchall()
             return {str(row["key"]): str(row["value"]) for row in rows}
 
+    def notification_settings_updated_at(self) -> str | None:
+        with self.connect() as conn:
+            placeholders = ",".join("?" for _ in NOTIFICATION_APP_SETTING_KEYS)
+            return conn.execute(f"SELECT MAX(updated_at) FROM app_settings WHERE key IN ({placeholders})",
+                                NOTIFICATION_APP_SETTING_KEYS).fetchone()[0]
+
     def set_app_settings(self, values: dict[str, str]) -> None:
         if not values:
             return
@@ -1680,10 +1786,14 @@ class Store:
         with self.connect() as conn:
             rows = conn.execute(
                 """
-                SELECT notification_events.*, results.site, results.arrival_date, results.departure_date
+                SELECT notification_events.*, results.site, results.arrival_date, results.departure_date,
+                       'availability' AS event_type
                 FROM notification_events
                 JOIN results ON results.id = notification_events.result_id
-                ORDER BY notification_events.sent_at DESC
+                UNION ALL
+                SELECT -id, NULL, channel, status, message, sent_at, '', '', '', event_type
+                FROM notification_dispatches
+                ORDER BY sent_at DESC
                 LIMIT ?
                 """,
                 (limit,),

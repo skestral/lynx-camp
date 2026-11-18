@@ -78,7 +78,8 @@ Grouped availability and a crawl waiting through a provider cooldown. The follow
 - Inspect map markers with Recreation.gov descriptions, details links, Google Maps navigation links, activity tags, notices, and images when Recreation.gov provides media.
 - Use visible park footprint polygons and Park Queue checkboxes to inspect and select campground groups directly from the map.
 - Show notification channel status, configure delivery settings, and send a test notification.
-- Notify by webhook, Home Assistant webhook, ntfy mobile push, and/or SMTP email when configured.
+- Opt into immediate availability alerts per watch, or receive a daily/weekly digest of new and returning matches through configured notification channels.
+- Route typed availability, digest, and error events in Home Assistant; suppress repeated provider errors with a configurable cooldown.
 - Add Pushover, Telegram, or Twilio SMS through Apprise alongside existing channels.
 - Export and restore targets, watches, scan controls, notification settings, and Cart Assist settings.
 - Run as a single Docker Compose service on your local network.
@@ -345,9 +346,11 @@ The saved regional coverage table is also created automatically. Existing watche
 
 Startup also adds notification-handoff and automatic-disappearance tracking to existing result rows. Old results are not queued for alerts again, and existing booked/dismissed choices are preserved. No database reset is needed for Washington support.
 
+Notification policy: existing and new watches default to **Immediate availability alerts off**. Enable that checkbox when creating or editing a watch or regional group. Digests default to **daily at 8:00 AM Pacific**, summarizing new/returning discoveries from the previous calendar day. Settings supports weekly, disabled, delivery time, weekday, and Pacific/server/UTC time. Old results are not backfilled into discovery history. Review [alerts and digests](docs/alerts-and-digests.md) when upgrading.
+
 ## Configuration Backups
 
-The Settings drawer can download and restore a JSON config backup. A backup includes targets, watches, saved regional coverage and exclusions, target release settings, watch Cart Assist flags, scan control overrides, notification settings, and server-level Cart Assist settings. Availability results, scan logs, notification delivery history, Cart Assist attempt history, and the runtime crawl queue are not included. A stopped-container appdata backup preserves those records and the saved cooldown/pause state as well.
+The Settings drawer can download and restore a JSON config backup. A backup includes targets, watches, saved regional coverage and exclusions, target release settings, watch Cart Assist and immediate-alert flags, scan control overrides, digest/error schedules, notification settings, and server-level Cart Assist settings. Availability results, discovery history, scan logs, notification delivery history, Cart Assist attempt history, and the runtime crawl queue are not included. A stopped-container appdata backup preserves those records and the saved cooldown/pause state as well.
 
 Saved secrets are redacted from downloaded backups unless Include saved secrets is checked before export. Redacted values stay on the server that created the backup, and importing a redacted backup does not erase existing saved secrets on the destination server. When Include saved secrets is checked, the JSON file contains stored Recreation.gov credentials, webhook URLs, ntfy topic/token values, and SMTP username/password values. Treat that file like a `.env` file.
 
@@ -355,7 +358,7 @@ Saved secrets are redacted from downloaded backups unless Include saved secrets 
 
 Camp Finder scans active watches in the background and respects the minimum poll interval from the server scan controls. The `.env` values are the startup defaults, and the dashboard Settings panel can save appdata overrides for scan cadence, release scanning, request delay, caching, and rate-limit backoff. Saved dashboard values are stored in `appdata/campfinder.db` and take effect for new scans immediately. Use Reset to Env in Settings when you want the server to fall back to the `.env` values again.
 
-The server continuously crawls due active watches, one campground at a time. Start crawl queues a full pass and returns immediately; the browser does not need to remain open. New hits are sent through configured notification channels after each campground check, including partial discoveries before a rate limit. If no channel is configured, the dashboard warns that matches are being saved without external alerts.
+The server continuously crawls due active watches, one campground at a time. Start crawl queues a full pass and returns immediately; the browser does not need to remain open. For watches with Immediate availability alerts enabled, new hits are sent through configured channels after each campground check, including partial discoveries before a rate limit. All watches contribute new/returning discoveries to the scheduled digest. If no channel is configured, matches are saved without external alerts.
 
 The crawl banner separates successfully checked, pending, failed, and skipped campground checks. A rate-limited check remains pending. Completed stays within that campground are checkpointed too, so a long date search resumes at its unfinished dates after cooldown or restart, even if the response cache has expired. The banner shows saved stay checks for pending campgrounds, and Logs records a `resumed` event. An interrupted date is retried in full; a match with an unfinished notification is rechecked before alerting. Editing the watch's search criteria starts fresh date progress. Queue progress, date checkpoints, adaptive pacing, and cooldown deadlines survive a server restart. Runtime progress is not included in configuration exports. Run only one application worker/container against a database. See [throttling and recovery](docs/throttling.md) for configuration and implementation details.
 
@@ -440,7 +443,7 @@ VITE_CAMPFINDER_TILE_ATTRIBUTION=&copy; <a href="https://www.openstreetmap.org/c
 
 If you use the default OpenStreetMap tile service, keep the attribution visible and avoid prefetching or bulk tile downloads.
 
-When a scan discovers several new site/date matches at once, Camp Finder sends one bulk alert instead of one notification per campsite. `CAMPFINDER_MAX_NOTIFICATION_RESULTS` controls how many examples appear in that notification and defaults to `5`; the rest remain visible in the results dashboard. If the watch uses Cart Assist, the alert includes the Cart Assist attempt note and a link back to the dashboard queue so you know the remote server has a high-priority task waiting.
+When an opted-in watch discovers several new site/date matches at once, Camp Finder sends one bulk alert instead of one notification per campsite. `CAMPFINDER_MAX_NOTIFICATION_RESULTS` controls how many examples appear and defaults to `5`; the rest remain visible in the dashboard. Unflagged watches are digest-only. The digest runs independently of the crawler, defaults to 8 AM Pacific daily, and can be weekly or disabled. It reports historical discoveries, not a guarantee that the sites are still available. If the watch uses Cart Assist, its immediate alert includes the guarded attempt note and dashboard link.
 
 ## Notification Setup
 
@@ -467,7 +470,7 @@ Configured means a value is present, not that delivery has succeeded. Adding a w
 
 New matches remain pending until the scanner hands them to the notification service. If cancellation, an error, or a restart interrupts that handoff, a later scan can notify when it sees the match again. Handled channel delivery failures are logged but are not automatically retried. A crash after an external service accepts a message but before the database acknowledgment can produce a duplicate alert.
 
-![Notification settings with a configured demo webhook and empty secret input](docs/screenshots/notification-settings.png)
+![Digest and error reporting settings](docs/screenshots/alert-settings-desktop.png)
 
 ### Other Channels
 
@@ -477,7 +480,7 @@ For Home Assistant, paste a webhook URL from a webhook-triggered automation into
 CAMPFINDER_HOME_ASSISTANT_WEBHOOK_URL=https://homeassistant.example.com/api/webhook/...
 ```
 
-The Home Assistant channel receives structured JSON with `source`, `event`, `message`, `app_url`, match counts, and a bounded `matches` list. That lets an automation use the simple text message or route on fields such as campground, arrival date, and booking URL.
+The Home Assistant channel receives structured JSON with `source`, `event`, `type`, `severity`, `message`, and `app_url`. Availability and digest payloads use `type: alert` and an `alert_type`; scan failures and rate limits use `type: error` and an `error_type`. The existing `event: availability` contract and bounded `matches` list are preserved. Error reporting is independently configurable and defaults to no more than one attempt per provider/error type each hour. See [payloads, scheduling, and recovery](docs/alerts-and-digests.md).
 
 Discord and Home Assistant are independent channels and can be used together. Saving one does not replace the other. ntfy, SMTP, and Apprise can also be enabled alongside them.
 

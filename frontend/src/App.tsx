@@ -34,6 +34,7 @@ import "leaflet/dist/leaflet.css";
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { RESULTS_LIMIT, api } from "./api";
 import { WatchGroup } from "./WatchGroup";
+import { watchChanges } from "./watchEdits";
 import { SavedTargets } from "./SavedTargets";
 import { ProviderDiagnostics } from "./ProviderDiagnostics";
 import { AvailabilityDates } from "./AvailabilityDates";
@@ -198,6 +199,12 @@ function scanConfigFormFromValues(values: ScanConfigValues): ScanConfigForm {
 }
 
 const DEFAULT_NOTIFICATION_CONFIG_VALUES: NotificationConfigValues = {
+  digest_frequency: "daily",
+  digest_time: "08:00",
+  digest_timezone: "America/Los_Angeles",
+  digest_weekday: 0,
+  home_assistant_errors_enabled: true,
+  home_assistant_error_cooldown_minutes: 60,
   apprise_urls: "",
   webhook_url: "",
   home_assistant_webhook_url: "",
@@ -324,6 +331,12 @@ const SMTP_NOTIFICATION_FIELDS: NotificationField[] = [
 
 function notificationConfigFormFromValues(values: NotificationConfigValues): NotificationConfigForm {
   return {
+    digest_frequency: values.digest_frequency ?? "daily",
+    digest_time: values.digest_time ?? "08:00",
+    digest_timezone: values.digest_timezone ?? "America/Los_Angeles",
+    digest_weekday: String(values.digest_weekday ?? 0),
+    home_assistant_errors_enabled: String(values.home_assistant_errors_enabled ?? true),
+    home_assistant_error_cooldown_minutes: String(values.home_assistant_error_cooldown_minutes ?? 60),
     apprise_urls: "",
     webhook_url: "",
     home_assistant_webhook_url: "",
@@ -831,6 +844,7 @@ export default function App() {
   const [watchMode, setWatchMode] = useState<"weekend" | "specific">("weekend");
   const [watchTarget, setWatchTarget] = useState("");
   const [cartAssistEnabled, setCartAssistEnabled] = useState(false);
+  const [watchAlertsEnabled, setWatchAlertsEnabled] = useState(false);
   const [selectedWeekdays, setSelectedWeekdays] = useState<number[]>([4]);
   const [watchNights, setWatchNights] = useState(2);
   const [windowStart, setWindowStart] = useState(addDays(1));
@@ -1777,6 +1791,7 @@ export default function App() {
     setIncludeFutureImports(false);
     setSavedWatchBounds(null);
     setCartAssistEnabled(false);
+    setWatchAlertsEnabled(false);
   }
 
   function editWatch(watch: Watch, groupId: string | null = null) {
@@ -1795,6 +1810,7 @@ export default function App() {
     setSelectedWeekdays(watch.arrival_weekdays?.length ? watch.arrival_weekdays : [4]);
     setWatchNights(watch.nights);
     setCartAssistEnabled(Boolean(watch.cart_assist_enabled));
+    setWatchAlertsEnabled(Boolean(watch.alerts_enabled));
     setWindowStart(watch.window_start);
     setWindowEnd(watch.window_end);
     const firstRange = watch.specific_ranges?.[0];
@@ -2114,17 +2130,19 @@ export default function App() {
       specific_ranges: isSpecific
         ? [{ arrival_date: specificArrival, departure_date: specificDeparture }]
         : [],
-      cart_assist_enabled: cartAssistEnabled
+      cart_assist_enabled: cartAssistEnabled,
+      alerts_enabled: watchAlertsEnabled
     };
     setWatchSaveBusy(true);
     try {
     if (editingGroupId) {
       const { target_id: _targetId, ...groupPayload } = payload;
-      await api.updateWatchGroup(editingGroupId, { ...groupPayload, region_scope: regionScope });
+      const members = watches.filter(watch => watch.group_id === editingGroupId);
+      await api.updateWatchGroup(editingGroupId, { ...watchChanges(members, groupPayload), region_scope: regionScope });
       setMessage(`Updated regional watch ${baseName}.`);
       resetWatchForm();
     } else if (editingWatchId) {
-      const updated = await api.updateWatch(editingWatchId, payload);
+      const updated = await api.updateWatch(editingWatchId, watchChanges(watches.filter(watch => watch.id === editingWatchId), payload));
       setMessage(`Updated ${updated.name}.`);
       resetWatchForm();
     } else if (watchScope !== "target") {
@@ -2132,6 +2150,7 @@ export default function App() {
       setMessage(`Added ${baseName} across ${created.length} campgrounds.`);
       setWatchName("");
       setCartAssistEnabled(false);
+      setWatchAlertsEnabled(false);
     } else {
       let createdCount = 0;
       let skippedCount = 0;
@@ -2181,6 +2200,7 @@ export default function App() {
       );
       setWatchName("");
       setCartAssistEnabled(false);
+      setWatchAlertsEnabled(false);
     }
     await refresh();
     } catch (error) {
@@ -2272,6 +2292,12 @@ export default function App() {
     setNotificationConfigBusy("save");
     try {
       const payload: Partial<NotificationConfigValues> = {
+        digest_frequency: notificationConfigForm.digest_frequency as NotificationConfigValues["digest_frequency"],
+        digest_time: notificationConfigForm.digest_time,
+        digest_timezone: notificationConfigForm.digest_timezone as NotificationConfigValues["digest_timezone"],
+        digest_weekday: Number(notificationConfigForm.digest_weekday),
+        home_assistant_errors_enabled: notificationConfigForm.home_assistant_errors_enabled === "true",
+        home_assistant_error_cooldown_minutes: Math.round(notificationConfigNumber("home_assistant_error_cooldown_minutes")),
         ntfy_server: notificationConfigForm.ntfy_server.trim(),
         ntfy_priority: notificationConfigForm.ntfy_priority.trim(),
         smtp_host: notificationConfigForm.smtp_host.trim(),
@@ -3095,6 +3121,44 @@ export default function App() {
           <span className={`status ${configuredChannelCount > 0 ? "success" : "quiet"}`}>{sourceSummary}</span>
         </div>
         <form className="notification-config-form" onSubmit={saveNotificationConfig}>
+          <fieldset className="notification-schedule wide-field">
+            <legend>Digest &amp; Error Reporting</legend>
+            {notificationConfig?.configuration_error && <p role="alert" className="notice danger">{notificationConfig.configuration_error}</p>}
+            <div className="notification-config-grid">
+              <label>Digest frequency
+                <select value={notificationConfigForm.digest_frequency} onChange={event => updateNotificationConfigFormValue("digest_frequency", event.target.value)}>
+                  <option value="daily">Daily</option><option value="weekly">Weekly</option><option value="disabled">Disabled</option>
+                </select>
+              </label>
+              <label>Digest time
+                <input type="time" required disabled={notificationConfigForm.digest_frequency === "disabled"} value={notificationConfigForm.digest_time}
+                  onChange={event => updateNotificationConfigFormValue("digest_time", event.target.value)} />
+              </label>
+              <label>Digest timezone
+                <select value={notificationConfigForm.digest_timezone} disabled={notificationConfigForm.digest_frequency === "disabled"}
+                  onChange={event => updateNotificationConfigFormValue("digest_timezone", event.target.value)}>
+                  <option value="America/Los_Angeles">Pacific (PST / PDT)</option><option value="server">Server time</option><option value="UTC">UTC</option>
+                </select>
+              </label>
+              {notificationConfigForm.digest_frequency === "weekly" && <label>Digest day
+                <select value={notificationConfigForm.digest_weekday} onChange={event => updateNotificationConfigFormValue("digest_weekday", event.target.value)}>
+                  {["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"].map((day, index) => <option key={day} value={index}>{day}</option>)}
+                </select>
+              </label>}
+              <label className="toggle-field wide-field"><span><strong>Home Assistant error events</strong></span>
+                <input type="checkbox" checked={notificationConfigForm.home_assistant_errors_enabled === "true"}
+                  onChange={event => updateNotificationConfigFormValue("home_assistant_errors_enabled", String(event.target.checked))} />
+              </label>
+              <label>Error repeat cooldown (minutes)
+                <input type="number" min="1" max="10080" required disabled={notificationConfigForm.home_assistant_errors_enabled !== "true"}
+                  value={notificationConfigForm.home_assistant_error_cooldown_minutes}
+                  onChange={event => updateNotificationConfigFormValue("home_assistant_error_cooldown_minutes", event.target.value)} />
+              </label>
+            </div>
+            {notificationConfig?.schedule && !notificationConfigDirty && <small role="status">
+              {notificationConfig.schedule.next_digest_at ? `Next digest: ${formatDateTime(notificationConfig.schedule.next_digest_at)} (your browser time). Schedule: ${notificationConfig.schedule.timezone_label}.` : "Digest disabled."}
+            </small>}
+          </fieldset>
           {renderNotificationSection("Webhooks", "Discord-compatible and Home Assistant endpoints.", WEBHOOK_NOTIFICATION_FIELDS)}
           {renderNotificationSection("ntfy", "Push topic, server, priority, and token.", NTFY_NOTIFICATION_FIELDS)}
           {renderNotificationSection("SMTP Email", "Server, mailbox credentials, recipient, and batch size.", SMTP_NOTIFICATION_FIELDS)}
@@ -3576,12 +3640,12 @@ export default function App() {
             <div className="notification-log">
               <div className="subheading">
                 <strong>Recent notifications</strong>
-                <small>{notifications.length ? "Latest delivery attempts from availability matches." : "No notification attempts yet."}</small>
+                <small>{notifications.length ? "Latest availability, digest, and error deliveries." : "No notification attempts yet."}</small>
               </div>
               {notifications.slice(0, 5).map((event) => (
                 <article className="status-row" key={event.id}>
                   <span>
-                    <strong>{event.channel}</strong>
+                    <strong>{event.channel} &middot; {event.event_type || "availability"}</strong>
                     <small>{event.message}</small>
                   </span>
                   <span className={`status ${event.status === "sent" ? "success" : event.status === "error" ? "danger" : "quiet"}`}>
@@ -4154,6 +4218,10 @@ export default function App() {
                 />
               </label>
               <label className="toggle-field wide-field">
+                <span><strong>Immediate availability alerts</strong></span>
+                <input type="checkbox" checked={watchAlertsEnabled} onChange={event => setWatchAlertsEnabled(event.target.checked)} />
+              </label>
+              <label className="toggle-field wide-field">
                 <span>
                   <strong>Cart Assist (Recreation.gov)</strong>
                   <small>Manual checkout required. No automatic holds.</small>
@@ -4204,6 +4272,7 @@ export default function App() {
                     </small>
                   </span>
                   <span className="row-actions">
+                    {Boolean(watch.alerts_enabled) && <span className="status success" title="Immediate availability alerts enabled"><Bell size={14} /> Alerts</span>}
                     {Boolean(watch.cart_assist_enabled) && (
                       <span className="status warning" title="Cart Assist is enabled for new hits on this watch">
                         priority
@@ -4620,7 +4689,7 @@ export default function App() {
                     {notifications.slice(0, 12).map((event) => (
                       <article className="status-row" key={event.id}>
                         <span>
-                          <strong>{event.channel}</strong>
+                          <strong>{event.channel} &middot; {event.event_type || "availability"}</strong>
                           <small>{event.message}</small>
                           <small>{formatDateTime(event.sent_at)}</small>
                         </span>
@@ -5149,7 +5218,7 @@ export default function App() {
                     {notifications.slice(0, 4).map((event) => (
                       <article className="status-row" key={event.id}>
                         <span>
-                          <strong>{event.channel}</strong>
+                          <strong>{event.channel} &middot; {event.event_type || "availability"}</strong>
                           <small>{event.message}</small>
                         </span>
                         <span className={`status ${event.status === "sent" ? "success" : event.status === "error" ? "danger" : "quiet"}`}>

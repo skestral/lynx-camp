@@ -303,6 +303,7 @@ def test_overlapping_windows_do_not_duplicate_pending_notifications(store):
 
 def test_configuring_channel_later_does_not_notify_historical_matches(store, monkeypatch):
     watch = create_watch(store)
+    store.update_watch(watch["id"], {"alerts_enabled": True})
     notifier = Notifier(Settings(database_path=store.database_path), store)
     deliveries = []
 

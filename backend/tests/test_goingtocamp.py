@@ -591,7 +591,7 @@ def test_both_categories_send_discord_and_home_assistant_once(store, monkeypatch
     async def scenario():
         await import_source(store, client, "washington-state-parks", 60)
         for target in store.list_targets():
-            watch = store.create_watch({**watch_data(), "target_id": target["id"]})
+            watch = store.create_watch({**watch_data(), "target_id": target["id"], "alerts_enabled": True})
             await scanner.scan_watch(watch["id"])
             await scanner.scan_watch(watch["id"])
     asyncio.run(scenario())

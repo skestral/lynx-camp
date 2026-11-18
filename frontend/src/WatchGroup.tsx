@@ -1,4 +1,4 @@
-import { Pause, Pencil, Play, Trash2 } from "lucide-react";
+import { Bell, Pause, Pencil, Play, Trash2 } from "lucide-react";
 import type { ReactNode } from "react";
 import type { Watch } from "./types";
 
@@ -32,6 +32,7 @@ export function WatchGroup({ members, selectedIds, busy, onSelect, onEdit, onAct
             <small>{parks}</small></span>
         </label>
         <div className="row-actions">
+          {members.some(watch => watch.alerts_enabled) && <span className="status success" title="Immediate alerts enabled for one or more campgrounds"><Bell size={14} /> Alerts</span>}
           <button className="icon-only" disabled={busy} title={`Edit regional watch ${first.name}`} onClick={() => onEdit(first, first.group_id!)}><Pencil size={16} /></button>
           <button className="icon-only" disabled={busy} title={`${anyEnabled ? "Pause" : "Resume"} regional watch ${first.name}`} onClick={() => onAction(anyEnabled ? "pause" : "resume", ids)}>{anyEnabled ? <Pause size={16} /> : <Play size={16} />}</button>
           <button className="icon-only quiet" disabled={busy} title={`Delete regional watch ${first.name}`} onClick={() => onAction("delete", ids)}><Trash2 size={16} /></button>

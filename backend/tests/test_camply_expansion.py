@@ -278,6 +278,7 @@ def test_watch_scan_alert_dedup_and_restoration(store, tmp_path, monkeypatch):
         return {"channel": "apprise", "status": "sent", "message": "Synthetic delivery"}
     monkeypatch.setattr(apprise_alerts, "send", send)
     notifier = Notifier(Settings(apprise_urls="tgram://123456789:" + "a" * 35 + "/12345"), store)
+    store.update_watch(watch["id"], {"alerts_enabled": True})
     scanner = Scanner(store, client, notifier, 60, api_request_delay_seconds=0)
     async def run():
         await scanner.scan_watch(watch["id"])

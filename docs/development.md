@@ -50,6 +50,7 @@ Active watches start background work as soon as the server starts. Use the read-
 | `backend/app/providers.py`, `provider_ids.py`, `camava.py`, `activenet.py`, `cedar.py` | Provider routing, namespaced IDs, and county search clients |
 | `backend/app/db.py` | SQLite schema, transactions, watch groups, results, logs, saved settings |
 | `backend/app/notifications.py` | Channel configuration, alert formatting, tests, delivery records |
+| `backend/app/alert_schedule.py`, `alert_dispatcher.py` | Calendar digests, typed Home Assistant errors, durable delivery claims |
 | `backend/app/scan_config.py` | UI/environment scan-control precedence and validation |
 | `backend/app/presets.py`, `sources.py` | Bundled targets and source discovery |
 | `frontend/src/App.tsx`, `WatchGroup.tsx`, `SavedTargets.tsx` | Dashboard, drawers, logs, regional watch controls, grouped target inventory |
@@ -67,6 +68,11 @@ included the optional worker.
 The [Camply probe](camply-probe.md) remains a separate library comparison, with released and pinned PR #398 images. Its successful request behavior is now adapted into `goingtocamp.py`; the full Camply package is not installed into the main backend because its Pydantic major version conflicts with ours. The app uses `fake-useragent==1.4.0`, the same version as the tested PR, and keeps anonymous response cookies in memory. The regular connector supports Roofed as well as Camping; the upstream library probe only searches Camping.
 
 ## Scan Lifecycle
+
+The [alert policy guide](alerts-and-digests.md) covers per-watch immediate opt-in,
+discovery history, scheduled digests, error routing, migration, and delivery recovery.
+The notification loop is independent of scans so a long provider cooldown cannot
+delay a digest until the crawl finishes.
 
 The [availability-map guide](availability-map.md) covers date-filtered mapping,
 the two read-only result endpoints, working-set limits, and coordinate backfills.
@@ -181,7 +187,7 @@ Skagit requests use the same per-HTTP-request scanner gate as King County, plus 
 
 Clallam research on the same date confirmed the official Salt Creek and Dungeness CampLife links. The normal browser availability response required registration/login; a plain server request to the observed map endpoint returned HTTP 403. No credentials, browser challenge tokens, alternate routes, or access workarounds were used. Leave this source unconnected until there is an authorized, verified integration path.
 
-New matches are deduplicated and notified after each campground check, or before returning from a rate-limited partial check. `notification_pending` persists the handoff across cancellation, errors, and restart; the next scan must re-observe the match before retrying it. `auto_missing` distinguishes automatic absence from a user's Booked or Dismissed decision, so a returning match can notify without reopening manually handled results. Both columns are additive startup migrations; legacy rows are not queued for replay.
+New matches are deduplicated and, for opted-in watches, notified after each campground check or before returning from a rate-limited partial check. `notification_pending` persists the handoff across cancellation, errors, and restart; the next scan must re-observe the match before retrying it. `auto_missing` distinguishes automatic absence from a user's Booked or Dismissed decision, so a returning match can notify without reopening manually handled results. Both columns are additive startup migrations; legacy rows are not queued for replay. All watches journal new/returning discoveries for the independent digest worker.
 
 `test_notification_recovery.py` covers those transitions, canceled handoffs, later-date failures, repeated initialization, user actions before delivery, and cached results after a provider stop. A completed handoff with no channels configured consumes pending status, so enabling a channel later does not resend history. Handled channel delivery failures are recorded but are not automatically retried. A crash between external delivery and the database acknowledgment can still duplicate an alert; this is not an exactly-once delivery system.
 

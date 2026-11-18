@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import smtplib
+from datetime import UTC, datetime
 from email.message import EmailMessage
 from typing import TYPE_CHECKING, Any
 
@@ -15,6 +16,7 @@ from .app_settings import (
 )
 from .settings import Settings
 from . import apprise_alerts
+from .alert_schedule import digest_schedule, validate_schedule
 
 if TYPE_CHECKING:
     from .db import Store
@@ -73,9 +75,12 @@ class Notifier:
     async def notify_result(self, result: dict, store: "Store") -> None:
         await self.notify_results([result], store)
 
-    async def notify_results(self, results: list[dict], store: "Store", max_items: int = 5) -> None:
+    async def notify_results(self, results: list[dict], store: "Store", max_items: int = 5) -> int:
+        watches = {watch_id: store.get_watch(watch_id) for watch_id in {result["watch_id"] for result in results}}
+        results = [result for result in results if (watch := watches.get(result["watch_id"]))
+                   and watch.get("alerts_enabled") and watch.get("active") and watch.get("target_active")]
         if not results:
-            return
+            return 0
         config = self._effective_config()
         max_items = int(config.get("max_notification_results") or max_items)
         message = self._format_results_message(results, max_items)
@@ -92,6 +97,7 @@ class Notifier:
         if config["apprise_urls"]:
             result = await apprise_alerts.send(config["apprise_urls"], message)
             self._record_batch_notifications(results, "apprise", result["status"], result["message"], store)
+        return len(results)
 
     async def send_test(self) -> dict:
         message = (
@@ -113,6 +119,10 @@ class Notifier:
                     {
                         "source": "camp_finder",
                         "event": "test",
+                        "type": "alert",
+                        "alert_type": "test",
+                        "severity": "info",
+                        "occurred_at": datetime.now(UTC).isoformat(),
                         "message": message,
                         "app_url": self.settings.app_base_url,
                     },
@@ -176,9 +186,12 @@ class Notifier:
                 for public_key, field in NOTIFICATION_CONFIG_FIELDS.items()
                 if field.get("secret")
             ],
+            "schedule": digest_schedule(config, datetime.now(UTC)),
+            "configuration_error": config.get("_schedule_error"),
         }
 
     def update_config(self, data: dict) -> dict:
+        validate_schedule(data)
         if not self.store:
             return self.notification_config()
         updates: dict[str, str] = {}
@@ -188,6 +201,9 @@ class Notifier:
             if field is None or raw_value is None:
                 continue
             setting_key = str(field["setting_key"])
+            if field["kind"] == "bool":
+                updates[setting_key] = "true" if str(raw_value).lower() in {"true", "1"} else "false"
+                continue
             if field["kind"] == "int":
                 if raw_value == "":
                     deletes.append(setting_key)
@@ -228,7 +244,11 @@ class Notifier:
         sources: dict[str, str] = {}
         for public_key, field in NOTIFICATION_CONFIG_FIELDS.items():
             setting_key = str(field["setting_key"])
-            default = getattr(self.settings, public_key)
+            default = getattr(self.settings, public_key, getattr(Settings, public_key))
+            if field["kind"] == "bool":
+                values[public_key] = str(stored.get(setting_key, default)).lower() in {"true", "1"}
+                sources[public_key] = "appdata" if setting_key in stored else "environment"
+                continue
             if field["kind"] == "int":
                 default = self._coerce_int(
                     default,
@@ -257,6 +277,11 @@ class Notifier:
                     values[public_key] = value
                     sources[public_key] = "environment" if value else "none"
         values["_sources"] = sources
+        try:
+            validate_schedule(values)
+        except ValueError as exc:
+            values.update(digest_frequency="disabled", digest_time="08:00", digest_timezone="America/Los_Angeles")
+            values["_schedule_error"] = str(exc)
         return values
 
     def _field_detail(self, public_key: str, config: dict[str, Any]) -> str:
@@ -351,7 +376,7 @@ class Notifier:
                 response.raise_for_status()
             return {"channel": "webhook", "status": "sent", "message": "Webhook notification sent."}
         except Exception as exc:
-            return {"channel": "webhook", "status": "error", "message": str(exc)}
+            return {"channel": "webhook", "status": "error", "message": self._delivery_error(exc)}
 
     async def _post_home_assistant(self, webhook_url: str, payload: dict) -> dict:
         try:
@@ -364,28 +389,28 @@ class Notifier:
                 "message": "Home Assistant webhook notification sent.",
             }
         except Exception as exc:
-            return {"channel": "home_assistant", "status": "error", "message": str(exc)}
+            return {"channel": "home_assistant", "status": "error", "message": self._delivery_error(exc)}
 
-    def _post_email(self, message: str, config: dict[str, Any] | None = None) -> dict:
+    def _post_email(self, message: str, config: dict[str, Any] | None = None, title: str = "Camp Finder availability") -> dict:
         config = config or self._effective_config()
         email = EmailMessage()
-        email["Subject"] = "Camp Finder availability"
+        email["Subject"] = title
         email["From"] = str(config["smtp_from"] or "")
         email["To"] = str(config["smtp_to"] or "")
         email.set_content(message)
         try:
-            with smtplib.SMTP(str(config["smtp_host"] or ""), int(config["smtp_port"])) as smtp:
+            with smtplib.SMTP(str(config["smtp_host"] or ""), int(config["smtp_port"]), timeout=10) as smtp:
                 smtp.starttls()
                 smtp.login(str(config["smtp_username"] or ""), str(config["smtp_password"] or ""))
                 smtp.send_message(email)
             return {"channel": "email", "status": "sent", "message": "Email notification sent."}
         except Exception as exc:
-            return {"channel": "email", "status": "error", "message": str(exc)}
+            return {"channel": "email", "status": "error", "message": self._delivery_error(exc)}
 
-    async def _post_ntfy(self, message: str, click_url: str, config: dict[str, Any] | None = None) -> dict:
+    async def _post_ntfy(self, message: str, click_url: str, config: dict[str, Any] | None = None, title: str = "Camp Finder availability") -> dict:
         config = config or self._effective_config()
         headers = {
-            "Title": "Camp Finder availability",
+            "Title": title,
             "Tags": "camping,tent",
             "Priority": str(config["ntfy_priority"] or "high"),
             "Click": click_url,
@@ -398,7 +423,31 @@ class Notifier:
                 response.raise_for_status()
             return {"channel": "ntfy", "status": "sent", "message": "ntfy notification sent."}
         except Exception as exc:
-            return {"channel": "ntfy", "status": "error", "message": str(exc)}
+            return {"channel": "ntfy", "status": "error", "message": self._delivery_error(exc)}
+
+    @staticmethod
+    def _delivery_error(exc: Exception) -> str:
+        if isinstance(exc, httpx.HTTPStatusError):
+            return f"Delivery failed: HTTP {exc.response.status_code}. Check the destination configuration."
+        return f"Delivery failed ({type(exc).__name__}). Check the destination and server connection."
+
+    def configured_channels(self, config: dict) -> list[str]:
+        return [channel for channel, enabled in (
+            ("webhook", config["webhook_url"]), ("home_assistant", config["home_assistant_webhook_url"]),
+            ("email", self._smtp_enabled_for(config)), ("ntfy", self._ntfy_enabled_for(config)),
+            ("apprise", config["apprise_urls"])) if enabled]
+
+    async def send_event(self, channel: str, message: str, payload: dict, config: dict) -> dict:
+        title = "Camp Finder digest" if payload.get("event") == "digest" else "Camp Finder alert"
+        if channel == "webhook":
+            return await self._post_webhook(message, config["webhook_url"])
+        if channel == "home_assistant":
+            return await self._post_home_assistant(config["home_assistant_webhook_url"], payload)
+        if channel == "email":
+            return await asyncio.to_thread(self._post_email, message, config, title)
+        if channel == "ntfy":
+            return await self._post_ntfy(message, self.settings.app_base_url, config, title)
+        return await apprise_alerts.send(config["apprise_urls"], message)
 
     def _format_results_message(self, results: list[dict], max_items: int = 5) -> str:
         if len(results) == 1:
@@ -451,6 +500,10 @@ class Notifier:
         return {
             "source": "camp_finder",
             "event": "availability",
+            "type": "alert",
+            "alert_type": "availability",
+            "severity": "info",
+            "occurred_at": datetime.now(UTC).isoformat(),
             "message": message,
             "app_url": self.settings.app_base_url,
             "match_count": len(results),

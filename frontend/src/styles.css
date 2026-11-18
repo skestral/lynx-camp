@@ -1823,6 +1823,19 @@ td small {
   margin-top: 10px;
 }
 
+.notification-schedule {
+  min-width: 0;
+  margin: 0;
+  padding: 0 0 16px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.notification-schedule legend { padding: 0 0 12px; font-size: 14px; font-weight: 750; }
+.notification-schedule > small { display: block; margin-top: 10px; color: var(--text-muted); }
+.notification-config-form .toggle-field { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.notification-config-form input[type="checkbox"] { width: 18px; height: 18px; min-height: 18px; flex: 0 0 18px; }
+
 .notification-fieldset {
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -1880,7 +1893,8 @@ td small {
   color: #14231f;
 }
 
-.notification-config-form input {
+.notification-config-form input,
+.notification-config-form select {
   min-height: 38px;
   width: 100%;
   border: 1px solid var(--line);

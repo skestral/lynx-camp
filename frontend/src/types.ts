@@ -89,6 +89,7 @@ export type Watch = {
   site_filters: SiteFilters;
   specific_ranges: DateRange[];
   cart_assist_enabled: number;
+  alerts_enabled: number;
   active: number;
   next_scan_at: string | null;
   last_checked_at: string | null;
@@ -153,7 +154,8 @@ export type StayResults = { results: Result[]; total_count: number };
 
 export type NotificationEvent = {
   id: number;
-  result_id: number;
+  result_id: number | null;
+  event_type?: string;
   channel: string;
   status: string;
   message: string;
@@ -298,6 +300,8 @@ export type NotificationStatus = {
 };
 
 export type NotificationConfig = {
+  schedule: { next_digest_at: string | null; timezone_label: string };
+  configuration_error: string | null;
   home_assistant_webhook_configured: boolean;
   home_assistant_webhook_source: "appdata" | "environment" | "none";
   home_assistant_detail: string;
@@ -308,6 +312,12 @@ export type NotificationConfig = {
 };
 
 export type NotificationConfigValues = {
+  digest_frequency: "daily" | "weekly" | "disabled";
+  digest_time: string;
+  digest_timezone: "America/Los_Angeles" | "server" | "UTC";
+  digest_weekday: number;
+  home_assistant_errors_enabled: boolean;
+  home_assistant_error_cooldown_minutes: number;
   apprise_urls: string;
   webhook_url: string;
   home_assistant_webhook_url: string;
@@ -383,6 +393,7 @@ export type ConfigBackup = {
       site_filters: SiteFilters;
       specific_ranges: DateRange[];
       cart_assist_enabled: boolean;
+      alerts_enabled: boolean;
       active: boolean;
     }>;
   }>;

@@ -877,11 +877,11 @@ class Scanner:
         pending = [result for result_id, result in results.items() if result_id in pending_ids]
         if not pending:
             return 0
-        await self.notifier.notify_results(pending, self.store, self.max_notification_results)
+        notified = await self.notifier.notify_results(pending, self.store, self.max_notification_results)
         # A completed no-channel call consumes the alert too; later configuration
         # must not turn historical matches into a new notification backlog.
         self.store.complete_result_notifications(pending_ids)
-        return len(pending)
+        return notified if isinstance(notified, int) else len(pending)
 
     async def _monthly_availability(self, campground_id: str, month: date) -> dict[str, Campsite]:
         key = (campground_id, month)

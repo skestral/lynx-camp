@@ -24,6 +24,12 @@ CART_ASSIST_APP_SETTING_KEYS = [
 ]
 
 NOTIFICATION_CONFIG_FIELDS: dict[str, dict[str, Any]] = {
+    "digest_frequency": {"setting_key": "notification_digest_frequency", "env_name": "CAMPFINDER_DIGEST_FREQUENCY", "kind": "string"},
+    "digest_time": {"setting_key": "notification_digest_time", "env_name": "CAMPFINDER_DIGEST_TIME", "kind": "string"},
+    "digest_timezone": {"setting_key": "notification_digest_timezone", "env_name": "CAMPFINDER_DIGEST_TIMEZONE", "kind": "string"},
+    "digest_weekday": {"setting_key": "notification_digest_weekday", "env_name": "CAMPFINDER_DIGEST_WEEKDAY", "kind": "int", "minimum": 0, "maximum": 6},
+    "home_assistant_errors_enabled": {"setting_key": "notification_home_assistant_errors_enabled", "env_name": "CAMPFINDER_HOME_ASSISTANT_ERRORS_ENABLED", "kind": "bool"},
+    "home_assistant_error_cooldown_minutes": {"setting_key": "notification_home_assistant_error_cooldown_minutes", "env_name": "CAMPFINDER_HOME_ASSISTANT_ERROR_COOLDOWN_MINUTES", "kind": "int", "minimum": 1, "maximum": 10080},
     "apprise_urls": {"setting_key": "notification_apprise_urls", "env_name": "CAMPFINDER_APPRISE_URLS", "kind": "string", "secret": True},
     "webhook_url": {
         "setting_key": "notification_webhook_url",
