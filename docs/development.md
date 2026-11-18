@@ -250,6 +250,26 @@ search, cabin search, date coverage, full map counts, and retry after a simulate
 UI while preserving a booked result, the other park, and both watches. No real
 provider scan, booking, or notification was performed.
 
+### Map Previews
+
+Map previews use `frontend/src/mapPreview.ts` to summarize the complete
+availability aggregate and escape provider text before building Leaflet markup.
+`mapTooltip.ts` handles hover/focus/touch, Escape dismissal, pointer travel onto
+the card, viewport constraints, and listener cleanup. It does not fetch data.
+The map's hover-styling effect updates existing layer elements rather than
+recreating markers; data or selection changes rebuild layers and restore an
+open preview where possible. Region layers are created only for explicit park
+selections or checked park groups, not hover or date filtering alone.
+
+The November 18, 2026 map-preview check passed 29 frontend tests, the production
+frontend build, and 16 backend map/overview regressions in offline Docker.
+Browser checks covered stable marker identity during hover, card pointer entry,
+Escape and keyboard focus, whole-stay counts, selection-only polygons, retained
+previews across refresh failure/recovery, and 390px framing. A touch-emulated
+browser verified tap selection and the details panel with a mocked details
+response. Hover and region selection made no campground-detail requests. The
+screenshots use the read-only demo; no live availability scan or alert was sent.
+
 ### Test Commands
 
 From the repository root, using the environment's Python executable:
@@ -324,6 +344,8 @@ Current documentation images:
 
 | Image | View |
 | --- | --- |
+| `map-hover-desktop.png` | Campground preview for a selected night, with no unselected polygons |
+| `map-hover-mobile.png` | Preview at 390px with accessible map controls |
 | `results-overview-desktop.png` | Complete rollup of 15,204 synthetic results, with collapsed park groups |
 | `results-overview-mobile.png` | The same Overview at 390px, with wrapping totals and controls |
 | `dashboard-overview.png` | Crawl cooldown, progress, and grouped results with dismissal controls |

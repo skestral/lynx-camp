@@ -44,6 +44,8 @@ import { coordinatePair } from "./coordinates";
 import { recurringStayPreview, watchArrivalDays, weekdayOptions } from "./watchSchedule";
 import { createRefreshGate } from "./dashboardRefresh";
 import { ResultsOverview } from "./ResultsOverview";
+import { campgroundPreviewHtml, mapAvailabilityPreviews } from "./mapPreview";
+import { bindCampgroundPreview } from "./mapTooltip";
 import type {
   AvailabilityWindow,
   StayResults,
@@ -923,6 +925,9 @@ export default function App() {
   const mapElementRef = useRef<HTMLDivElement | null>(null);
   const leafletMapRef = useRef<L.Map | null>(null);
   const markerLayerRef = useRef<L.LayerGroup | null>(null);
+  const campgroundMarkersRef = useRef(new Map<string, L.Marker>());
+  const parkMarkersRef = useRef(new Map<string, L.Marker>());
+  const regionLayersRef = useRef(new Map<string, L.Polygon>());
   const mapFitKeyRef = useRef("");
   const mapViewportBoundsRef = useRef<L.LatLngBounds | null>(null);
 
@@ -940,6 +945,7 @@ export default function App() {
   const activeResults = results.filter(isActiveAvailability);
   const dateFilterActive = Boolean(mapArrival || mapDeparture);
   const { stay: mapStay, error: mapDateError } = useMemo(() => selectedStay(mapArrival, mapDeparture), [mapArrival, mapDeparture]);
+  const mapPreviews = useMemo(() => mapAvailabilityPreviews(availability, mapStay), [availability, mapStay]);
   const stayQueryKey = JSON.stringify([mapStay, mapSelection]);
   const stayResultsReady = stayResults?.key === stayQueryKey;
   const displayedResults = dateFilterActive ? (stayResultsReady ? stayResults.results : []) : results;
@@ -1442,7 +1448,12 @@ export default function App() {
     const markerLayer = markerLayerRef.current;
     if (!map || !markerLayer) return;
 
+    const openCampground = [...campgroundMarkersRef.current].find(([, marker]) => marker.isTooltipOpen())?.[0];
+    const focusedCampground = [...campgroundMarkersRef.current].find(([, marker]) => marker.getElement() === document.activeElement)?.[0];
     markerLayer.clearLayers();
+    campgroundMarkersRef.current.clear();
+    parkMarkersRef.current.clear();
+    regionLayersRef.current.clear();
     const selectedBounds = L.latLngBounds([]);
     const matchingBounds = L.latLngBounds([]);
     const query = resultQuery.trim().toLowerCase();
@@ -1461,27 +1472,18 @@ export default function App() {
       const selectedPark =
         resultQuery === summary.parkName || (mapSelection?.kind === "park" && mapSelection.parkName === summary.parkName);
       const selectedGroup = selectedParkGroupSet.has(summary.parkName);
-      const hoveredPark = mapHover?.kind === "park" && mapHover.parkName === summary.parkName;
-      const hoveredCampgroundInPark =
-        mapHover?.kind === "campground" &&
-        summary.campgrounds.some((campground) => campground.campgroundId === mapHover.campgroundId);
-      const highlightedPark = selectedPark || selectedGroup || hoveredPark || hoveredCampgroundInPark;
-      if (summary.regionPoints.length > 0) {
+      const showRegion = (mapSelection?.kind === "park" && mapSelection.parkName === summary.parkName) || selectedGroup;
+      if (showRegion && summary.regionPoints.length > 0) {
         const region = L.polygon(summary.regionPoints, {
           className: `park-region-box park-region-${summary.regionKind || "region"} ${
             selectedPark ? "selected" : ""
-          } ${selectedGroup ? "checked" : ""} ${
-            hoveredPark ? "hovered" : ""
-          } ${hoveredCampgroundInPark ? "related-hover" : ""}`,
-          color: highlightedPark ? "#0f5e46" : "#2786c8",
-          fillColor: selectedGroup || hoveredPark ? "#0f5e46" : "#2786c8",
-          fillOpacity: highlightedPark ? 0.14 : 0.08,
-          opacity: highlightedPark ? 0.9 : 0.62,
-          weight: highlightedPark ? 2 : 1.4
+          } ${selectedGroup ? "checked" : ""}`,
+          color: "#0f5e46", fillColor: "#0f5e46", fillOpacity: 0.1, opacity: 0.9, weight: 2
         });
+        regionLayersRef.current.set(summary.parkName, region);
         region
           .addTo(markerLayer)
-          .bindTooltip(summary.parkName, { sticky: true })
+          .bindTooltip(escapeHtml(summary.parkName), { sticky: true })
           .on("click", () => selectParkRegion(summary))
           .on("mouseover", () => {
             setMapHover({ kind: "park", parkName: summary.parkName });
@@ -1492,12 +1494,12 @@ export default function App() {
       const parkIcon = L.divIcon({
         className: `park-map-marker ${summary.activeResultCount ? "has-results" : ""} ${selectedPark ? "selected" : ""} ${
           selectedGroup ? "checked" : ""
-        } ${hoveredPark ? "hovered" : ""} ${hoveredCampgroundInPark ? "related-hover" : ""}`,
+        }`,
         html: `<strong>${summary.targetCount}</strong><small>${summary.activeResultCount}</small>`,
         iconSize: [42, 42],
         iconAnchor: [21, 21]
       });
-      L.marker([summary.latitude, summary.longitude], { icon: parkIcon, zIndexOffset: -250 })
+      const parkMarker = L.marker([summary.latitude, summary.longitude], { icon: parkIcon, zIndexOffset: -250, title: summary.parkName, alt: summary.parkName })
         .addTo(markerLayer)
         .bindPopup(
           `<strong>${escapeHtml(summary.parkName)}</strong><br>` +
@@ -1509,6 +1511,7 @@ export default function App() {
         })
         .on("mouseover", () => setMapHover({ kind: "park", parkName: summary.parkName }))
         .on("mouseout", () => clearParkHover(summary.parkName));
+      parkMarkersRef.current.set(summary.parkName, parkMarker);
       if (summary.bounds && (selectedPark || selectedGroup)) {
         selectedBounds.extend(L.latLngBounds(summary.bounds));
       } else if (query && selectedPark) {
@@ -1520,25 +1523,20 @@ export default function App() {
         const selectedCampground =
           resultQuery === campground.name ||
           (mapSelection?.kind === "campground" && mapSelection.campgroundId === campground.campgroundId);
-        const hoveredCampground = mapHover?.kind === "campground" && mapHover.campgroundId === campground.campgroundId;
         const campgroundIcon = L.divIcon({
           className: `campground-map-marker ${campground.activeResultCount ? "has-results" : ""} ${
             selectedCampground ? "selected" : ""
-          } ${hoveredCampground ? "hovered" : ""} ${hoveredPark ? "parent-hovered" : ""}`,
+          }`,
           html: `<span>${escapeHtml(campground.name)}</span>`,
           iconSize: [22, 22],
           iconAnchor: [11, 11]
         });
-        L.marker([campground.latitude, campground.longitude], {
+        const marker = L.marker([campground.latitude, campground.longitude], {
           icon: campgroundIcon,
+          alt: campground.name,
           zIndexOffset: campground.activeResultCount ? 700 : 500
         })
           .addTo(markerLayer)
-          .bindPopup(
-            `<strong>${escapeHtml(campground.name)}</strong><br>` +
-              `${escapeHtml(campground.parkName)}<br>` +
-              `${campground.activeResultCount} active result${campground.activeResultCount === 1 ? "" : "s"}`
-          )
           .on("click", () => {
             setMapSelection({ kind: "campground", campgroundId: campground.campgroundId });
             setResultQuery(campground.name);
@@ -1549,9 +1547,13 @@ export default function App() {
               [`park:${campground.parkName}`]: true,
               [`campground:${campground.parkName}:${campground.name}`]: true
             }));
-          })
-          .on("mouseover", () => setMapHover({ kind: "campground", campgroundId: campground.campgroundId }))
-          .on("mouseout", () => clearCampgroundHover(campground.campgroundId));
+          });
+        marker.getElement()?.setAttribute("aria-label", campground.name);
+        bindCampgroundPreview(marker, map, campgroundPreviewHtml(campground, mapPreviews.get(campground.campgroundId), {
+          stay: mapStay, loaded: availabilityLoaded, error: Boolean(availabilityError)
+        }), () => setMapHover({ kind: "campground", campgroundId: campground.campgroundId }),
+        () => clearCampgroundHover(campground.campgroundId));
+        campgroundMarkersRef.current.set(campground.campgroundId, marker);
         if (query && (selectedPark || selectedCampground)) {
           selectedBounds.extend([campground.latitude, campground.longitude]);
         }
@@ -1569,7 +1571,28 @@ export default function App() {
       }
       map.fitBounds(mapViewportBoundsRef.current, { padding: [10, 10], maxZoom: 9, animate: false });
     }
-  }, [pageView, mapHover, mapSelection, mapParkSummaries, resultQuery, selectedParkGroupSet, selectedParkGroups, dateFilterActive, mapArrival, mapDeparture]);
+    if (openCampground) campgroundMarkersRef.current.get(openCampground)?.openTooltip();
+    if (focusedCampground) campgroundMarkersRef.current.get(focusedCampground)?.getElement()?.focus({ preventScroll: true });
+  }, [pageView, mapSelection, mapParkSummaries, resultQuery, selectedParkGroupSet, selectedParkGroups, dateFilterActive, mapArrival, mapDeparture, mapPreviews, mapStay, availabilityLoaded, availabilityError]);
+
+  useEffect(() => {
+    // Hover styling must not rebuild Leaflet layers or close the open preview.
+    for (const summary of mapParkSummaries) {
+      const parkHovered = mapHover?.kind === "park" && mapHover.parkName === summary.parkName;
+      const childHovered = mapHover?.kind === "campground" && summary.campgrounds.some(campground => campground.campgroundId === mapHover.campgroundId);
+      const park = parkMarkersRef.current.get(summary.parkName)?.getElement();
+      park?.classList.toggle("hovered", parkHovered);
+      park?.classList.toggle("related-hover", childHovered);
+      const region = regionLayersRef.current.get(summary.parkName)?.getElement();
+      region?.classList.toggle("hovered", parkHovered);
+      region?.classList.toggle("related-hover", childHovered);
+      for (const campground of summary.campgrounds) {
+        const marker = campgroundMarkersRef.current.get(campground.campgroundId)?.getElement();
+        marker?.classList.toggle("parent-hovered", parkHovered);
+        marker?.classList.toggle("hovered", mapHover?.kind === "campground" && mapHover.campgroundId === campground.campgroundId);
+      }
+    }
+  }, [mapHover, pageView, mapSelection, mapParkSummaries, resultQuery, selectedParkGroupSet, mapPreviews, availabilityLoaded, availabilityError]);
 
   async function refreshAvailability() {
     try {

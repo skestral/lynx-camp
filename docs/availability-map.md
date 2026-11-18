@@ -24,6 +24,38 @@ the same browser session, but are not saved as watch configuration or in backups
 
 [Mobile layout](screenshots/availability-map-mobile.png)
 
+## Preview a Campground
+
+Hover or keyboard-focus a campground marker to see its name, park/state, saved
+match count, last observation time, and up to three saved stay pairs. Each date
+row includes its match count; additional date pairs are summarized below it.
+With map dates selected, the preview includes only saved stays covering the full
+selection. Counts include all matching records, even beyond the Detailed list's
+2,000-row cap. They are matches, not unique sites or a new availability check.
+
+The preview stays open while the pointer is over its marker or the card. Escape
+dismisses it. On narrow maps the card can scroll, keeping its marker, zoom
+controls, and map attribution accessible. Tap a marker on a touch device to open
+the preview and the existing campground details panel. Clicking still selects
+the campground and filters results; hovering does not change the selection.
+
+Hover reads the dashboard's saved aggregate and makes no additional API or
+provider requests. Full descriptions, images, booking links, and Google Maps
+links remain in the details panel. A failed availability refresh retains saved
+unfiltered counts with a stale-data warning; a failed date-filtered map shows
+its existing availability error state instead of guessed matches.
+
+Region polygons stay hidden until you select a park from the side list or map,
+or check its Park Queue checkbox. Hovering a region highlights its markers but
+does not reveal an outline. Choosing a campground alone does not add a region
+polygon. Clearing the location selection hides its outline; checked regions stay
+outlined until unchecked. These are approximate campground footprints, not
+official park boundaries.
+
+![Date-filtered campground preview](screenshots/map-hover-desktop.png)
+
+[Mobile preview](screenshots/map-hover-mobile.png)
+
 ## What a Match Means
 
 One saved campsite result must cover the entire interval. The app never joins
