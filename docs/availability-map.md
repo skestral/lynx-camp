@@ -26,6 +26,19 @@ the same browser session, but are not saved as watch configuration or in backups
 
 ## Preview a Campground
 
+Each pin represents a known campground location. GoingToCamp Camping and Roofed
+listings with the same provider location share one pin. Roofed means the separate
+cabins/yurts accommodation category, not ordinary campsites. A pin can contain
+both categories; its preview lists their status and separate website links.
+Availability counts include all matching listings at that location.
+
+Campground colors match the swatches in Park Queue. An amber dot marks saved
+availability, and a blue outline/check marks watch selection. There are no
+park-center count markers. Park Queue distinguishes locations from provider
+listings: Mount Rainier has five listings at three known coordinates. Cougar Rock
+and Ohanapecosh each have regular and group-camping listings at the same point;
+White River is the third location. The map does not invent offsets for these pins.
+
 Hover or keyboard-focus a campground marker to see its name, park/state, saved
 match count, last observation time, and up to three saved stay pairs. Each date
 row includes its match count; additional date pairs are summarized below it.
@@ -40,12 +53,16 @@ the preview and the existing campground details panel. Clicking still selects
 the campground and filters results; hovering does not change the selection.
 
 Hover reads the dashboard's saved aggregate and makes no additional API or
-provider requests. Full descriptions, images, booking links, and Google Maps
-links remain in the details panel. A failed availability refresh retains saved
+provider requests. **Google Maps** opens driving directions to the marker, and
+**Website** opens the campground's saved provider/booking page. Both open in a new
+tab. Missing or invalid website URLs are omitted. From a focused marker, Tab
+enters the preview links; Escape closes the preview and returns focus to the
+marker. Full descriptions, images, and additional details remain in the details
+panel. A failed availability refresh retains saved
 unfiltered counts with a stale-data warning; a failed date-filtered map shows
 its existing availability error state instead of guessed matches.
 
-Region polygons stay hidden until you select a park from the side list or map,
+Region polygons stay hidden until you select a park from the side list,
 or check its Park Queue checkbox. Hovering a region highlights its markers but
 does not reveal an outline. Choosing a campground alone does not add a region
 polygon. Clearing the location selection hides its outline; checked regions stay
@@ -59,14 +76,18 @@ official park boundaries.
 ## Build a Watch from the Map
 
 1. Turn on **Select Campgrounds** above the map. Click or tap campground pins to
-   add or remove them. Selected pins have a blue check mark. Keyboard users can
+   add or remove them. A combined pin selects **Camping and Roofed by default**,
+   provided both are imported and active. Selected pins have a blue check mark;
+   a dashed outline means only some listings are selected. Keyboard users can
    focus a pin and press Enter or Space.
 2. Review **Watch Campgrounds** beside the map. Remove individual entries with
    their X button, or use **Clear Selection** to start over. **Choose from mapped
-   campgrounds** provides checkboxes for overlapping pins, including camping and
-   cabin areas with the same coordinates.
+   campgrounds** provides per-listing checkboxes. Uncheck Roofed to watch Camping
+   only, or leave both selected. Known group-camping listings remain separate
+   checkboxes even when they share a pin with the main campground.
 3. **Add Visible** adds the active, imported campgrounds currently displayed inside
-   the map bounds. With dates selected, this includes only the matching pins.
+   the map bounds. With dates selected, this includes only the matching pins,
+   but includes both active categories even if only one currently has matches.
    Previously selected campgrounds remain selected when you pan or change dates,
    even if they are no longer visible. The review list is the complete selection.
 4. Choose **Create Watch**, review the selected campgrounds, and set dates, nights,
@@ -75,16 +96,24 @@ official park boundaries.
    without losing the draft's dates and filters. **Add Watch** saves one grouped
    watch for exactly those campgrounds.
 
-Only active, imported targets can be selected. Other pins are dimmed in selection
-mode; opening one still provides its details and import action. Importing a
-campground in this mode adds it to the selection. Enable inactive targets from
-Targets first. One watch can contain up to 500 campgrounds.
+Only active, imported targets can be selected. **Not imported** means the map
+shows a preset without a saved target; **Import & Select** adds its missing
+listings before selecting them. **Paused target** means an existing target has
+been disabled; open **Targets** from its details to enable it deliberately.
+Import never resumes paused targets. The picker keeps unavailable entries visible
+with disabled checkboxes and a Show button. One watch can contain up to 500
+provider listings. Choosing only Camping in a source import does not automatically
+discover or import Roofed; preview/import both categories from that source first.
 
 Map pins select **campgrounds**, not individual tent pads or cabins. Use the watch
 editor's site type and Specific campsites filters to narrow the inventory within
 those campgrounds. The selected campground list is fixed: it does not enroll
 future imports. Existing state, park-group, and map-area watches retain their
 optional future-import coverage.
+
+For a rooftop tent, check the provider's vehicle-access and equipment rules for
+each result. Neither the Camping category nor a map selection guarantees that a
+tent site accepts a vehicle-mounted tent; some tent inventory is walk-in only.
 
 Selecting pins does not create watches, scan providers, or send alerts. Failed
 saves retain the selection for retry; a successful save clears it. An unsaved
@@ -94,7 +123,7 @@ restored after a reload. Saved groups use the existing watch backup/export forma
 **Watch View** remains a separate shortcut for all active imported targets within
 the map bounds, regardless of the availability date filter.
 
-![Map watch selection with two campgrounds](screenshots/map-watch-desktop.png)
+![One location with Camping and Roofed selected](screenshots/map-watch-desktop.png)
 
 [Mobile watch draft](screenshots/map-watch-mobile.png)
 
@@ -156,7 +185,7 @@ No availability scan, booking, or notification was triggered by this check.
 - `GET /api/results/availability` aggregates active matches by campground and
   original stay dates. It has no result-list limit and returns no credentials.
 - `GET /api/results/for-stay?arrival=YYYY-MM-DD&departure=YYYY-MM-DD` returns
-  `{results, total_count}`. Optional `campground_id` and `park_name` filters apply
+  `{results, total_count}`. Optional `campground_id`, repeated `campground_ids`, and `park_name` filters apply
   before the bounded `limit`. Check-out must be later than arrival.
 - Both endpoints read SQLite only. `results_active_stay` is a partial index for
   active available/opened rows, installed by `Store.init` on every database.
@@ -166,6 +195,12 @@ No availability scan, booking, or notification was triggered by this check.
 - Superseded stay-list requests are canceled and keyed to their selection, so a
   late response cannot replace a newer date/marker choice. Errors are distinct
   from an empty result set.
+- `mapLocations.ts` groups GoingToCamp tenant/location IDs and explicitly known
+  Recreation.gov facility pairs. Names or coincident coordinates alone never
+  merge facilities. Grouping changes presentation, not saved target IDs.
+- Combined-pin reads send up to 20 `campground_ids` to Overview and for-stay.
+  IDs form a union, intersected with every other filter. Scoped dismissal uses
+  the same ID set and read boundary, including results not loaded in the browser.
 
 Verification on November 17, 2026 (Pacific): 393 backend tests passed in Docker
 with external networking disabled, plus four frontend date tests. UI checks cover

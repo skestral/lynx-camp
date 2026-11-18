@@ -35,6 +35,9 @@ def _where(filters: ResultFilters):
     if filters.campground_id is not None:
         clauses.append("r.campground_id = ?")
         params.append(filters.campground_id)
+    if filters.campground_ids:
+        clauses.append(f"r.campground_id IN ({','.join('?' for _ in filters.campground_ids)})")
+        params.extend(filters.campground_ids)
     if filters.arrival is not None:
         clauses.append("r.arrival_date <= ? AND r.departure_date >= ?")
         params.extend([filters.arrival.isoformat(), filters.departure.isoformat()])

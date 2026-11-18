@@ -1383,13 +1383,16 @@ class Store:
             """)]
 
     def results_for_stay(self, arrival: str, departure: str, campground_id: str | None = None,
-                         park_name: str | None = None, limit: int = 2000) -> dict[str, Any]:
+                         park_name: str | None = None, limit: int = 2000, campground_ids: list[str] | None = None) -> dict[str, Any]:
         where = """results.active = 1 AND results.status IN ('available', 'opened')
             AND results.arrival_date <= ? AND results.departure_date >= ?"""
         params: list[Any] = [arrival, departure]
         if campground_id is not None:
             where += " AND results.campground_id = ?"
             params.append(campground_id)
+        if campground_ids:
+            where += f" AND results.campground_id IN ({','.join('?' for _ in campground_ids)})"
+            params.extend(campground_ids)
         if park_name is not None:
             where += " AND COALESCE(NULLIF(targets.park_name, ''), 'Unassigned park') = ?"
             params.append(park_name)

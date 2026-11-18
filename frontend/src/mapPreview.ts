@@ -26,19 +26,49 @@ export function mapAvailabilityPreviews(windows: AvailabilityWindow[], stay: Sta
 const escape = (value: string) => value.replace(/[&<>"']/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char]!));
 const dateLabel = (value: string) => new Date(`${value}T12:00:00`).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
 
+export function combineMapPreviews(previews: MapAvailabilityPreview[]): MapAvailabilityPreview | undefined {
+  if (!previews.length) return undefined;
+  const stays = new Map<string, AvailabilityWindow>();
+  for (const preview of previews) for (const stay of preview.stays) {
+    const key = `${stay.arrival_date}/${stay.departure_date}`;
+    const current = stays.get(key);
+    stays.set(key, { ...stay, match_count: stay.match_count + (current?.match_count || 0) });
+  }
+  return { matchCount: previews.reduce((total, value) => total + value.matchCount, 0),
+    lastSeenAt: previews.map(value => value.lastSeenAt).sort().pop() || "",
+    stays: [...stays.values()].sort((a, b) => a.arrival_date.localeCompare(b.arrival_date) || a.departure_date.localeCompare(b.departure_date)) };
+}
+
+function externalLink(label: string, value: string | undefined) {
+  if (!value) return "";
+  try {
+    const url = new URL(value);
+    if (!["https:", "http:"].includes(url.protocol) || url.username || url.password) return "";
+    return `<a href="${escape(url.href)}" target="_blank" rel="noopener noreferrer" title="${escape(label)} (opens in a new tab)">${escape(label)}</a>`;
+  } catch {
+    return "";
+  }
+}
+
 export function campgroundPreviewHtml(
   campground: { name: string; parkName: string; stateCode: string; locationPrecision?: "park" | "campground" },
   preview: MapAvailabilityPreview | undefined,
-  context: { stay: Stay | null; loaded: boolean; error: boolean }
+  context: { stay: Stay | null; loaded: boolean; error: boolean; mapsUrl?: string; websiteUrl?: string;
+    listings?: { label: string; status: string; url: string }[] }
 ) {
   const matches = preview?.matchCount || 0;
   const dates = context.stay ? `<div class="map-preview-selection"><span>Check-in <b>${dateLabel(context.stay.arrival)}</b></span><span>Check-out <b>${dateLabel(context.stay.departure)}</b></span></div>` : "";
   const stays = preview?.stays || [];
   const status = !context.loaded ? "Availability not loaded" : matches ? `${matches.toLocaleString()} saved ${matches === 1 ? "match" : "matches"}` : "No saved availability";
   const lastSeen = preview?.lastSeenAt ? new Date(preview.lastSeenAt) : null;
+  const listings = context.listings || [];
+  const links = externalLink("Google Maps", context.mapsUrl) + (listings.length > 1
+    ? listings.map(listing => externalLink(`${listing.label} website`, listing.url)).join("") : externalLink("Website", context.websiteUrl));
   return `<div class="map-preview-heading">${escape(campground.name)}</div>` +
     `<div class="map-preview-meta">${escape([campground.parkName, campground.stateCode].filter(Boolean).join(" / "))}</div>` +
     (campground.locationPrecision === "park" ? `<div class="map-preview-meta">Park reference location</div>` : "") +
+    (listings.length ? `<div class="map-preview-meta">${listings.map(listing => `${escape(listing.label)}: ${escape(listing.status)}`).join("<br>")}</div>` : "") +
+    (links ? `<div class="map-preview-links">${links}</div>` : "") +
     `<div class="map-preview-count">${status}</div>` +
     (lastSeen && Number.isFinite(lastSeen.getTime()) ? `<div class="map-preview-updated">Last seen ${escape(lastSeen.toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }))}</div>` : "") +
     dates +

@@ -275,11 +275,19 @@ class ResultFilters(BaseModel):
     search: str = Field(default="", max_length=300)
     park_name: str | None = Field(default=None, min_length=1, max_length=300)
     campground_id: str | None = Field(default=None, min_length=1, max_length=200)
+    campground_ids: list[str] = Field(default_factory=list, max_length=20)
     arrival: date | None = None
     departure: date | None = None
     exact_arrival: date | None = None
     exact_departure: date | None = None
     max_result_id: int | None = Field(default=None, ge=0, le=9223372036854775807)
+
+    @field_validator("campground_ids")
+    @classmethod
+    def valid_campground_ids(cls, value):
+        if any(not item or len(item) > 200 for item in value):
+            raise ValueError("Campground IDs must contain 1 to 200 characters")
+        return list(dict.fromkeys(value))
 
     @model_validator(mode="after")
     def valid_stays(self):
@@ -304,7 +312,7 @@ class ResultScopeDismiss(BaseModel):
     @model_validator(mode="after")
     def require_bounded_group(self):
         if self.filters.max_result_id is None or not (
-            self.filters.park_name or self.filters.campground_id or self.filters.exact_arrival
+            self.filters.park_name or self.filters.campground_id or self.filters.campground_ids or self.filters.exact_arrival
         ):
             raise ValueError("Dismissal requires a group and its result snapshot boundary")
         return self

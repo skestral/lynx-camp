@@ -100,3 +100,20 @@ def test_map_api_validation_and_read_only_behavior(saved, monkeypatch):
                    {"arrival": "2027-07-02", "departure": "2027-07-04", "limit": 2001}):
         assert client.get("/api/results/for-stay", params=params).status_code == 422
     assert store.result_summary()["active_count"] == 8
+
+
+def test_stay_combines_location_listings_without_broadening_other_filters(saved, monkeypatch):
+    store, _ = saved
+    monkeypatch.setattr(main, "store", store)
+    client = TestClient(main.app)
+    dates = [("arrival", "2027-07-02"), ("departure", "2027-07-04")]
+    ids = [("campground_ids", "Demo Coast"), ("campground_ids", "Demo Mountain")]
+    response = client.get("/api/results/for-stay", params=[*dates, *ids, ("limit", "1")])
+    assert response.status_code == 200 and response.json()["total_count"] == 4
+    assert len(response.json()["results"]) == 1
+    narrowed = client.get("/api/results/for-stay", params=[*dates, *ids, ("campground_id", "Demo Mountain")])
+    assert narrowed.json()["total_count"] == 2
+    assert client.get("/api/results/for-stay", params=[*dates, ("campground_ids", "' OR 1=1 --")]).json()["total_count"] == 0
+    for invalid in ([""], ["x" * 201], [str(index) for index in range(21)]):
+        assert client.get("/api/results/for-stay", params=[*dates, *[("campground_ids", item) for item in invalid]]).status_code == 422
+    assert store.result_summary()["active_count"] == 8

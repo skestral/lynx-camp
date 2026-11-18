@@ -91,10 +91,11 @@ export const api = {
     }),
   results: (limit = RESULTS_LIMIT) => request<Result[]>(`/api/results?limit=${limit}`),
   availability: () => request<AvailabilityWindow[]>("/api/results/availability"),
-  resultsForStay: (arrival: string, departure: string, campgroundId?: string, parkName?: string, signal?: AbortSignal) => {
+  resultsForStay: (arrival: string, departure: string, campgroundId?: string, parkName?: string, signal?: AbortSignal, campgroundIds?: string[]) => {
     const query = new URLSearchParams({ arrival, departure });
     if (campgroundId) query.set("campground_id", campgroundId);
     if (parkName) query.set("park_name", parkName);
+    campgroundIds?.forEach(id => query.append("campground_ids", id));
     return request<StayResults>(`/api/results/for-stay?${query}`, { signal });
   },
   dismissResultGroup: (result_ids: number[]) => request<{ dismissed_count: number }>("/api/results/dismiss-group", {
@@ -103,7 +104,10 @@ export const api = {
   resultSummary: () => request<ResultSummary>("/api/results/summary"),
   resultOverview: (options: ResultOverviewQuery, signal?: AbortSignal) => {
     const query = new URLSearchParams();
-    Object.entries(options).forEach(([key, value]) => { if (value !== undefined) query.set(key, String(value)); });
+    Object.entries(options).forEach(([key, value]) => {
+      if (Array.isArray(value)) value.forEach(item => query.append(key, item));
+      else if (value !== undefined) query.set(key, String(value));
+    });
     return request<ResultOverviewPage>(`/api/results/overview?${query}`, { signal });
   },
   dismissResultScope: (filters: ResultFilters) => request<{ dismissed_count: number }>("/api/results/dismiss-scope", {

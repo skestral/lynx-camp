@@ -44,9 +44,11 @@ import { coordinatePair } from "./coordinates";
 import { recurringStayPreview, watchArrivalDays, weekdayOptions } from "./watchSchedule";
 import { createRefreshGate } from "./dashboardRefresh";
 import { ResultsOverview } from "./ResultsOverview";
-import { campgroundPreviewHtml, mapAvailabilityPreviews } from "./mapPreview";
+import { campgroundPreviewHtml, mapAvailabilityPreviews, combineMapPreviews } from "./mapPreview";
 import { bindCampgroundPreview } from "./mapTooltip";
 import { addMapWatchTargets, mapWatchTargets, toggleMapWatchTarget, MAP_WATCH_LIMIT } from "./mapWatch";
+import { groupMapLocations, listingLabel, listingStatus, locationWatchIds, toggleLocationWatchIds, parkColors } from "./mapLocations";
+import type { CampgroundMapPoint, CampgroundLocation } from "./mapLocations";
 import type {
   AvailabilityWindow,
   StayResults,
@@ -87,7 +89,7 @@ type UtilityTab = "release" | "activity" | "settings";
 type WatchScope = "target" | "park" | "state" | "map" | "selection" | "members" | "campgrounds";
 type MapSelection =
   | { kind: "park"; parkName: string }
-  | { kind: "campground"; campgroundId: string };
+  | { kind: "campground"; campgroundId: string; campgroundIds?: string[] };
 type MapHover =
   | { kind: "park"; parkName: string }
   | { kind: "campground"; campgroundId: string };
@@ -379,24 +381,6 @@ type ParkSummary = {
   regionKind: ParkRegionShape["kind"] | null;
   regionPoints: LatLngTuple[];
   campgrounds: CampgroundMapPoint[];
-};
-
-type CampgroundMapPoint = {
-  id: string;
-  targetId: number | null;
-  campgroundId: string;
-  name: string;
-  parkName: string;
-  stateCode: string;
-  latitude: number;
-  longitude: number;
-  active: number;
-  imported: boolean;
-  bookingUrl: string;
-  locationPrecision?: "park" | "campground";
-  locationSourceUrl?: string;
-  activeResultCount: number;
-  resultCount: number;
 };
 
 type ResultStayGroup = {
@@ -921,6 +905,7 @@ export default function App() {
   const [mapHover, setMapHover] = useState<MapHover | null>(null);
   const [selectedParkGroups, setSelectedParkGroups] = useState<string[]>([]);
   const [mapWatchMode, setMapWatchMode] = useState(false);
+  const [mapImportBusy, setMapImportBusy] = useState(false);
   const [mapWatchIds, setMapWatchIds] = useState<number[]>([]);
   const mapWatchSelection = useMemo(() => mapWatchTargets(targets, mapWatchIds), [targets, mapWatchIds]);
   const mapWatchIdSet = useMemo(() => new Set(mapWatchSelection.map(target => target.id)), [mapWatchSelection]);
@@ -931,7 +916,6 @@ export default function App() {
   const leafletMapRef = useRef<L.Map | null>(null);
   const markerLayerRef = useRef<L.LayerGroup | null>(null);
   const campgroundMarkersRef = useRef(new Map<string, L.Marker>());
-  const parkMarkersRef = useRef(new Map<string, L.Marker>());
   const regionLayersRef = useRef(new Map<string, L.Polygon>());
   const mapFitKeyRef = useRef("");
   const mapViewportBoundsRef = useRef<L.LatLngBounds | null>(null);
@@ -999,6 +983,7 @@ export default function App() {
             ? isActiveAvailability(result)
             : result.status === resultView;
       if (!matchesView) return false;
+      if (mapSelection?.kind === "campground" && mapSelection.campgroundIds) return mapSelection.campgroundIds.includes(result.campground_id);
       if (!query) return true;
       return [
         result.park_name || "Unassigned park",
@@ -1030,7 +1015,7 @@ export default function App() {
       }
       return b.discovered_at.localeCompare(a.discovered_at);
     });
-  }, [displayedResults, resultQuery, resultSort, resultView]);
+  }, [displayedResults, resultQuery, resultSort, resultView, mapSelection]);
   const visibleResultIds = useMemo(() => filteredResults.map((result) => result.id), [filteredResults]);
   const allVisibleResultsSelected =
     visibleResultIds.length > 0 && visibleResultIds.every((id) => selectedResultSet.has(id));
@@ -1295,6 +1280,7 @@ export default function App() {
         };
       });
   }, [presets, availability, targets]);
+  const mapParkColors = useMemo(() => parkColors(parkSummaries.map(summary => summary.parkName)), [parkSummaries]);
   const dateCounts = useMemo(() => mapStay && !availabilityError
     ? availabilityCounts(availability, mapStay) : new Map<string, number>(), [availability, mapStay, availabilityError]);
   const mapParkSummaries = useMemo(() => {
@@ -1313,6 +1299,16 @@ export default function App() {
         bounds: shape?.bounds || null, regionKind: shape?.kind || null, regionPoints: shape?.points || [] }];
     });
   }, [dateFilterActive, dateCounts, parkSummaries]);
+  const mapLocationSummaries = useMemo(() => mapParkSummaries.map(summary => {
+    const visible = new Map(summary.campgrounds.map(campground => [campground.campgroundId, campground]));
+    const locations = groupMapLocations(parkSummaries.find(park => park.parkName === summary.parkName)?.campgrounds || [])
+      .filter(location => location.members.some(member => visible.has(member.campgroundId)))
+      .map(location => ({ ...location,
+        activeResultCount: location.members.reduce((total, member) => total + (visible.get(member.campgroundId)?.activeResultCount || 0), 0),
+        resultCount: location.members.reduce((total, member) => total + (visible.get(member.campgroundId)?.resultCount || 0), 0) }));
+    return { ...summary, mappedListingCount: summary.campgrounds.length, campgrounds: locations };
+  }), [mapParkSummaries, parkSummaries]);
+  const mappedLocationCount = mapLocationSummaries.reduce((total, summary) => total + summary.campgrounds.length, 0);
   const mappedDateCampgrounds = mapParkSummaries.reduce((total, summary) => total + summary.campgrounds.length, 0);
   const missingDateCoordinates = dateFilterActive ? Math.max(0, dateCounts.size - mappedDateCampgrounds) : 0;
   const missingCoordinates = parkSummaries.reduce((total, summary) => total + summary.targetCount - summary.campgrounds.length, 0);
@@ -1342,18 +1338,18 @@ export default function App() {
   const selectedMapPark = useMemo(
     () =>
       mapSelection?.kind === "park"
-        ? mapParkSummaries.find((summary) => summary.parkName === mapSelection.parkName) || null
+        ? mapLocationSummaries.find((summary) => summary.parkName === mapSelection.parkName) || null
         : null,
-    [mapSelection, mapParkSummaries]
+    [mapSelection, mapLocationSummaries]
   );
   const selectedMapCampground = useMemo(
     () =>
       mapSelection?.kind === "campground"
-        ? mapParkSummaries
+        ? mapLocationSummaries
             .flatMap((summary) => summary.campgrounds)
-            .find((campground) => campground.campgroundId === mapSelection.campgroundId) || null
+            .find((campground) => campground.members.some(member => member.campgroundId === mapSelection.campgroundId)) || null
         : null,
-    [mapSelection, mapParkSummaries]
+    [mapSelection, mapLocationSummaries]
   );
   const resultGroups = useMemo<ResultParkGroup[]>(() => {
     const parkMap = new Map<string, ResultParkGroup>();
@@ -1470,9 +1466,10 @@ export default function App() {
 
     const openCampground = [...campgroundMarkersRef.current].find(([, marker]) => marker.isTooltipOpen())?.[0];
     const focusedCampground = [...campgroundMarkersRef.current].find(([, marker]) => marker.getElement() === document.activeElement)?.[0];
+    const focusedPreview = [...campgroundMarkersRef.current].find(([, marker]) => marker.getTooltip()?.getElement()?.contains(document.activeElement))?.[0];
+    const focusedPreviewHref = focusedPreview ? document.activeElement?.getAttribute("href") : null;
     markerLayer.clearLayers();
     campgroundMarkersRef.current.clear();
-    parkMarkersRef.current.clear();
     regionLayersRef.current.clear();
     const selectedBounds = L.latLngBounds([]);
     const matchingBounds = L.latLngBounds([]);
@@ -1487,7 +1484,7 @@ export default function App() {
       mapParkSummaries.map((summary) => `${summary.parkName}:${summary.targetCount}:${summary.activeResultCount}`).join("|")
     ].join("::");
 
-    for (const summary of mapParkSummaries) {
+    for (const summary of mapLocationSummaries) {
       if (!summary.campgrounds.length) continue;
       const selectedPark =
         resultQuery === summary.parkName || (mapSelection?.kind === "park" && mapSelection.parkName === summary.parkName);
@@ -1498,7 +1495,7 @@ export default function App() {
           className: `park-region-box park-region-${summary.regionKind || "region"} ${
             selectedPark ? "selected" : ""
           } ${selectedGroup ? "checked" : ""}`,
-          color: "#0f5e46", fillColor: "#0f5e46", fillOpacity: 0.1, opacity: 0.9, weight: 2
+          color: mapParkColors.get(summary.parkName), fillColor: mapParkColors.get(summary.parkName), fillOpacity: 0.1, opacity: 0.9, weight: 2
         });
         regionLayersRef.current.set(summary.parkName, region);
         region
@@ -1511,27 +1508,6 @@ export default function App() {
           })
           .on("mouseout", () => clearParkHover(summary.parkName));
       }
-      const parkIcon = L.divIcon({
-        className: `park-map-marker ${summary.activeResultCount ? "has-results" : ""} ${selectedPark ? "selected" : ""} ${
-          selectedGroup ? "checked" : ""
-        }`,
-        html: `<strong>${summary.targetCount}</strong><small>${summary.activeResultCount}</small>`,
-        iconSize: [42, 42],
-        iconAnchor: [21, 21]
-      });
-      const parkMarker = L.marker([summary.latitude, summary.longitude], { icon: parkIcon, zIndexOffset: -250, title: summary.parkName, alt: summary.parkName })
-        .addTo(markerLayer)
-        .bindPopup(
-          `<strong>${escapeHtml(summary.parkName)}</strong><br>` +
-            `${summary.targetCount} campground target${summary.targetCount === 1 ? "" : "s"}<br>` +
-            `${summary.activeResultCount} active result${summary.activeResultCount === 1 ? "" : "s"}`
-        )
-        .on("click", () => {
-          selectParkRegion(summary);
-        })
-        .on("mouseover", () => setMapHover({ kind: "park", parkName: summary.parkName }))
-        .on("mouseout", () => clearParkHover(summary.parkName));
-      parkMarkersRef.current.set(summary.parkName, parkMarker);
       if (summary.bounds && (selectedPark || selectedGroup)) {
         selectedBounds.extend(L.latLngBounds(summary.bounds));
       } else if (query && selectedPark) {
@@ -1542,7 +1518,7 @@ export default function App() {
         matchingBounds.extend([campground.latitude, campground.longitude]);
         const selectedCampground =
           resultQuery === campground.name ||
-          (mapSelection?.kind === "campground" && mapSelection.campgroundId === campground.campgroundId);
+          (mapSelection?.kind === "campground" && campground.members.some(member => member.campgroundId === mapSelection.campgroundId));
         const campgroundIcon = L.divIcon({
           className: `campground-map-marker ${campground.activeResultCount ? "has-results" : ""} ${
             selectedCampground ? "selected" : ""
@@ -1558,11 +1534,12 @@ export default function App() {
         })
           .addTo(markerLayer)
           .on("click", () => {
-            if (mapWatchMode && campground.targetId && campground.active) {
-              setMapWatchIds(current => toggleMapWatchTarget(targets, current, campground.targetId!));
+            const ids = locationWatchIds(campground);
+            if (mapWatchMode && ids.length) {
+              setMapWatchIds(current => toggleLocationWatchIds(current, ids));
               return;
             }
-            setMapSelection({ kind: "campground", campgroundId: campground.campgroundId });
+            setMapSelection({ kind: "campground", campgroundId: campground.campgroundId, campgroundIds: campground.members.map(member => member.campgroundId) });
             if (mapWatchMode) {
               setMessage(campground.imported ? "Enable this target before adding it to a watch." : "Import this campground before adding it to a watch.");
               return;
@@ -1577,6 +1554,7 @@ export default function App() {
             }));
           });
         marker.getElement()?.setAttribute("aria-label", campground.name);
+        marker.getElement()?.style.setProperty("--park-color", mapParkColors.get(campground.parkName) || "#0f766e");
         if (mapWatchMode) marker.getElement()?.addEventListener("keydown", event => {
           if (event.key === " " || event.key === "Enter") {
             event.preventDefault();
@@ -1584,11 +1562,14 @@ export default function App() {
             marker.fire("click");
           }
         });
-        bindCampgroundPreview(marker, map, campgroundPreviewHtml(campground, mapPreviews.get(campground.campgroundId), {
-          stay: mapStay, loaded: availabilityLoaded, error: Boolean(availabilityError)
+        const preview = combineMapPreviews(campground.members.flatMap(member => mapPreviews.get(member.campgroundId) || []));
+        bindCampgroundPreview(marker, map, campgroundPreviewHtml(campground, preview, {
+          stay: mapStay, loaded: availabilityLoaded, error: Boolean(availabilityError),
+          mapsUrl: googleMapsUrl(campground), websiteUrl: campground.bookingUrl,
+          listings: campground.members.map(member => ({ label: listingLabel(member), status: listingStatus(member), url: member.bookingUrl }))
         }), () => setMapHover({ kind: "campground", campgroundId: campground.campgroundId }),
         () => clearCampgroundHover(campground.campgroundId));
-        campgroundMarkersRef.current.set(campground.campgroundId, marker);
+        for (const member of campground.members) campgroundMarkersRef.current.set(member.campgroundId, marker);
         if (query && (selectedPark || selectedCampground)) {
           selectedBounds.extend([campground.latitude, campground.longitude]);
         }
@@ -1608,17 +1589,24 @@ export default function App() {
     }
     if (openCampground) campgroundMarkersRef.current.get(openCampground)?.openTooltip();
     if (focusedCampground) campgroundMarkersRef.current.get(focusedCampground)?.getElement()?.focus({ preventScroll: true });
-  }, [pageView, mapSelection, mapParkSummaries, resultQuery, selectedParkGroupSet, selectedParkGroups, dateFilterActive, mapArrival, mapDeparture, mapPreviews, mapStay, availabilityLoaded, availabilityError, mapWatchMode, targets]);
+    if (focusedPreview && focusedPreviewHref) {
+      const links = campgroundMarkersRef.current.get(focusedPreview)?.getTooltip()?.getElement()?.querySelectorAll<HTMLAnchorElement>("a[href]");
+      Array.from(links || []).find(link => link.getAttribute("href") === focusedPreviewHref)?.focus({ preventScroll: true });
+    }
+  }, [pageView, mapSelection, mapLocationSummaries, resultQuery, selectedParkGroupSet, selectedParkGroups, dateFilterActive, mapArrival, mapDeparture, mapPreviews, mapStay, availabilityLoaded, availabilityError, mapWatchMode, targets]);
 
   useEffect(() => {
     // Selection changes update existing pins without moving the map or interrupting previews.
-    for (const summary of mapParkSummaries) {
+    for (const summary of mapLocationSummaries) {
       for (const campground of summary.campgrounds) {
         const element = campgroundMarkersRef.current.get(campground.campgroundId)?.getElement();
         if (!element) continue;
-        const selectable = Boolean(campground.targetId && campground.active);
-        const checked = Boolean(campground.targetId && mapWatchIdSet.has(campground.targetId));
+        const ids = locationWatchIds(campground);
+        const selectable = ids.length > 0;
+        const checked = selectable && ids.every(id => mapWatchIdSet.has(id));
+        const partial = !checked && ids.some(id => mapWatchIdSet.has(id));
         element.classList.toggle("watch-selected", checked);
+        element.classList.toggle("watch-partial", partial);
         element.classList.toggle("watch-unavailable", mapWatchMode && !selectable);
         element.classList.toggle("watch-selectable", mapWatchMode && selectable);
         element.setAttribute("aria-label", mapWatchMode && selectable ? `Select ${campground.name} for watch` : campground.name);
@@ -1626,26 +1614,23 @@ export default function App() {
         else element.removeAttribute("aria-pressed");
       }
     }
-  }, [mapWatchIdSet, mapWatchMode, targets, pageView, mapSelection, mapParkSummaries, resultQuery, selectedParkGroupSet, mapPreviews, availabilityLoaded, availabilityError]);
+  }, [mapWatchIdSet, mapWatchMode, targets, pageView, mapSelection, mapLocationSummaries, resultQuery, selectedParkGroupSet, mapPreviews, availabilityLoaded, availabilityError]);
 
   useEffect(() => {
     // Hover styling must not rebuild Leaflet layers or close the open preview.
-    for (const summary of mapParkSummaries) {
+    for (const summary of mapLocationSummaries) {
       const parkHovered = mapHover?.kind === "park" && mapHover.parkName === summary.parkName;
-      const childHovered = mapHover?.kind === "campground" && summary.campgrounds.some(campground => campground.campgroundId === mapHover.campgroundId);
-      const park = parkMarkersRef.current.get(summary.parkName)?.getElement();
-      park?.classList.toggle("hovered", parkHovered);
-      park?.classList.toggle("related-hover", childHovered);
+      const childHovered = mapHover?.kind === "campground" && summary.campgrounds.some(campground => campground.members.some(member => member.campgroundId === mapHover.campgroundId));
       const region = regionLayersRef.current.get(summary.parkName)?.getElement();
       region?.classList.toggle("hovered", parkHovered);
       region?.classList.toggle("related-hover", childHovered);
       for (const campground of summary.campgrounds) {
         const marker = campgroundMarkersRef.current.get(campground.campgroundId)?.getElement();
         marker?.classList.toggle("parent-hovered", parkHovered);
-        marker?.classList.toggle("hovered", mapHover?.kind === "campground" && mapHover.campgroundId === campground.campgroundId);
+        marker?.classList.toggle("hovered", mapHover?.kind === "campground" && campground.members.some(member => member.campgroundId === mapHover.campgroundId));
       }
     }
-  }, [mapHover, pageView, mapSelection, mapParkSummaries, resultQuery, selectedParkGroupSet, mapPreviews, availabilityLoaded, availabilityError]);
+  }, [mapHover, pageView, mapSelection, mapLocationSummaries, resultQuery, selectedParkGroupSet, mapPreviews, availabilityLoaded, availabilityError]);
 
   async function refreshAvailability() {
     try {
@@ -1768,8 +1753,9 @@ export default function App() {
     const timeout = window.setTimeout(() => controller.abort(), 15000);
     let current = true;
     api.resultsForStay(mapStay.arrival, mapStay.departure,
-      mapSelection?.kind === "campground" ? mapSelection.campgroundId : undefined,
-      mapSelection?.kind === "park" ? mapSelection.parkName : undefined, controller.signal)
+      mapSelection?.kind === "campground" && !mapSelection.campgroundIds ? mapSelection.campgroundId : undefined,
+      mapSelection?.kind === "park" ? mapSelection.parkName : undefined, controller.signal,
+      mapSelection?.kind === "campground" ? mapSelection.campgroundIds : undefined)
       .then(data => { if (current) setStayResults({ ...data, key: stayQueryKey }); })
       .catch(error => { if (current) { setStayResults(null); setStayResultsError(error instanceof Error ? error.message : "Unable to load matching stays."); } })
       .finally(() => window.clearTimeout(timeout));
@@ -2811,8 +2797,8 @@ export default function App() {
     setMapHover((current) => (current?.kind === "campground" && current.campgroundId === campgroundId ? null : current));
   }
 
-  function focusCampgroundResults(campground: CampgroundMapPoint) {
-    setMapSelection({ kind: "campground", campgroundId: campground.campgroundId });
+  function focusCampgroundResults(campground: CampgroundLocation) {
+    setMapSelection({ kind: "campground", campgroundId: campground.campgroundId, campgroundIds: campground.members.map(member => member.campgroundId) });
     setResultQuery(campground.name);
     setResultSort("park");
     setResultView(campground.activeResultCount > 0 ? "active" : "all");
@@ -2897,7 +2883,7 @@ export default function App() {
     if (watchScope === "selection") {
       return `One regional watch, ${selected.length} campgrounds across ${selectedParkGroups.length} selected park groups.`;
     }
-    if (watchScope === "campgrounds") return `One watch across ${selected.length} selected campgrounds.`;
+    if (watchScope === "campgrounds") return `One watch across ${selected.length} selected campground listings.`;
     return `One regional watch, ${selected.length} campgrounds inside the current map view.`;
   }
 
@@ -2921,19 +2907,8 @@ export default function App() {
     openDrawer("watches");
   }
 
-  function openWatchBuilderForCampground(campground: CampgroundMapPoint) {
-    setIncludeFutureImports(false);
-    setSavedWatchBounds(null);
-    setEditingGroupId(null);
-    setWatchEditorOpen(true);
-    if (!campground.targetId) {
-      setMessage("Import this campground as a target before creating a watch.");
-      return;
-    }
-    setWatchScope("target");
-    setWatchTarget(String(campground.targetId));
-    setEditingWatchId(null);
-    openDrawer("watches");
+  function openWatchBuilderForCampground(campground: CampgroundLocation) {
+    openWatchBuilderForSelectedCampgrounds(locationWatchIds(campground));
   }
 
   function openWatchBuilderForMapView() {
@@ -2974,9 +2949,10 @@ export default function App() {
     window.setTimeout(() => document.getElementById("availability-map")?.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
   }
 
-  function openWatchBuilderForSelectedCampgrounds() {
-    if (!mapWatchSelection.length) return;
-    if (watchScope !== "campgrounds" || editingWatchId || editingGroupId) {
+  function openWatchBuilderForSelectedCampgrounds(ids?: number[]) {
+    if (!(ids ? mapWatchTargets(targets, ids).length : mapWatchSelection.length)) return;
+    if (ids) setMapWatchIds(ids);
+    if (ids || watchScope !== "campgrounds" || editingWatchId || editingGroupId) {
       resetWatchForm();
       setFilterSiteType("");
       setFilterLoop("");
@@ -2996,9 +2972,9 @@ export default function App() {
 
   function addVisibleMapCampgrounds() {
     const bounds = leafletMapRef.current?.getBounds();
-    const ids = mapParkSummaries.flatMap(summary => summary.campgrounds)
-      .filter(campground => campground.targetId && campground.active && bounds?.contains([campground.latitude, campground.longitude]))
-      .map(campground => campground.targetId!);
+    const ids = mapLocationSummaries.flatMap(summary => summary.campgrounds)
+      .filter(campground => bounds?.contains([campground.latitude, campground.longitude]))
+      .flatMap(locationWatchIds);
     setMapWatchIds(current => addMapWatchTargets(targets, current, ids));
     if (!ids.length) setMessage("No active imported campgrounds in this map view.");
   }
@@ -3018,41 +2994,50 @@ export default function App() {
     );
   }
 
-  async function importCampgroundFromMap(campground: CampgroundMapPoint) {
+  async function importCampgroundFromMap(location: CampgroundLocation) {
+    if (mapImportBusy) return;
+    setMapImportBusy(true);
     setMessage("");
+    const imported: Target[] = [];
     try {
-      const target = await api.createTarget({
-        name: campground.name,
-        campground_id: campground.campgroundId,
-        park_name: campground.parkName,
-        state_code: campground.stateCode,
-        latitude: campground.latitude,
-        longitude: campground.longitude,
-        booking_url: campground.bookingUrl,
-        release_months: 6,
-        release_window_value: 6,
-        release_window_unit: "Months",
-        release_time: "07:00",
-        timezone: campground.stateCode === "MT" || campground.stateCode === "WY" ? "America/Denver" : "America/Los_Angeles",
-        poll_interval_minutes: scanConfig?.values.min_poll_interval_minutes || 10,
-        active: true
-      });
-      setWatchTarget(String(target.id));
-      if (!mapWatchMode) setWatchScope("target");
-      setMessage(`Imported ${target.name}.`);
-      await refresh({ silent: true });
-      if (mapWatchMode) {
-        setTargets(current => current.some(item => item.id === target.id) ? current : [...current, target]);
-        setMapWatchIds(current => [...new Set([...current, target.id])].slice(0, MAP_WATCH_LIMIT));
+      for (const campground of location.members.filter(member => !member.imported)) {
+        const target = await api.createTarget({
+          name: campground.name,
+          campground_id: campground.campgroundId,
+          park_name: campground.parkName,
+          state_code: campground.stateCode,
+          latitude: campground.latitude,
+          longitude: campground.longitude,
+          booking_url: campground.bookingUrl,
+          release_months: 6,
+          release_window_value: 6,
+          release_window_unit: "Months",
+          release_time: "07:00",
+          timezone: campground.stateCode === "MT" || campground.stateCode === "WY" ? "America/Denver" : "America/Los_Angeles",
+          poll_interval_minutes: scanConfig?.values.min_poll_interval_minutes || 10,
+          active: true
+        });
+        imported.push(target);
+        setWatchTarget(String(target.id));
       }
+      if (!mapWatchMode) setWatchScope("target");
+      setMessage(`Imported ${imported.length} listing${imported.length === 1 ? "" : "s"} at ${location.name}.`);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Unable to import campground.");
+    } finally {
+      try {
+        await refresh({ silent: true });
+      } finally {
+        setTargets(current => [...current, ...imported.filter(target => !current.some(item => item.id === target.id))]);
+        if (mapWatchMode) setMapWatchIds(current => [...new Set([...current, ...locationWatchIds(location), ...imported.map(target => target.id)])].slice(0, MAP_WATCH_LIMIT));
+        setMapImportBusy(false);
+      }
     }
   }
 
   function renderMapSelectionPanel() {
     if (selectedMapPark) {
-      const activeImportedCount = selectedMapPark.campgrounds.filter((campground) => campground.imported && campground.active).length;
+      const activeImportedCount = selectedMapPark.campgrounds.flatMap(locationWatchIds).length;
       const previewCampgrounds = selectedMapPark.campgrounds.slice(0, 5);
       const selectedGroup = selectedParkGroupSet.has(selectedMapPark.parkName);
 
@@ -3065,8 +3050,8 @@ export default function App() {
             <span>
               <strong>{selectedMapPark.parkName}</strong>
               <small>
-                {selectedMapPark.campgrounds.length} campground{selectedMapPark.campgrounds.length === 1 ? "" : "s"} mapped{" "}
-                &middot; {activeImportedCount} active target{activeImportedCount === 1 ? "" : "s"}
+                {selectedMapPark.campgrounds.length} location{selectedMapPark.campgrounds.length === 1 ? "" : "s"} &middot; {selectedMapPark.targetCount} listing{selectedMapPark.targetCount === 1 ? "" : "s"}
+                &middot; {activeImportedCount} active
               </small>
             </span>
           </div>
@@ -3082,7 +3067,7 @@ export default function App() {
                 <button
                   className={hoveredCampground ? "hovered" : ""}
                   key={campground.campgroundId}
-                  onClick={() => setMapSelection({ kind: "campground", campgroundId: campground.campgroundId })}
+                  onClick={() => setMapSelection({ kind: "campground", campgroundId: campground.campgroundId, campgroundIds: campground.members.map(member => member.campgroundId) })}
                   onMouseEnter={() => setMapHover({ kind: "campground", campgroundId: campground.campgroundId })}
                   onMouseLeave={() => clearCampgroundHover(campground.campgroundId)}
                   type="button"
@@ -3152,7 +3137,7 @@ export default function App() {
             </span>
             <span>
               <strong>{selectedMapCampground.name}</strong>
-              <small>{selectedMapCampground.imported ? "Imported target" : "Preset target"}</small>
+              <small>{selectedMapCampground.members.length} listing{selectedMapCampground.members.length === 1 ? "" : "s"}</small>
             </span>
           </div>
           <p className="map-detail-copy">{loading ? "Loading the latest campground overview." : description}</p>
@@ -3178,16 +3163,36 @@ export default function App() {
               ))}
             </div>
           ) : null}
+          <div className="map-listing-options" aria-label="Campground listings">
+            {selectedMapCampground.members.map(member => (
+              <div className="map-listing-row" key={member.campgroundId}>
+                <label>
+                  {mapWatchMode && <input type="checkbox" aria-label={`Include ${member.name} in watch`}
+                    checked={Boolean(member.targetId && mapWatchIdSet.has(member.targetId))}
+                    disabled={!member.targetId || !member.active || (!mapWatchIdSet.has(member.targetId) && mapWatchSelection.length >= MAP_WATCH_LIMIT)}
+                    onChange={() => setMapWatchIds(current => toggleMapWatchTarget(targets, current, member.targetId!))} />}
+                  <span><strong>{listingLabel(member)}</strong><small>{listingStatus(member)}</small></span>
+                </label>
+                <a className="icon-button" href={member.bookingUrl} target="_blank" rel="noopener noreferrer" title={`${member.name} website`} aria-label={`${member.name} website`}><ExternalLink size={16} /></a>
+                {member.imported && !member.active && <button type="button" className="icon-button" onClick={() => {
+                  const target = targets.find(item => item.id === member.targetId);
+                  if (target) loadTargetSettings(target);
+                  setTargetTab("saved"); setTargetSettingsOpen(true); openDrawer("targets");
+                }}><Settings size={16} /><span>Targets</span></button>}
+              </div>
+            ))}
+          </div>
           <div className="map-detail-actions">
-            {selectedMapCampground.imported ? (
-              <button className="icon-button primary" onClick={() => openWatchBuilderForCampground(selectedMapCampground)} type="button">
+            {locationWatchIds(selectedMapCampground).length > 0 && (
+              <button className="icon-button primary" disabled={mapImportBusy} onClick={() => openWatchBuilderForCampground(selectedMapCampground)} type="button">
                 <CalendarDays size={16} />
                 <span>Watch Campground</span>
               </button>
-            ) : (
-              <button className="icon-button primary" onClick={() => void importCampgroundFromMap(selectedMapCampground)} type="button">
+            )}
+            {!selectedMapCampground.imported && (
+              <button className="icon-button primary" disabled={mapImportBusy} onClick={() => void importCampgroundFromMap(selectedMapCampground)} type="button">
                 <Plus size={16} />
-                <span>Import Target</span>
+                <span>{mapImportBusy ? "Importing..." : mapWatchMode ? "Import & Select" : "Import Listings"}</span>
               </button>
             )}
             <button className="icon-button" onClick={() => focusCampgroundResults(selectedMapCampground)} type="button">
@@ -4949,13 +4954,13 @@ export default function App() {
               </div>
               {(mapWatchMode || mapWatchSelection.length > 0) && (
                 <div className="map-watch-toolbar" aria-label="Map watch builder">
-                  <strong role="status">{mapWatchSelection.length} selected for watch</strong>
+                  <strong role="status">{mapWatchSelection.length} listings selected for watch</strong>
                   <div className="map-watch-actions">
                     {mapWatchMode && <button className="icon-button" type="button" onClick={addVisibleMapCampgrounds}
                       disabled={mapWatchSelection.length >= MAP_WATCH_LIMIT}><Plus size={16} /><span>Add Visible</span></button>}
                     <button className="icon-button" type="button" disabled={!mapWatchSelection.length} onClick={() => setMapWatchIds([])}>
                       <X size={16} /><span>Clear Selection</span></button>
-                    <button className="icon-button primary" type="button" disabled={!mapWatchSelection.length} onClick={openWatchBuilderForSelectedCampgrounds}>
+                    <button className="icon-button primary" type="button" disabled={!mapWatchSelection.length} onClick={() => openWatchBuilderForSelectedCampgrounds()}>
                       <CalendarDays size={16} /><span>Create Watch</span></button>
                   </div>
                   {mapWatchSelection.length >= MAP_WATCH_LIMIT && <small>Maximum {MAP_WATCH_LIMIT} campgrounds per watch.</small>}
@@ -4969,9 +4974,9 @@ export default function App() {
                   : !availabilityLoaded ? <span>Loading saved availability...</span>
                   : mapStay ? <>
                     <strong>Stays covering {formatDate(mapStay.arrival)} to {formatDate(mapStay.departure)}</strong>
-                    <span>{dateMatchCount} saved matches &middot; {dateCounts.size} campgrounds
+                    <span>{dateMatchCount} saved matches &middot; {mappedLocationCount} mapped location{mappedLocationCount === 1 ? "" : "s"} &middot; {dateCounts.size} listing{dateCounts.size === 1 ? "" : "s"}
                       {missingDateCoordinates > 0 ? ` (${missingDateCoordinates} without map coordinates)` : ""}</span>
-                  </> : !dateFilterActive ? <span>All saved dates &middot; {mappedDateCampgrounds} mapped campgrounds
+                  </> : !dateFilterActive ? <span>All saved dates &middot; {mappedLocationCount} mapped locations &middot; {mappedDateCampgrounds} listings
                     {missingCoordinates > 0 ? ` (${missingCoordinates} locations unavailable)` : ""}</span> : null}
               </div>
               <div className="map-canvas proper-map">
@@ -4993,14 +4998,18 @@ export default function App() {
                   <details className="map-watch-picker">
                     <summary>Choose from mapped campgrounds</summary>
                     <div className="map-watch-options">
-                      {mapParkSummaries.flatMap(summary => summary.campgrounds).filter(campground => campground.targetId && campground.active).map(campground => (
-                        <label key={campground.campgroundId} onMouseEnter={() => setMapHover({ kind: "campground", campgroundId: campground.campgroundId })}
+                      {mapLocationSummaries.flatMap(summary => summary.campgrounds).flatMap(location => location.members).map(campground => (
+                        <div className="map-listing-row" key={campground.campgroundId} onMouseEnter={() => setMapHover({ kind: "campground", campgroundId: campground.campgroundId })}
                           onMouseLeave={() => clearCampgroundHover(campground.campgroundId)}>
+                          <label>
                           <input type="checkbox" checked={mapWatchIdSet.has(campground.targetId!)}
-                            disabled={!mapWatchIdSet.has(campground.targetId!) && mapWatchSelection.length >= MAP_WATCH_LIMIT}
+                            disabled={!campground.targetId || !campground.active || (!mapWatchIdSet.has(campground.targetId) && mapWatchSelection.length >= MAP_WATCH_LIMIT)}
                             onChange={() => setMapWatchIds(current => toggleMapWatchTarget(targets, current, campground.targetId!))} />
-                          <span>{campground.name}<small>{campground.parkName}</small></span>
-                        </label>
+                          <span>{campground.name}<small>{listingStatus(campground)}</small></span>
+                          </label>
+                          {!campground.active && <button className="icon-button" type="button" title={`Show ${campground.name}`} aria-label={`Show ${campground.name}`}
+                            onClick={() => setMapSelection({ kind: "campground", campgroundId: campground.campgroundId })}><MapPin size={16} /></button>}
+                        </div>
                       ))}
                     </div>
                   </details>
@@ -5027,7 +5036,7 @@ export default function App() {
                 </div>
               )}
               <div className="park-chip-strip">
-                {mapParkSummaries.map((summary) => {
+                {mapLocationSummaries.map((summary) => {
                   const selectedGroup = selectedParkGroupSet.has(summary.parkName);
                   const activePark =
                     resultQuery === summary.parkName ||
@@ -5035,7 +5044,7 @@ export default function App() {
                   const hoveredPark = mapHover?.kind === "park" && mapHover.parkName === summary.parkName;
                   const hoveredCampgroundInPark =
                     mapHover?.kind === "campground" &&
-                    summary.campgrounds.some((campground) => campground.campgroundId === mapHover.campgroundId);
+                    summary.campgrounds.some((campground) => campground.members.some(member => member.campgroundId === mapHover.campgroundId));
                   return (
                     <article
                       className={`park-chip ${activePark ? "selected" : ""} ${selectedGroup ? "checked" : ""} ${
@@ -5055,9 +5064,9 @@ export default function App() {
                       </label>
                       <button className="park-chip-main" onClick={() => selectParkRegion(summary)} type="button">
                         <span>
-                          <strong>{summary.parkName}</strong>
-                          <small>{dateFilterActive ? `${summary.targetCount} matching campgrounds` : `${summary.activeTargetCount}/${summary.targetCount} targets active`}</small>
-                          {summary.targetCount > summary.campgrounds.length && <small>{summary.targetCount - summary.campgrounds.length} locations unavailable</small>}
+                          <strong><span className="park-color-swatch" style={{ backgroundColor: mapParkColors.get(summary.parkName) }} aria-hidden="true" />{summary.parkName}</strong>
+                          <small>{summary.campgrounds.length} location{summary.campgrounds.length === 1 ? "" : "s"} &middot; {summary.targetCount} {dateFilterActive ? "matching " : ""}listing{summary.targetCount === 1 ? "" : "s"} &middot; {summary.activeTargetCount} active</small>
+                          {summary.targetCount > summary.mappedListingCount && <small>{summary.targetCount - summary.mappedListingCount} listings without coordinates</small>}
                         </span>
                         <span className={`status ${summary.activeResultCount ? "success" : "quiet"}`}>
                           {summary.activeResultCount || summary.resultCount}
@@ -5610,7 +5619,7 @@ export default function App() {
                   search: mapSelection ? "" : resultQuery,
                   ...(mapStay ? { arrival: mapStay.arrival, departure: mapStay.departure } : {}),
                   ...(mapSelection?.kind === "park" ? { park_name: mapSelection.parkName } : {}),
-                  ...(mapSelection?.kind === "campground" ? { campground_id: mapSelection.campgroundId } : {}) }}
+                  ...(mapSelection?.kind === "campground" ? mapSelection.campgroundIds ? { campground_ids: mapSelection.campgroundIds } : { campground_id: mapSelection.campgroundId } : {}) }}
                   sort={resultSort} revision={resultRevision} disabled={clearResultsBusy || bulkResultBusy !== null || resultBusyId !== null}
                   renderResult={result => resultCard(result, false)} onChanged={() => refresh({ silent: true })} />}
             </div> : <div id="result-details" role="tabpanel" aria-labelledby="result-tab-details">

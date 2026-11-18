@@ -31,9 +31,12 @@ test("API encodes scoped reads and never expands a dismissal into downloaded IDs
     calls.push({ path: String(path), options });
     return new Response("{}", { headers: { "Content-Type": "application/json" } });
   });
-  const filters = { view: "active" as const, park_name: "Rainier & Coast", search: "%_", max_result_id: 15008 };
+  const filters = { view: "active" as const, park_name: "Rainier & Coast", search: "%_", max_result_id: 15008, campground_ids: ["gtc:wa:5:0", "gtc:wa:5:1"] };
   await api.resultOverview({ ...filters, group_by: "campground", sort: "arrival", limit: 25 });
   assert.equal(new URL(calls[0].path, "http://test").searchParams.get("park_name"), "Rainier & Coast");
+  assert.deepEqual(new URL(calls[0].path, "http://test").searchParams.getAll("campground_ids"), filters.campground_ids);
   await api.dismissResultScope(filters);
   assert.deepEqual(JSON.parse(String(calls[1].options?.body)), { filters });
+  await api.resultsForStay("2027-07-02", "2027-07-04", undefined, undefined, undefined, filters.campground_ids);
+  assert.deepEqual(new URL(calls[2].path, "http://test").searchParams.getAll("campground_ids"), filters.campground_ids);
 });

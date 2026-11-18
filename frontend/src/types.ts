@@ -159,6 +159,7 @@ export type ResultFilters = {
   search?: string;
   park_name?: string;
   campground_id?: string;
+  campground_ids?: string[];
   arrival?: string;
   departure?: string;
   exact_arrival?: string;

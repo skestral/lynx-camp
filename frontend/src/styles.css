@@ -669,58 +669,12 @@ small {
   max-width: 260px;
 }
 
-.park-map-marker {
-  display: grid;
-  place-items: center;
-  width: 42px;
-  height: 42px;
-  border: 2px solid #ffffff;
-  border-radius: 999px;
-  background: rgba(15, 94, 70, 0.88);
-  color: #17332c;
-  box-shadow: 0 10px 26px rgba(13, 44, 37, 0.14);
-  text-align: center;
-}
-
-.park-map-marker strong,
-.park-map-marker small {
-  display: block;
-}
-
-.park-map-marker strong {
-  color: #ffffff;
-  font-size: 13px;
-  line-height: 1;
-}
-
-.park-map-marker small {
-  color: #dff2e9;
-  font-size: 10px;
-  line-height: 1;
-}
-
-.park-map-marker.has-results {
-  border-color: #0f5e46;
-  background: #c88a1b;
-}
-
-.park-map-marker.selected,
-.park-map-marker.checked,
-.park-map-marker.hovered {
-  outline: 3px solid rgba(15, 94, 70, 0.32);
-  box-shadow: 0 12px 30px rgba(13, 44, 37, 0.2), 0 0 0 5px rgba(15, 94, 70, 0.12);
-}
-
-.park-map-marker.related-hover {
-  outline: 3px solid rgba(200, 138, 27, 0.32);
-}
-
 .campground-map-marker {
   width: 22px;
   height: 22px;
   border: 2px solid #ffffff;
   border-radius: 999px;
-  background: var(--forest);
+  background: var(--park-color, var(--forest));
   box-shadow: 0 6px 18px rgba(13, 44, 37, 0.22);
 }
 
@@ -732,8 +686,9 @@ small {
   background: #ffffff;
 }
 
-.campground-map-marker.has-results {
-  background: #c88a1b;
+.campground-map-marker.has-results::before {
+  content: ""; position: absolute; width: 7px; height: 7px; right: -4px; top: -4px;
+  background: #e5b02e; border: 1px solid #ffffff; border-radius: 50%;
 }
 
 .campground-map-marker.selected,
@@ -755,9 +710,16 @@ small {
 }
 
 .campground-map-marker.watch-selected {
-  background: #215cba;
   outline: 3px solid #b5d2ff;
 }
+.campground-map-marker.watch-partial { outline: 3px dashed #215cba; }
+.park-color-swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 7px; }
+.map-listing-row { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 5px 0; }
+.map-listing-row label { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; }
+.map-listing-row label span { min-width: 0; overflow-wrap: anywhere; }
+.map-listing-row input { width: 18px; height: 18px; flex: 0 0 18px; }
+.map-listing-row small { display: block; color: var(--muted); font-size: 12px; }
+.map-listing-row > .icon-button { flex-shrink: 0; }
 .campground-map-marker.watch-selected::after {
   inset: 3px 5px 5px;
   background: transparent;
@@ -839,6 +801,14 @@ small {
 .campground-preview::before { display: none; }
 .map-preview-heading { font-size: 15px; font-weight: 750; }
 .map-preview-meta, .map-preview-updated { color: #5b7068; font-size: 12px; margin-top: 4px; }
+.map-preview-links { display: flex; flex-wrap: wrap; gap: 4px 16px; margin-top: 4px; }
+.map-preview-links a {
+  display: inline-flex; align-items: center; min-height: 44px; color: var(--forest);
+  font-size: 13px; font-weight: 700; text-decoration: underline; text-underline-offset: 3px;
+}
+.map-preview-links a:hover { color: #215cba; }
+.map-preview-links a:focus-visible { outline: 2px solid #215cba; outline-offset: 2px; border-radius: 2px; }
+@media (hover: hover) and (pointer: fine) { .map-preview-links a { min-height: 28px; } }
 .map-preview-count { color: var(--forest); font-weight: 750; margin-top: 10px; }
 .map-preview-selection { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--line); }
 .map-preview-selection span, .map-preview-selection b { display: block; font-size: 12px; }

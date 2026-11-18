@@ -196,3 +196,35 @@ def test_api_validation_and_existing_database_index(saved, monkeypatch):
     with store.connect() as conn:
         assert "results_campground_stay" in {row["name"] for row in conn.execute("PRAGMA index_list(results)")}
     assert store.result_summary()["total_count"] == 8
+
+
+def test_combined_location_filters_and_dismissal_keep_provider_identity(saved, monkeypatch):
+    store, _ = saved
+    monkeypatch.setattr(main, "store", store)
+    client = TestClient(main.app)
+    ids = ["Demo Coast", "Demo Mountain"]
+    params = [("campground_ids", item) for item in ids]
+    response = client.get("/api/results/overview", params=[*params, ("limit", "1")])
+    assert response.status_code == 200
+    assert response.json()["summary"]["match_count"] == 8
+    assert len(response.json()["groups"]) == 1
+    narrowed = client.get("/api/results/overview", params=[*params, ("campground_id", "Demo Coast")])
+    assert narrowed.json()["summary"]["match_count"] == 4
+    assert overview(store, campground_ids=["' OR 1=1 --"])["summary"]["match_count"] == 0
+    dismissed = client.post("/api/results/dismiss-scope", json={"filters": {
+        "campground_ids": ids, "exact_arrival": "2027-07-02", "exact_departure": "2027-07-04", "max_result_id": 8}})
+    assert dismissed.json() == {"dismissed_count": 4}
+    assert overview(store)["summary"]["match_count"] == 4
+    assert overview(store, exact_arrival="2027-07-09", exact_departure="2027-07-11")["summary"]["match_count"] == 4
+
+
+def test_combined_location_ids_are_bounded_and_cannot_dismiss_everything(saved, monkeypatch):
+    store, _ = saved
+    monkeypatch.setattr(main, "store", store)
+    client = TestClient(main.app)
+    for ids in ([""], ["x" * 201], [str(index) for index in range(21)]):
+        assert client.get("/api/results/overview", params=[("campground_ids", item) for item in ids]).status_code == 422
+    assert client.post("/api/results/dismiss-scope", json={"filters": {"campground_ids": [], "max_result_id": 8}}).status_code == 422
+    response = client.post("/api/results/dismiss-scope", json={"filters": {"campground_ids": ["Demo Coast"], "max_result_id": 8}})
+    assert response.json() == {"dismissed_count": 4}
+    assert overview(store, campground_id="Demo Mountain")["summary"]["match_count"] == 4

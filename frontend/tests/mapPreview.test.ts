@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { campgroundPreviewHtml, mapAvailabilityPreviews, previewHeightLimit, previewOffset } from "../src/mapPreview.ts";
+import { campgroundPreviewHtml, mapAvailabilityPreviews, combineMapPreviews, previewHeightLimit, previewOffset } from "../src/mapPreview.ts";
 import type { AvailabilityWindow } from "../src/types.ts";
 
 const window = (campground: string, arrival: string, departure: string, count: number): AvailabilityWindow => ({
@@ -18,6 +18,18 @@ test("hover totals use the complete aggregate, sorted dates, and the most recent
   assert.equal(previews.get("a")?.stays[0].arrival_date, "2027-07-02");
   assert.equal(previews.get("b")?.matchCount, 2);
   assert.equal(rows[0].arrival_date, "2027-07-09");
+});
+
+test("combined campground previews aggregate categories by stay without joining partial nights", () => {
+  const rows = [window("camping", "2027-07-02", "2027-07-04", 3), window("roofed", "2027-07-02", "2027-07-04", 2)];
+  const combined = combineMapPreviews([...mapAvailabilityPreviews(rows, null).values()])!;
+  assert.equal(combined.matchCount, 5);
+  assert.equal(combined.stays.length, 1);
+  assert.equal(combined.stays[0].match_count, 5);
+  assert.equal(rows[0].match_count, 3);
+  assert.equal(combineMapPreviews([]), undefined);
+  const partial = [window("camping", "2027-07-02", "2027-07-03", 1), window("roofed", "2027-07-03", "2027-07-04", 1)];
+  assert.equal(combineMapPreviews([...mapAvailabilityPreviews(partial, { arrival: "2027-07-02", departure: "2027-07-04" }).values()]), undefined);
 });
 
 test("date-filtered previews require one saved stay covering every selected night", () => {
@@ -57,6 +69,34 @@ test("provider names cannot inject markup into Leaflet previews", () => {
   assert.match(html, /&lt;img/);
   assert.match(html, /A&amp;B/);
   assert.match(html, /Park reference location/);
+});
+
+test("preview links preserve provider URLs and open in isolated new tabs", () => {
+  const mapsUrl = "https://www.google.com/maps/dir/?api=1&destination=47.600000%2C-124.300000&travelmode=driving";
+  for (const websiteUrl of [
+    "https://www.recreation.gov/camping/campgrounds/232464",
+    "https://washington.goingtocamp.com/?resourceLocationId=-2147483648&bookingCategoryId=1",
+    "https://campground.example/?name=Coast&region=WA"
+  ]) {
+    const html = campgroundPreviewHtml(campground, undefined, { stay: null, loaded: true, error: false, mapsUrl, websiteUrl });
+    assert.match(html, />Google Maps<\/a>/);
+    assert.match(html, />Website<\/a>/);
+    assert.ok(html.includes(websiteUrl.replaceAll("&", "&amp;")));
+    assert.match(html, /destination=47.600000%2C-124.300000/);
+    assert.equal((html.match(/target="_blank" rel="noopener noreferrer"/g) || []).length, 2);
+  }
+});
+
+test("missing or unsafe preview links are omitted rather than made clickable", () => {
+  for (const websiteUrl of [undefined, "", "/relative", "//example.com", "javascript:alert(1)", "java\nscript:alert(1)",
+    "data:text/html,<script>alert(1)</script>", "file:///private", "https://user:secret@example.com"]) {
+    const html = campgroundPreviewHtml(campground, undefined, { stay: null, loaded: true, error: false, websiteUrl });
+    assert.doesNotMatch(html, /<a\s|map-preview-links/);
+  }
+  const html = campgroundPreviewHtml(campground, undefined, { stay: null, loaded: true, error: false,
+    websiteUrl: 'https://example.com/?q=" onmouseover="bad()&other=<script>' });
+  assert.doesNotMatch(html, /" onmouseover=|<script>/);
+  assert.match(html, /%22/);
 });
 
 test("preview placement keeps the entire card inside desktop and mobile maps", () => {

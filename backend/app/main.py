@@ -527,10 +527,13 @@ def results_for_stay(
     campground_id: str | None = Query(default=None, min_length=1, max_length=200),
     park_name: str | None = Query(default=None, min_length=1, max_length=300),
     limit: int = Query(default=2000, ge=1, le=2000),
+    campground_ids: list[str] = Query(default=[], max_length=20),
 ) -> dict:
     if departure <= arrival:
         raise HTTPException(status_code=422, detail="Check-out must be after arrival.")
-    return store.results_for_stay(arrival.isoformat(), departure.isoformat(), campground_id, park_name, limit)
+    if any(not item or len(item) > 200 for item in campground_ids):
+        raise HTTPException(status_code=422, detail="Campground IDs must contain 1 to 200 characters.")
+    return store.results_for_stay(arrival.isoformat(), departure.isoformat(), campground_id, park_name, limit, campground_ids)
 
 
 @app.post("/api/results/clear")

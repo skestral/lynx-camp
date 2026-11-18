@@ -192,8 +192,9 @@ Each stay is read in paced pages, with at least five seconds between requests. T
 
 Use **Select Campgrounds** to build a watch from individual map pins. Blue checks
 mark the selected campgrounds; the review list supports removal and a checkbox
-picker for overlapping pins. **Add Visible** adds only active imported targets
-displayed inside the current map bounds, honoring the date filter. Selections
+picker for individual provider listings. A combined Camping/Roofed pin selects
+both categories by default. **Add Visible** adds active imported listings at pins
+inside the current map bounds, honoring the date filter. Selections
 survive panning and date changes. **Create Watch** opens the usual editor with
 those fixed members and, for a new draft, the selected map dates. Set arrival days,
 nights, filters, and alerts, then save with **Add Watch**. No watch is created until
@@ -203,13 +204,31 @@ you save. [Map watch walkthrough](docs/availability-map.md#build-a-watch-from-th
 
 [Mobile watch draft](docs/screenshots/map-watch-mobile.png)
 
-The map is both a navigation tool and a watch builder. Hover or keyboard-focus a campground marker for its name, park/state, saved match count, recent observation time, and up to three original stay pairs. Selected map dates limit the summary to stays covering the full interval. Hover uses the complete saved availability aggregate, not the bounded result list, and does not request provider details or run a scan. On touch devices, tap a marker. Click a park marker or a Park Queue row to see a park summary, quick campground list, result counts, and a Watch Park button. Click a campground marker to load its Recreation.gov campground details, including description text, activities, amenities, active notices, a Recreation.gov details link, a Google Maps directions link, and a campground image when Recreation.gov returns one. Some Recreation.gov campground records do not include media, so the UI shows a simple placeholder instead of guessing with stock imagery. If Recreation.gov does not return a detail record or rate-limits that lookup, Camp Finder falls back to the saved target record instead of blocking the map panel.
+The map is both a navigation tool and a watch builder. Hover or keyboard-focus a campground marker for its name, park/state, saved match count, recent observation time, and up to three original stay pairs. Selected map dates limit the summary to stays covering the full interval. Hover uses the complete saved availability aggregate, not the bounded result list, and does not request provider details or run a scan. On touch devices, tap a marker. Click a Park Queue row to see a park summary, quick campground list, result counts, and a Watch Park button. Click a campground marker to load its Recreation.gov campground details, including description text, activities, amenities, active notices, a Recreation.gov details link, a Google Maps directions link, and a campground image when Recreation.gov returns one. Some Recreation.gov campground records do not include media, so the UI shows a simple placeholder instead of guessing with stock imagery. If Recreation.gov does not return a detail record or rate-limits that lookup, Camp Finder falls back to the saved target record instead of blocking the map panel.
 
-Region outlines are hidden by default, including in the available-stay view. Select a park from Park Queue or its map marker, or check its Park Queue checkbox, to show its footprint. Hovering alone highlights related markers and rows without adding a polygon. Clear the location filter and uncheck selected groups to hide their outlines. Park regions are approximated from the visible campground coordinates: a convex footprint for three or more distinct points, a corridor for two, and a small footprint for one. Use Watch Selected to open the watch form with the Selected park groups scope and create one regional watch.
+Region outlines are hidden by default, including in the available-stay view. Select a park from Park Queue, or check its Park Queue checkbox, to show its footprint. Hovering alone highlights related markers and rows without adding a polygon. Clear the location filter and uncheck selected groups to hide their outlines. Park regions are approximated from the visible campground coordinates: a convex footprint for three or more distinct points, a corridor for two, and a small footprint for one. Use Watch Selected to open the watch form with the Selected park groups scope and create one regional watch.
+
+Campground pins use their park group's color, matching Park Queue; large
+park-center dots are no longer shown. Known Camping/Roofed and group-camping
+listings share one location pin while retaining separate watch targets and
+booking links. Rainier's five listings occupy three mapped locations, not five
+different campgrounds. **Not imported** and **Paused target** labels explain
+unavailable selections, with import and target-settings actions in the details.
 
 ![Campground hover preview for a selected night, with unselected regions hidden](docs/screenshots/map-hover-desktop.png)
 
 [Mobile hover preview](docs/screenshots/map-hover-mobile.png) | [Map guide](docs/availability-map.md)
+
+Campground hover previews include **Google Maps** directions and a **Website**
+link to the saved campground provider/booking page. Both open in a new tab without
+changing the map selection or watch draft. Tab from a focused marker to use the
+links with a keyboard; Escape returns focus to the marker. No provider lookup is
+needed to show these links.
+
+Combined pins have a website link for each listing. Roofed is the cabins/yurts
+category, not a substitute for Camping. Uncheck Roofed in the picker for a
+Camping-only watch. For rooftop tents, verify vehicle access and equipment rules
+on the provider's site; a tent result can still be walk-in only.
 
 These local footprints are meant for watch selection, not legal park boundaries. A future boundary-source integration could use a provider such as Google Maps data-driven boundary styling, OpenStreetMap boundary data, or an official park boundary dataset, but that would need provider credentials, data licensing review, and a cache model before replacing the local campground-footprint polygons.
 

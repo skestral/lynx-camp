@@ -322,15 +322,58 @@ An ignore rule does not untrack an existing file and can be bypassed with `git a
 
 ## Documentation Screenshots
 
+### Hover Preview Links
+
+Hover previews use the saved target/provider URL and the existing Google Maps
+directions builder. They do not fetch campground details. `mapPreview.ts` accepts
+only HTTP(S) links without embedded credentials, escapes attributes, and opens
+links with `noopener noreferrer`. Invalid or missing website links are omitted.
+
+`mapTooltip.ts` keeps focus inside the interactive preview when tabbing from a
+marker. Shift+Tab returns from the first link; Escape closes the preview and
+restores marker focus. Closed cards become inert during Leaflet's fade-out so
+their links cannot receive focus or clicks. Background marker refreshes preserve
+the focused link when the same preview is still available.
+
+Verified November 18, 2026: 41 frontend tests passed, including unsafe URL and
+attribute-escaping cases. Desktop and touch checks opened directions and category links in isolated
+new tabs and confirmed that result filters and watch selections did not change.
+External destinations were intercepted in the browser tests; those checks verify
+link behavior, not the availability of third-party websites.
+
 ### Map Watch Selection
 
 `frontend/src/mapWatch.ts` keeps an ordered, unique selection of active target
 IDs, capped at the watch-group API's 500-member limit. Selection is independent
 of map dates and viewport bounds; deleted or deactivated targets are removed
 after a target refresh. Add Visible intersects rendered campground pins with
-the current viewport, so it does not accidentally select hidden date matches or
-unimported presets. The checkbox picker covers all rendered campgrounds, including
-pins sharing coordinates.
+the current viewport. It includes all active listings at a visible location,
+even when only one category has a date match, but never imports a preset.
+The checkbox picker exposes each underlying listing, including paused and
+unimported entries with their reason for being unavailable.
+
+`mapLocations.ts` combines GoingToCamp Camping/Roofed IDs by tenant and provider
+location, plus explicit Recreation.gov aliases for Cougar Rock and Ohanapecosh
+group facilities. It never merges by name or coordinate proximity. Provider IDs
+remain unchanged in storage, watch groups, results, notifications, and backups.
+The park palette is assigned from the full sorted group list, so date filtering
+does not recolor remaining pins. Colors repeat after 16 groups; labels and hover
+highlighting remain available. The map has no park-center count markers.
+
+Overview and for-stay accept repeated `campground_ids` query parameters (maximum
+20 IDs, 1-200 characters each). These are a parameterized SQL union intersected
+with park, date, status, single-ID, and snapshot filters. `dismiss-scope` accepts
+the same array in its JSON filters, and still requires a read boundary. An empty
+array is not sufficient scope for dismissal. `combineMapPreviews` merges counts
+by original stay only after each saved result window qualifies for the dates.
+
+The combined-location check passed 490 backend tests with Docker networking
+disabled, 41 frontend tests, and the production build. Desktop checks saved a
+two-member Camping/Roofed watch, verified grouped result reads and partial
+selection, imported both Rainier facilities from one pin, and left paused targets
+unchanged. Hover links, keyboard focus, and touch selection were checked at
+1440px and 390px. Provider details and external link destinations were synthetic;
+the checks did not perform provider scans, bookings, or notification deliveries.
 
 The `campgrounds` form scope submits `POST /api/watch-groups` with explicit
 `target_ids` and `region_scope: null`. It uses the existing group persistence,
@@ -382,7 +425,7 @@ Current documentation images:
 
 | Image | View |
 | --- | --- |
-| `map-watch-desktop.png` | Two selected campground pins and the watch review list |
+| `map-watch-desktop.png` | One location pin with Camping and Roofed selected |
 | `map-watch-mobile.png` | Selected campgrounds and dates in the mobile watch editor |
 | `map-hover-desktop.png` | Campground preview for a selected night, with no unselected polygons |
 | `map-hover-mobile.png` | Preview at 390px with accessible map controls |
