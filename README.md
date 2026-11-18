@@ -19,6 +19,12 @@ Saved matches are not a guarantee that inventory is still available.
 
 [Mobile availability map](docs/screenshots/availability-map-mobile.png) | [Date-map guide](docs/availability-map.md)
 
+The complete availability overview groups all saved matches without downloading every campsite. This example contains 15,204 synthetic results.
+
+![Complete availability overview with park, campground, site, and stay counts](docs/screenshots/results-overview-desktop.png)
+
+[Overview guide](docs/results-overview.md) | [Mobile overview](docs/screenshots/results-overview-mobile.png)
+
 Grouped availability and a crawl waiting through a provider cooldown. The following earlier screenshots use synthetic data; the sites, progress, and delivery records are examples, not live availability.
 
 ![Dashboard showing pending crawl checks, estimated time, and grouped campsite matches](docs/screenshots/dashboard-overview.png)
@@ -74,8 +80,8 @@ Grouped availability and a crawl waiting through a provider cooldown. The follow
 - Show Cart Assist server readiness and recent attempt history without exposing Recreation.gov credentials in the browser.
 - Configure server-level Cart Assist from the dashboard or from Docker environment variables.
 - Triage availability results as opened, booked, dismissed, or active again.
-- Filter, sort, select, and bulk-update availability results from the dashboard.
-- Filter the map by a night or full stay, or choose from saved available dates. Counts include all active matches, beyond the result list's 2,000-row cap.
+- Browse complete result totals by park, campground, or stay dates, with paged campsite details and full-group dismissal. The separate Detailed list retains individual selection and bulk status actions.
+- Filter the map by a night or full stay, or choose from saved available dates. Map and Overview counts include all matching records, beyond the Detailed list's 2,000-row cap.
 - Inspect map markers with Recreation.gov descriptions, details links, Google Maps navigation links, activity tags, notices, and images when Recreation.gov provides media.
 - Use visible park footprint polygons and Park Queue checkboxes to inspect and select campground groups directly from the map.
 - Show notification channel status, configure delivery settings, and send a test notification.
@@ -92,7 +98,7 @@ The dashboard is organized around the work that usually matters first:
 1. Check the crawl banner and summary counts. Waiting means a provider cooldown is active, not that all campgrounds have been checked. Pause crawl retains pending work; Resume crawl continues it.
 2. Choose a night, check-out date, or saved stay above the map. Matching campgrounds and park counts update together; View Results opens the matching stays below. Clear dates restores the full target map.
 3. Open Watches to manage regional listings and their member campgrounds. Targets, Watches, Alerts, Activity, and Settings are slide-out drawers, not separate dashboard sections.
-4. Expand park, campground, and stay-date groups in Availability Results, or use search and sort. Select Visible supports bulk actions; the X beside a group dismisses its active matches after confirmation. The Washington-centered map and Park Queue also support regional watches; Watch View still selects all active imported targets inside the map bounds, not just date matches.
+4. Use Availability Results > Overview to compare all saved matches by park, campground, or dates. Expand groups for paged site details; search covers the full database. The X beside a group dismisses its active filtered matches across all pages after confirmation. Detailed list provides individual selection and bulk status actions on its loaded rows. The Washington-centered map and Park Queue also support regional watches; Watch View still selects all active imported targets inside the map bounds, not just date matches.
 5. Use Activity for recent scan checkpoints and Logs for detailed runs and notification delivery. Dashboard in the sidebar returns home from Logs.
 6. Trip Control and the full-width release planner remain below the primary results area for planning the next trip.
 
@@ -421,11 +427,11 @@ Each successful scan also revalidates active results for the same watch and date
 
 An automatically removed match can become active and notify again when it reappears. This does not reopen a result that you explicitly marked Booked or Dismissed.
 
-Results are grouped by national park, campground, and stay dates. When 12 or fewer results match the current filters, campground and stay sections open automatically so sites are immediately visible. Larger result sets start collapsed below the park level. Your explicit expand/collapse choices take precedence until the page is reloaded. The dashboard loads up to 2,000 recent result rows, shows server-side total and active counts, and warns if the loaded working set is clipped. Use the status filter and search field to narrow the dashboard before selecting results. Bulk actions apply to selected results only; Clear All dismisses every active availability result.
+Availability Results defaults to **Overview**, with complete filtered totals and grouping by park/region, campground, or stay dates. Search and status filters apply to the full database before grouping. Each expanded level loads at most 25 rows, including individual site details, so a large regional watch does not require downloading thousands of result records. Map counts also use the full saved availability rollup. See [Browse Large Result Sets](docs/results-overview.md) for counts, filtering, and paging.
 
-Each park/region, campground, and stay-date heading has an X button to dismiss that group's active matches. The confirmation shows the count. It includes collapsed rows but respects the current search/status filters and the browser's loaded working set; it does not dismiss unseen results beyond the 2,000-row limit. Booked results and watches are left unchanged. Use the Dismissed view to find those matches again and Reopen to restore them. Group dismissal is one atomic database operation.
+Each Overview group has an X button to dismiss its active matches across all pages, including unloaded records, after confirmation. Search, status, map location, and date filters are respected. Newly inserted records beyond the group's read boundary, booked results, and watches are left unchanged. Counts may change while you browse; the completed action reports how many were actually dismissed. Group dismissal is atomic. Clear All remains global and dismisses every active result, regardless of filters.
 
-The [dashboard screenshot](docs/screenshots/dashboard-overview.png) shows per-group dismissal beside campground and date headings. The [mobile watch screenshot](docs/screenshots/regional-watch-demo.png) shows a single regional listing with expandable campground members.
+**Detailed list** preserves the previous grouped list and individual bulk selection. It loads up to 2,000 recent rows and warns when clipped; its search, Select Visible, and group dismissal apply only to loaded rows. Use Overview for a complete view. The [overview screenshot](docs/screenshots/results-overview-desktop.png) shows complete totals and group dismissal. The [mobile watch screenshot](docs/screenshots/regional-watch-demo.png) shows a single regional listing with expandable campground members.
 
 For high-priority trips, enable Cart Assist on the watch rule. When a new match appears, the scanner writes a Cart Assist attempt with one of these statuses:
 

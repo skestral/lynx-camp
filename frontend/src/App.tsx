@@ -43,6 +43,7 @@ import { availabilityCounts, selectedStay } from "./availability";
 import { coordinatePair } from "./coordinates";
 import { recurringStayPreview, watchArrivalDays, weekdayOptions } from "./watchSchedule";
 import { createRefreshGate } from "./dashboardRefresh";
+import { ResultsOverview } from "./ResultsOverview";
 import type {
   AvailabilityWindow,
   StayResults,
@@ -795,6 +796,8 @@ export default function App() {
   const [selectedWatchIds, setSelectedWatchIds] = useState<number[]>([]);
   const [watchBulkBusy, setWatchBulkBusy] = useState(false);
   const [results, setResults] = useState<Result[]>([]);
+  const [resultPresentation, setResultPresentation] = useState<"overview" | "details">("overview");
+  const [resultRevision, setResultRevision] = useState(0);
   const [resultSummary, setResultSummary] = useState<ResultSummary>({ total_count: 0, active_count: 0 });
   const [scanRuns, setScanRuns] = useState<ScanRun[]>([]);
   const [scanEvents, setScanEvents] = useState<ScanEvent[]>([]);
@@ -908,6 +911,7 @@ export default function App() {
   const [diagnosticSource, setDiagnosticSource] = useState("washington-state-parks");
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [drawerMode, setDrawerMode] = useState<DrawerMode>("targets");
+  const needsDetailedResults = resultPresentation === "details" || (drawerOpen && drawerMode === "watches");
   const [pageView, setPageView] = useState<PageView>(() => (window.location.hash === "#logs" ? "logs" : "monitor"));
   const [utilityTab, setUtilityTab] = useState<UtilityTab>("release");
   const [mapSelection, setMapSelection] = useState<MapSelection | null>(null);
@@ -1156,13 +1160,13 @@ export default function App() {
     >();
     const resultCountsByCampground = new Map<string, { resultCount: number; activeResultCount: number }>();
 
-    for (const result of results) {
+    for (const result of availability) {
       const current = resultCountsByCampground.get(result.campground_id) || {
         resultCount: 0,
         activeResultCount: 0
       };
-      current.resultCount += 1;
-      if (isActiveAvailability(result)) current.activeResultCount += 1;
+      current.resultCount += result.match_count;
+      current.activeResultCount += result.match_count;
       resultCountsByCampground.set(result.campground_id, current);
     }
 
@@ -1225,8 +1229,8 @@ export default function App() {
       summaries.set(parkName, summary);
     }
 
-    for (const result of results) {
-      const parkName = result.park_name || result.target_name || "Unassigned park";
+    for (const result of availability) {
+      const parkName = savedTargetsByCampground.get(result.campground_id)?.park_name || "Unassigned park";
       const summary =
         summaries.get(parkName) ||
         {
@@ -1238,8 +1242,8 @@ export default function App() {
           activeResultCount: 0,
           campgrounds: []
         };
-      summary.resultCount += 1;
-      if (isActiveAvailability(result)) summary.activeResultCount += 1;
+      summary.resultCount += result.match_count;
+      summary.activeResultCount += result.match_count;
       summaries.set(parkName, summary);
     }
 
@@ -1272,7 +1276,7 @@ export default function App() {
           campgrounds: summary.campgrounds.sort((a, b) => a.name.localeCompare(b.name))
         };
       });
-  }, [presets, results, targets]);
+  }, [presets, availability, targets]);
   const dateCounts = useMemo(() => mapStay && !availabilityError
     ? availabilityCounts(availability, mapStay) : new Map<string, number>(), [availability, mapStay, availabilityError]);
   const mapParkSummaries = useMemo(() => {
@@ -1596,7 +1600,7 @@ export default function App() {
         setWatches(data);
         setSelectedWatchIds((ids) => ids.filter((id) => data.some((watch) => watch.id === id)));
       }),
-      api.results().then(setResults),
+      fetchDashboardResults().then(setResults),
       api.resultSummary().then(setResultSummary),
       refreshAvailability(),
       api.scanRuns().then(setScanRuns),
@@ -1613,11 +1617,18 @@ export default function App() {
     setLoadState(failures.length ? "error" : "idle");
     setRefreshErrors(failures.map((failure) => failure.reason instanceof Error ? failure.reason.message : "Request failed"));
     if (!failures.length) setLastRefreshAt(new Date().toISOString());
+    setResultRevision(value => value + 1);
+  }
+
+  function fetchDashboardResults() {
+    return needsDetailedResults ? api.results(RESULTS_LIMIT) : api.resultOverview({
+      view: "active", group_by: "items", sort: "newest", limit: 6
+    }).then(page => page.results);
   }
 
   useEffect(() => {
     refresh();
-  }, []);
+  }, [needsDetailedResults]);
 
   useEffect(() => {
     const syncPageFromHash = () => {
@@ -1635,7 +1646,7 @@ export default function App() {
       if (document.visibilityState === "visible") void refresh({ silent: true });
     }, 30000);
     return () => window.clearInterval(handle);
-  }, [targetSettingsId, watchTarget]);
+  }, [targetSettingsId, watchTarget, needsDetailedResults]);
 
   useEffect(() => {
     if (!scanInProgress) return;
@@ -1644,7 +1655,7 @@ export default function App() {
         const reads = [
           api.scanRuns(),
           api.scanEvents(),
-          api.results(),
+          fetchDashboardResults(),
           api.resultSummary(),
           api.cartAttempts(),
           api.crawlStatus()
@@ -1672,11 +1683,11 @@ export default function App() {
     void pollLiveScanState();
     const handle = window.setInterval(pollLiveScanState, crawlStatus?.status === "waiting" ? 15000 : 3000);
     return () => window.clearInterval(handle);
-  }, [scanInProgress, crawlStatus?.status]);
+  }, [scanInProgress, crawlStatus?.status, needsDetailedResults]);
 
   useEffect(() => {
     setStayResultsError("");
-    if (!mapStay) { setStayResults(null); return; }
+    if (!mapStay || resultPresentation === "overview") { setStayResults(null); return; }
     const controller = new AbortController();
     const timeout = window.setTimeout(() => controller.abort(), 15000);
     let current = true;
@@ -1687,7 +1698,7 @@ export default function App() {
       .catch(error => { if (current) { setStayResults(null); setStayResultsError(error instanceof Error ? error.message : "Unable to load matching stays."); } })
       .finally(() => window.clearTimeout(timeout));
     return () => { current = false; controller.abort(); window.clearTimeout(timeout); };
-  }, [stayQueryKey, availability]);
+  }, [stayQueryKey, availability, resultPresentation]);
 
   useEffect(() => {
     if (!cartAssistStatus || cartAssistConfigDirty || cartAssistConfigBusy) return;
@@ -2922,7 +2933,6 @@ export default function App() {
           <div className="map-detail-facts">
             <span>{selectedMapPark.stateCodes}</span>
             <span>{selectedMapPark.activeResultCount} active matches</span>
-            <span>{selectedMapPark.resultCount} loaded results</span>
           </div>
           <div className="map-detail-list">
             {previewCampgrounds.map((campground) => {
@@ -3271,18 +3281,18 @@ export default function App() {
     );
   }
 
-  function resultCard(result: Result) {
-    const selected = selectedResultSet.has(result.id);
+  function resultCard(result: Result, selectable = true) {
+    const selected = selectable && selectedResultSet.has(result.id);
     const cartAttempt = cartAttemptByResultId.get(result.id);
     const bookingUrl = bookingUrlWithStartDate(result.booking_url, result.arrival_date);
     return (
       <article className={`result-card ${selected ? "selected" : ""}`} key={result.id}>
-        <label className="result-select">
-          <input
+        <label className={`result-select ${selectable ? "" : "without-checkbox"}`}>
+          {selectable && <input
             checked={selected}
             onChange={() => toggleResultSelection(result.id)}
             type="checkbox"
-          />
+          />}
           <span>
             <strong>{result.site}</strong>
             <small>{[result.loop, result.campsite_type].filter(Boolean).join(" / ") || "Campsite"}</small>
@@ -3668,7 +3678,7 @@ export default function App() {
             </div>
             <div className="drawer-result-list">
               {activeResults.length === 0 && <p className="empty">No active availability alerts right now.</p>}
-              {activeResults.slice(0, 6).map(resultCard)}
+              {activeResults.slice(0, 6).map(result => resultCard(result))}
             </div>
             <div className="notification-log">
               <div className="subheading">
@@ -5320,6 +5330,18 @@ export default function App() {
               </div>
             )}
             <div className="result-toolbar">
+              <div className="target-tabs result-view-tabs" role="tablist" aria-label="Result views" onKeyDown={event => {
+                if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+                event.preventDefault();
+                const next = event.key === "Home" ? "overview" : event.key === "End" ? "details" : resultPresentation === "overview" ? "details" : "overview";
+                setResultPresentation(next);
+                event.currentTarget.querySelector<HTMLButtonElement>(`#result-tab-${next}`)?.focus();
+              }}>
+                <button id="result-tab-overview" role="tab" aria-selected={resultPresentation === "overview"} aria-controls="result-overview"
+                  tabIndex={resultPresentation === "overview" ? 0 : -1} onClick={() => setResultPresentation("overview")}>Overview</button>
+                <button id="result-tab-details" role="tab" aria-selected={resultPresentation === "details"} aria-controls="result-details"
+                  tabIndex={resultPresentation === "details" ? 0 : -1} onClick={() => setResultPresentation("details")}>Detailed list</button>
+              </div>
               <label className="toolbar-field">
                 <Filter size={16} />
                 <select aria-label="Result status" disabled={dateFilterActive} value={resultView} onChange={(event) => setResultView(event.target.value as ResultView)}>
@@ -5348,13 +5370,13 @@ export default function App() {
               </div>
               <label className="toolbar-field">
                 <ListChecks size={16} />
-                <select value={resultSort} onChange={(event) => setResultSort(event.target.value as ResultSort)}>
+                <select aria-label="Result sort" value={resultSort} onChange={(event) => setResultSort(event.target.value as ResultSort)}>
                   {resultSortOptions.map((option) => (
                     <option key={option.value} value={option.value}>{option.label}</option>
                   ))}
                 </select>
               </label>
-              <div className="result-bulk-actions">
+              {resultPresentation === "details" && <div className="result-bulk-actions">
                 <button
                   className="icon-button"
                   disabled={visibleResultIds.length === 0}
@@ -5391,12 +5413,22 @@ export default function App() {
                   <RefreshCw size={16} />
                   <span>Reopen</span>
                 </button>
-              </div>
-              <span className="result-count">
+              </div>}
+              {resultPresentation === "details" && <span className="result-count">
                 {filteredResults.length} shown &middot; {selectedResults.length} selected &middot; {loadedResultCount} loaded
                 {resultListTruncated ? ` of ${totalResultCount}` : ""}
-              </span>
+              </span>}
             </div>
+            {resultPresentation === "overview" ? <div id="result-overview" role="tabpanel" aria-labelledby="result-tab-overview">
+              {dateFilterActive && !mapStay ? <p role="status">{mapDateError || "Choose arrival and check-out dates."}</p> :
+                <ResultsOverview filters={{ view: dateFilterActive ? "active" : resultView,
+                  search: mapSelection ? "" : resultQuery,
+                  ...(mapStay ? { arrival: mapStay.arrival, departure: mapStay.departure } : {}),
+                  ...(mapSelection?.kind === "park" ? { park_name: mapSelection.parkName } : {}),
+                  ...(mapSelection?.kind === "campground" ? { campground_id: mapSelection.campgroundId } : {}) }}
+                  sort={resultSort} revision={resultRevision} disabled={clearResultsBusy || bulkResultBusy !== null || resultBusyId !== null}
+                  renderResult={result => resultCard(result, false)} onChanged={() => refresh({ silent: true })} />}
+            </div> : <div id="result-details" role="tabpanel" aria-labelledby="result-tab-details">
             {resultListTruncated && (
               <div className="result-limit-note">
                 Showing {loadedResultCount} of {totalResultCount} {dateFilterActive ? "matching stays" : "saved results"}. This browser view loads up to {RESULTS_LIMIT} rows; search and Select Visible apply to loaded rows. {dateFilterActive ? "Map counts include all matching stays. Select a campground on the map to narrow this list." : ""}
@@ -5476,7 +5508,7 @@ export default function App() {
                                         </div>
                                         {stayOpen && (
                                           <div className="result-card-list">
-                                            {stay.results.map(resultCard)}
+                                            {stay.results.map(result => resultCard(result))}
                                           </div>
                                         )}
                                       </section>
@@ -5493,6 +5525,7 @@ export default function App() {
                 );
               })}
             </div>
+            </div>}
           </section>
         </div>
         )}

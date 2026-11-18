@@ -5,6 +5,7 @@ import logging
 import sqlite3
 from contextlib import asynccontextmanager
 from datetime import date
+from typing import Annotated
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.exceptions import RequestValidationError
@@ -16,6 +17,7 @@ from .cart_assist import CartAssistant
 from .alert_dispatcher import AlertDispatcher
 from .db import Store
 from .background_io import monitor_event_loop
+from .result_overview import read_overview, dismiss_scope
 from .notifications import Notifier
 from .presets import discover_preset_pack, import_discovered_preset_pack, import_preset_pack, list_preset_packs
 from .recreation import RateLimitError
@@ -34,6 +36,8 @@ from .schemas import (
     NotificationConfigUpdate,
     ResultStatusUpdate,
     ResultGroupDismiss,
+    ResultOverviewQuery,
+    ResultScopeDismiss,
     ScanConfigUpdate,
     TargetCreate,
     TargetUpdate,
@@ -500,6 +504,16 @@ def list_results(limit: int = Query(default=2000, ge=1, le=2000)) -> list[dict]:
 @app.get("/api/results/summary")
 def result_summary() -> dict:
     return store.result_summary()
+
+
+@app.get("/api/results/overview")
+def result_overview(options: Annotated[ResultOverviewQuery, Query()]) -> dict:
+    return read_overview(store, options)
+
+
+@app.post("/api/results/dismiss-scope")
+def dismiss_result_scope(payload: ResultScopeDismiss) -> dict:
+    return {"dismissed_count": dismiss_scope(store, payload.filters)}
 
 
 @app.get("/api/results/availability")

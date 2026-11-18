@@ -80,7 +80,8 @@ def test_existing_populated_database_gets_indexes_without_data_loss(tmp_path):
     with store.connect() as conn:
         # Reproduce the previously shipped schema: only the group and UNIQUE indexes.
         indexes = conn.execute("SELECT name FROM sqlite_master WHERE type = 'index' AND sql IS NOT NULL AND name != 'watches_group_id'").fetchall()
-        assert len(indexes) == 15  # Child keys, active stays, discovery history, and dispatch deduplication.
+        expected_indexes = {index["name"] for index in indexes}
+        assert {"results_active_stay", "results_campground_stay"} <= expected_indexes
         for index in indexes:
             conn.execute(f"DROP INDEX {index['name']}")
     reopened = Store(store.database_path)
@@ -91,6 +92,8 @@ def test_existing_populated_database_gets_indexes_without_data_loss(tmp_path):
     assert table_counts(reopened) == before
     assert reopened.get_app_settings() == settings_before
     with reopened.connect() as conn:
+        restored_indexes = {row["name"] for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'index'")}
+        assert expected_indexes <= restored_indexes
         assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
 
 

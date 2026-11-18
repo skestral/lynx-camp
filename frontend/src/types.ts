@@ -154,6 +154,54 @@ export type AvailabilityWindow = {
 
 export type StayResults = { results: Result[]; total_count: number };
 
+export type ResultFilters = {
+  view: "active" | "all" | Result["status"];
+  search?: string;
+  park_name?: string;
+  campground_id?: string;
+  arrival?: string;
+  departure?: string;
+  exact_arrival?: string;
+  exact_departure?: string;
+  max_result_id?: number;
+};
+export type ResultGrouping = "park" | "campground" | "stay" | "items";
+export type ResultOverviewQuery = ResultFilters & {
+  group_by: ResultGrouping;
+  sort: "arrival" | "park" | "newest";
+  offset?: number;
+  limit?: number;
+};
+export type ResultRollup = {
+  match_count: number;
+  active_count: number;
+  campground_count: number;
+  park_count: number;
+  site_count: number;
+  stay_count: number;
+  first_arrival: string | null;
+  last_departure: string | null;
+  last_seen_at: string | null;
+  newest_at: string | null;
+};
+export type ResultOverviewGroup = ResultRollup & {
+  park_name?: string;
+  campground_id?: string;
+  campground_name?: string;
+  arrival_date?: string;
+  departure_date?: string;
+};
+export type ResultOverviewPage = {
+  summary: ResultRollup;
+  groups: ResultOverviewGroup[];
+  results: Result[];
+  total_groups: number;
+  offset: number;
+  limit: number;
+  has_more: boolean;
+  snapshot_max_id: number;
+};
+
 export type NotificationEvent = {
   id: number;
   result_id: number | null;

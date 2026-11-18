@@ -201,6 +201,57 @@ New matches are deduplicated and, for opted-in watches, notified after each camp
 
 ## Verification
 
+### Result Overview
+
+`backend/app/result_overview.py` owns the complete rollup and scoped dismissal.
+`GET /api/results/overview` accepts `group_by=park|campground|stay|items`,
+`view`, `search`, `sort`, `limit` (1-100, default 25), and `offset`. Optional
+`park_name` and `campground_id` are exact location filters. `arrival`/`departure`
+select saved stays covering that interval; `exact_arrival`/`exact_departure`
+select one original stay pair. Date pairs are validated together.
+
+The response contains `summary`, `groups`, `results`, `total_groups`,
+`has_more`, and `snapshot_max_id`. Aggregation and pagination share a SQLite read
+transaction; no provider requests are made. Unicode case-folded substring
+search and all other filters run before aggregation. Site counts use distinct
+campground/site pairs, while match counts preserve overlapping watches.
+
+`POST /api/results/dismiss-scope` accepts `{filters: {...}}` with the same
+filters plus a required `max_result_id` and a park, campground, or exact-date
+scope. It dismisses active available/opened rows in one transaction. The ID
+boundary excludes new insertions, not changes to existing records. Booked rows,
+watches, and the finding journal are untouched. Startup adds the
+`results_campground_stay` index to both new and existing databases.
+
+`frontend/src/ResultsOverview.tsx` loads 25 groups or sites per page, debounces
+search, cancels superseded reads, and retains stale data with an error on refresh
+failure. Expanded children inherit the parent read boundary. The default
+dashboard requests only six active result previews for Alerts; map counts use
+the existing complete availability aggregate. The bounded legacy result list
+loads on demand for Detailed list or the Watches drawer's site picker. Overview
+refreshes with the normal 30-second dashboard refresh and after result actions,
+not on every three-second scan-status tick.
+
+`test_result_overview.py` covers more than 15,000 rows, older matches missing
+from the legacy list, stable page ordering, overlapping watches, exact and
+covering dates, Unicode/literal search, atomic scoped dismissal, read boundaries,
+API validation, and index creation on a populated database. Frontend tests cover
+drill-down filters, group identity, and API serialization. These tests do not
+establish production storage or provider performance.
+
+The November 18, 2026 overview check passed 487 backend tests in Docker with
+external networking disabled, 23 frontend tests, and the production frontend
+build. The read-only browser fixture contained 15,204 matches; its five-group
+overview response was 1,768 bytes and returned no individual site rows. The
+dashboard separately requested six active previews and the existing map
+aggregate. Desktop/mobile checks covered group and site paging, older-result
+search, cabin search, date coverage, full map counts, and retry after a simulated
+503 response. An isolated writable fixture dismissed 2,103 matches through the
+UI while preserving a booked result, the other park, and both watches. No real
+provider scan, booking, or notification was performed.
+
+### Test Commands
+
 From the repository root, using the environment's Python executable:
 
 ```bash
@@ -261,6 +312,10 @@ On Linux/macOS use `.venv/bin/python scripts/docs_demo.py --port 8093`. Open `ht
 
 Add `--washington-access-stop` to show a simulated, persisted Washington API denial in Sources. This never contacts the provider. The older Washington access-stop screenshots use this flag; the visible error is explicitly labeled Demo. The `washington-live-*` images instead show an isolated local Docker instance after real read-only Camping and Roofed checks, with crawling paused and no notification channels configured.
 
+Add `--large-results` for 15,204 synthetic matches, including tent and cabin
+records, 40 campgrounds with results, five park groups, and four stay pairs. This
+fixture is used for the Overview screenshots and browser paging/filter checks.
+
 The helper creates a temporary database, clears inherited Camp Finder environment settings in its own process, disables the scheduler and provider client, and rejects write requests. The example webhook uses `.invalid`; no alert is sent. Do not use this helper for real monitoring. Stop it with Ctrl+C when finished; the temporary database is removed. The map may still load public OpenStreetMap tiles in the browser.
 
 Capture the dashboard at 1440 x 1100 and mobile views at 390 x 844. Use the actual Settings and Watches drawers, their native scrolling, and the Logs link; do not edit rendered text to manufacture a state. Store capture work in `output/playwright/`, inspect the images, and copy approved screenshots into `docs/screenshots/`.
@@ -269,6 +324,8 @@ Current documentation images:
 
 | Image | View |
 | --- | --- |
+| `results-overview-desktop.png` | Complete rollup of 15,204 synthetic results, with collapsed park groups |
+| `results-overview-mobile.png` | The same Overview at 390px, with wrapping totals and controls |
 | `dashboard-overview.png` | Crawl cooldown, progress, and grouped results with dismissal controls |
 | `dashboard-timeout-desktop.png` | Compact refresh warning with retained demo results |
 | `dashboard-timeout-mobile.png` | Mobile refresh warning, timestamp, retry, and logs link |

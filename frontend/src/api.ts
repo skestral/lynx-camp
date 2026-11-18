@@ -21,6 +21,9 @@ import type {
   ReleaseWindowProfileResult,
   Result,
   ResultSummary,
+  ResultFilters,
+  ResultOverviewQuery,
+  ResultOverviewPage,
   RegionScope,
   ScanCancelResult,
   ScanConfig,
@@ -98,6 +101,14 @@ export const api = {
     method: "POST", body: JSON.stringify({ result_ids })
   }),
   resultSummary: () => request<ResultSummary>("/api/results/summary"),
+  resultOverview: (options: ResultOverviewQuery, signal?: AbortSignal) => {
+    const query = new URLSearchParams();
+    Object.entries(options).forEach(([key, value]) => { if (value !== undefined) query.set(key, String(value)); });
+    return request<ResultOverviewPage>(`/api/results/overview?${query}`, { signal });
+  },
+  dismissResultScope: (filters: ResultFilters) => request<{ dismissed_count: number }>("/api/results/dismiss-scope", {
+    method: "POST", body: JSON.stringify({ filters })
+  }),
   scanRuns: () => request<ScanRun[]>("/api/scans"),
   scanEvents: () => request<ScanEvent[]>("/api/scans/events"),
   cancelScans: () => request<ScanCancelResult>("/api/scans/cancel", { method: "POST" }),

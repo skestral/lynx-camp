@@ -269,6 +269,47 @@ class ResultGroupDismiss(BaseModel):
         return sorted(set(value))
 
 
+class ResultFilters(BaseModel):
+    model_config = {"extra": "forbid"}
+    view: Literal["active", "all", "available", "opened", "booked", "dismissed"] = "active"
+    search: str = Field(default="", max_length=300)
+    park_name: str | None = Field(default=None, min_length=1, max_length=300)
+    campground_id: str | None = Field(default=None, min_length=1, max_length=200)
+    arrival: date | None = None
+    departure: date | None = None
+    exact_arrival: date | None = None
+    exact_departure: date | None = None
+    max_result_id: int | None = Field(default=None, ge=0, le=9223372036854775807)
+
+    @model_validator(mode="after")
+    def valid_stays(self):
+        for arrival, departure in ((self.arrival, self.departure), (self.exact_arrival, self.exact_departure)):
+            if (arrival is None) != (departure is None):
+                raise ValueError("Arrival and departure must be supplied together")
+            if arrival is not None and departure <= arrival:
+                raise ValueError("Check-out must be after arrival")
+        return self
+
+
+class ResultOverviewQuery(ResultFilters):
+    group_by: Literal["park", "campground", "stay", "items"] = "park"
+    sort: Literal["arrival", "park", "newest"] = "arrival"
+    limit: int = Field(default=25, ge=1, le=100)
+    offset: int = Field(default=0, ge=0, le=1000000)
+
+
+class ResultScopeDismiss(BaseModel):
+    filters: ResultFilters
+
+    @model_validator(mode="after")
+    def require_bounded_group(self):
+        if self.filters.max_result_id is None or not (
+            self.filters.park_name or self.filters.campground_id or self.filters.exact_arrival
+        ):
+            raise ValueError("Dismissal requires a group and its result snapshot boundary")
+        return self
+
+
 class CartAssistConfigUpdate(BaseModel):
     enabled: bool | None = None
     cooldown_minutes: int | None = Field(default=None, ge=1, le=1440)

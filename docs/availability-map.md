@@ -43,11 +43,13 @@ every campground was checked or is sold out. Matches can become stale while a
 crawl is paused or waiting through a cooldown. Changing map dates does not contact
 reservation providers; normal background scans refresh the underlying inventory.
 
-Map counts include all active saved results, even beyond the browser's 2,000-row
-working set. The matching list filters by dates and selected park/campground on
-the server before applying that cap. A notice appears when the list is truncated;
-search, group dismissal, and Select Visible apply only to its loaded rows. Clear
-All remains a global dismissal, not a date-only action.
+Map counts and the default [Overview](results-overview.md) include all active
+saved matches. Overview applies dates, selected park/campground, and search on
+the server before returning bounded group or site pages. Group dismissal covers
+the full filtered group, not only downloaded rows. The separate Detailed list
+still has a 2,000-row working set; its search, group dismissal, and Select Visible
+apply only to loaded rows. Clear All remains a global dismissal, not a date-only
+action.
 
 ## Coordinates and Upgrades
 

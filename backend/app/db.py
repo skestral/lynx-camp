@@ -250,6 +250,8 @@ class Store:
             conn.execute("""CREATE INDEX IF NOT EXISTS results_active_stay
                 ON results(arrival_date, departure_date, campground_id)
                 WHERE active = 1 AND status IN ('available', 'opened')""")
+            conn.execute("""CREATE INDEX IF NOT EXISTS results_campground_stay
+                ON results(campground_id, arrival_date, departure_date, id)""")
             # Cascades otherwise rescan entire child tables for every deleted parent.
             # Run on every startup so existing databases receive the same indexes.
             for table, column in (

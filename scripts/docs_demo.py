@@ -16,7 +16,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 
-def run(port: int, washington_access_stop: bool = False) -> None:
+def run(port: int, washington_access_stop: bool = False, large_results: bool = False) -> None:
     # Do not inherit personal settings or open the normal application database.
     for key in list(os.environ):
         if key.startswith("CAMPFINDER_"):
@@ -86,6 +86,20 @@ def run(port: int, washington_access_stop: bool = False) -> None:
         main.store.finish_scan_run(run_id, "rate_limited", "Demo HTTP 429: pending checks retained until cooldown ends.", 9, 0)
         main.store.log_scan_event(run_id, watch["id"], watch["target_id"], "warning", "rate_limited", "Demo HTTP 429: crawl waiting; no further availability requests during cooldown.")
         main.notifier.update_config({"webhook_url": "https://discord.example.invalid/demo"})
+        if large_results:
+            for index in range(38):
+                target = main.store.create_target({"name": f"Demo Campground {index + 1:02}",
+                    "park_name": f"Demo Region {index // 10 + 1}", "campground_id": f"demo-large-{index}",
+                    "state_code": "WA", "latitude": 47 + (index % 10) / 10, "longitude": -123 + (index // 10) / 3})
+                watch = main.store.create_watch({"name": "Demo weekends", "target_id": target["id"], "mode": "weekend",
+                    "window_start": f"{year}-07-01", "window_end": f"{year}-08-01", "active": False})
+                for day in (2, 9, 16, 23):
+                    main.store.upsert_results([{"watch_id": watch["id"], "target_id": target["id"],
+                        "campground_id": target["campground_id"], "campground_name": target["name"],
+                        "campsite_id": f"demo-large-{index}-{site}", "site": f"Site {site + 1:03}",
+                        "campsite_type": "Cabin" if site % 10 == 0 else "Tent",
+                        "arrival_date": f"{year}-07-{day:02}", "departure_date": f"{year}-07-{day + 2:02}"}
+                        for site in range(100)])
         main.apply_scan_config()
         main.scanner._begin_full_scan(watches)
         main.scanner._sweep.update(status="waiting", pending=[w["id"] for w in watches[2:]], completed_count=2)
@@ -114,5 +128,6 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--port", type=int, default=8093)
     parser.add_argument("--washington-access-stop", action="store_true", help="Show a simulated Washington API access stop.")
+    parser.add_argument("--large-results", action="store_true", help="Add 15,200 synthetic matches for overview and pagination checks.")
     args = parser.parse_args()
-    run(args.port, args.washington_access_stop)
+    run(args.port, args.washington_access_stop, args.large_results)
