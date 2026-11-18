@@ -12,6 +12,7 @@ import httpx
 from dateutil.relativedelta import relativedelta
 
 from .provider_errors import ProviderResponseError
+from .request_limiter import limited_request
 from .provider_ids import campground_url
 from .recreation import Campsite, RateLimitError, _retry_after_seconds
 
@@ -127,6 +128,7 @@ class KingCountyClient:
         self._center_name = "Tolt MacDonald Park & Campground"
         self._details: dict[int, tuple[float, dict]] = {}
 
+    @limited_request("king")
     async def _request(self, path: str, payload: dict | None = None, before_request: RequestGate | None = None) -> dict:
         # Serialize discovery and scans too. Public metadata pagination should
         # not produce a burst ahead of the scanner's configured request spacing.

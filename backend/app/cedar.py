@@ -14,6 +14,7 @@ from zoneinfo import ZoneInfo
 import httpx
 
 from .provider_errors import ProviderResponseError
+from .request_limiter import limited_request
 from .provider_ids import campground_url
 from .recreation import Campsite, RateLimitError, _retry_after_seconds
 
@@ -239,6 +240,7 @@ class SkagitCountyClient:
         self._last_request = 0.0
         self._lock = asyncio.Lock()
 
+    @limited_request("skagit")
     async def _request(self, operation: str, query: str, variables: dict, before_request: RequestGate | None = None) -> dict:
         async with self._lock:
             await asyncio.sleep(max(0, self.request_spacing_seconds - (time.monotonic() - self._last_request)))

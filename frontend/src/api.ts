@@ -36,13 +36,14 @@ import type {
 } from "./types";
 
 export const RESULTS_LIMIT = 2000;
+const PROVIDER_REQUEST_TIMEOUT_MS = 300000;
 
-async function request<T>(path: string, options?: RequestInit): Promise<T> {
+async function request<T>(path: string, options?: RequestInit, timeoutMs?: number): Promise<T> {
   let response: Response;
   try {
     response = await fetch(path, {
       ...options,
-      signal: options?.signal || AbortSignal.timeout(options?.method ? 300000 : 15000),
+      signal: options?.signal || AbortSignal.timeout(timeoutMs ?? (options?.method ? 300000 : 15000)),
       headers: { "Content-Type": "application/json", ...(options?.headers || {}) }
     });
   } catch {
@@ -121,9 +122,9 @@ export const api = {
   exportConfig: (includeSecrets = false) => request<ConfigBackup>(`/api/config/export?include_secrets=${includeSecrets}`),
   importConfig: (payload: ConfigBackup) =>
     request<ConfigImportResult>("/api/config/import", { method: "POST", body: JSON.stringify(payload) }),
-  search: (query: string) => request<SearchSuggestion[]>(`/api/search?q=${encodeURIComponent(query)}`),
+  search: (query: string) => request<SearchSuggestion[]>(`/api/search?q=${encodeURIComponent(query)}`, undefined, PROVIDER_REQUEST_TIMEOUT_MS),
   campgroundDetails: (campgroundId: string) =>
-    request<CampgroundDetails>(`/api/campgrounds/${encodeURIComponent(campgroundId)}/details`),
+    request<CampgroundDetails>(`/api/campgrounds/${encodeURIComponent(campgroundId)}/details`, undefined, PROVIDER_REQUEST_TIMEOUT_MS),
   createTarget: (payload: Record<string, unknown>) =>
     request<Target>("/api/targets", { method: "POST", body: JSON.stringify(payload) }),
   updateTarget: (targetId: number, payload: Record<string, unknown>) =>
@@ -140,7 +141,7 @@ export const api = {
       };
     }>(`/api/targets/${targetId}/detect-release-window`, { method: "POST" }),
   releaseWindowProfiles: (targetId: number) =>
-    request<ReleaseWindowProfileResult>(`/api/targets/${targetId}/release-window-profiles`),
+    request<ReleaseWindowProfileResult>(`/api/targets/${targetId}/release-window-profiles`, undefined, PROVIDER_REQUEST_TIMEOUT_MS),
   deleteTarget: (targetId: number) => request<{ deleted: boolean }>(`/api/targets/${targetId}`, { method: "DELETE" }),
   importPreset: (packId: string) =>
     request<{ pack_id: string; imported_count: number; updated_count: number; target_count: number }>(

@@ -245,6 +245,7 @@ export type CrawlStatus = {
   effective_request_delay_seconds: number;
   estimated_remaining_seconds: number | null;
   estimated_requests_remaining: number;
+  completed_stay_count: number;
 };
 
 export type ScanEvent = {

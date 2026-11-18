@@ -10,6 +10,7 @@ from bs4 import BeautifulSoup
 
 from .provider_ids import campground_url
 from .provider_errors import ProviderResponseError
+from .request_limiter import limited_request
 from .recreation import Campsite, RateLimitError, _retry_after_seconds
 
 
@@ -125,6 +126,7 @@ class SnohomishClient:
     def __init__(self, transport: httpx.AsyncBaseTransport | None = None):
         self.transport = transport
 
+    @limited_request("snohomish")
     async def _get(self, url: str) -> str:
         try:
             async with httpx.AsyncClient(timeout=30, transport=self.transport, follow_redirects=False,

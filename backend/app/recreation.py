@@ -10,6 +10,7 @@ from typing import Any
 
 import httpx
 from dateutil.relativedelta import relativedelta
+from .request_limiter import limited_request
 
 
 BASE_URL = "https://www.recreation.gov/api"
@@ -61,6 +62,7 @@ class RecreationClient:
     def __init__(self, timeout_seconds: float = 15):
         self.timeout_seconds = timeout_seconds
 
+    @limited_request("recreation")
     async def _get(self, path: str, params: dict[str, Any]) -> dict[str, Any]:
         async with httpx.AsyncClient(
             base_url=BASE_URL,

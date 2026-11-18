@@ -42,6 +42,7 @@ Active watches start background work as soon as the server starts. Use the read-
 | --- | --- |
 | `backend/app/main.py` | FastAPI routes, application lifecycle, background scheduler |
 | `backend/app/scanner.py` | Stay windows, queued campground checks, pacing, cancellation, cooldowns, ETA |
+| `backend/app/request_limiter.py` | Shared per-provider request serialization, completion-based spacing, cancellation, and cooldown enforcement |
 | `backend/app/recreation.py` | Recreation.gov client and HTTP 429/Retry-After handling |
 | `backend/app/provider_diagnostics.py`, `frontend/src/ProviderDiagnostics.tsx` | Allowlisted tenant-specific HTTP evidence, bounded retention, Logs viewer and download |
 | `backend/app/provider_registry.py`, `goingtocamp.py`, `usedirect.py` | Fixed tenant hosts, discovery, exact stays, persisted access stops |
@@ -90,13 +91,15 @@ Deleting members records stable campground-ID exclusions; deleting the last memb
 
 The `scanner_runtime` app setting stores the queue, counters, pause state, adaptive delay, and cooldown deadline. It is deliberately excluded from configuration JSON exports. A full appdata backup preserves it. On restart, an in-progress queue becomes eligible to resume, while abandoned scan-run rows are marked interrupted. In-memory month-response caches are not persisted.
 
+The `scan_checkpoints` table stores completed date windows and their observed result keys, keyed by watch ID with cascading deletion. Startup creates it on existing databases without changing watches or results. Search criteria are fingerprinted; changed criteria invalidate old progress. Completed windows with pending notifications are revalidated before delivery. Do not replace this with an index into today's date list: elapsed dates can shift that list across a restart. See [throttling and recovery](throttling.md) for ordering, tests, and limitations.
+
 Watch deletion uses `Scanner.delete_watches` for both the bulk and individual endpoints. It holds the scanner lock while a worker thread performs the SQLite transaction, then prunes and persists the pending queue. Request cancellation does not release that lock while the worker is still running. Do not replace this with a direct synchronous store call inside an async route, or remove the lock when offloading work.
 
 `Store.init` creates missing foreign-key child indexes with `CREATE INDEX IF NOT EXISTS`. This startup migration applies to existing databases as well as fresh ones; `cart_attempts.result_id` already has a UNIQUE index. Regression tests in `test_bulk_watch_delete.py` drop the new indexes from a populated database to reproduce the old schema, reopen and migrate it twice, check query plans, and verify retained settings and history.
 
 | Endpoint | Contract |
 | --- | --- |
-| `GET /api/scans/status` | Queue state, counts, retry deadline, effective spacing, and estimated remaining seconds |
+| `GET /api/scans/status` | Queue state, counts, saved stay count, retry deadline, effective spacing, and estimated remaining seconds |
 | `POST /api/scans/run-all` | Returns HTTP 202 immediately; starts a full queue or returns the pending one without duplicating it |
 | `POST /api/scans/cancel` | Pauses background crawling and requests cancellation at a safe checkpoint |
 | `POST /api/watches/{id}/scan` | Checks one watch; returns 409 if a background crawl is pending or active |
@@ -142,7 +145,7 @@ The scanner caches exact county stays separately from federal months. Both paths
 
 King County uses ActiveNet's public overnight resource catalog and full-stay map-availability query. Catalog pagination follows the returned search ID and next index, validates total counts, and excludes non-camping/day-use resources. A response must contain exactly the requested facility IDs and known availability statuses. Only fully available sites become candidates; each candidate must also pass its current detail record's stay-length and booking-window rules. The API publishes lead-time limits as generated English strings, so unrecognized/missing resident or non-resident rules fail closed rather than falling back to general website policy.
 
-The King County client caches complete catalog/detail responses for 24 hours and serializes all its calls with a five-second floor. During scans, every HTTP request also invokes the scanner's `before_request(stage)` gate for configured pacing, cancellation, and diagnostic events. Keep that callback on metadata/detail requests as well as availability calls. HTTP 429 enters the common persisted provider-specific cooldown. Other denied, malformed, partial, or failed responses raise `ProviderResponseError`; they must not expire existing matches. The two POST endpoints used by this client are read-only resource searches; no cart, proceed, reservation form, login, or payment endpoint is used.
+The King County client caches complete catalog/detail responses for 24 hours and serializes all its calls with a five-second floor. Every HTTP boundary is wrapped by `limited_request`, including calls outside a scan. `CampgroundClient.set_request_limiter` attaches the scanner's shared coordinator to all adapters. During scans, `before_request(stage)` supplies cancellation checks and diagnostic events; the shared limiter handles pacing without a second scanner delay. Keep both hooks on metadata/detail requests as well as availability calls. HTTP 429 enters the common persisted provider-specific cooldown exactly once, even when the scanner catches the same exception. Other denied, malformed, partial, or failed responses raise `ProviderResponseError`; they must not expire existing matches. The two POST endpoints used by this client are read-only resource searches; no cart, proceed, reservation form, login, or payment endpoint is used.
 
 Tolt-MacDonald's map point is the address location linked by the official county camping page, not an individual campsite coordinate. Result links select the site's map section, but no date-prefill URL contract has been verified for ActiveNet. Do not invent query parameters or claim that its link preserves dates. Future county centers require their own policy and inventory review before extending the allowlist.
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 import time as clock
@@ -20,6 +21,7 @@ from .goingtocamp import validate_watch_filters
 from .provider_registry import is_goingtocamp
 from .provider_ids import provider_key, provider_name
 from .provider_errors import ProviderResponseError
+from .request_limiter import ProviderRequestLimiter, request_cancel_check
 
 
 PATTERNS: dict[str, tuple[set[int], int]] = {
@@ -258,6 +260,28 @@ class Scanner:
         self._request_seconds = 1.0
         self._current_months_loaded = 0
         self._crawl_paused = False
+        self.request_limiter = ProviderRequestLimiter(
+            self._request_delay, self._rate_limit_remaining_seconds, self._start_rate_limit_backoff)
+        self._shared_requests = hasattr(client, "set_request_limiter")
+        if self._shared_requests:
+            client.set_request_limiter(self.request_limiter)
+
+    def _request_delay(self, provider: str) -> float:
+        return (self.effective_request_delay if provider == "recreation" else
+                max(5, self.api_request_delay_seconds, self._provider_backoffs.get(provider, {}).get("delay", 0)))
+
+    def _date_progress(self, watch: dict, trips: list) -> dict:
+        criteria = {key: watch.get(key) for key in (
+            "campground_id", "mode", "pattern", "arrival_weekdays", "nights", "window_start", "window_end",
+            "specific_ranges", "site_filters", "cart_assist_enabled")}
+        fingerprint = hashlib.sha256(json.dumps(criteria, sort_keys=True).encode()).hexdigest()
+        saved = self.store.scan_checkpoint(watch["id"])
+        completed = saved.get("completed", {}) if saved.get("fingerprint") == fingerprint else {}
+        # An interrupted alert must be revalidated, not sent from an old checkpoint.
+        pending_stays = self.store.pending_notification_stays(watch["id"])
+        valid = {f"{trip.arrival_date}/{trip.departure_date}" for trip in trips}
+        return {"fingerprint": fingerprint, "completed": {
+            key: value for key, value in completed.items() if key in valid and key not in pending_stays}}
 
     def restore_runtime_state(self) -> None:
         raw = self.store.get_app_settings(["scanner_runtime"]).get("scanner_runtime")
@@ -301,16 +325,19 @@ class Scanner:
         retry_at = (datetime.now(UTC) + timedelta(seconds=cooldown)).isoformat() if cooldown else None
         months = self._sweep.get("months", {})
         work = {key: 0 for key in pending_providers}
+        completed_stays = 0
+        checkpoints = self.store.scan_checkpoint_summaries() if pending else {}
         for watch_id in pending:
-            loaded = self._current_months_loaded if watch_id == self._active_watch_id else 0
-            work[providers.get(str(watch_id), "recreation")] += max(0, months.get(str(watch_id), 0) - loaded)
+            progress = checkpoints.get(watch_id, {})
+            completed_stays += progress.get("completed_stays", 0)
+            key = providers.get(str(watch_id), "recreation")
+            remaining_requests = progress.get("remaining_requests")
+            work[key] += remaining_requests if remaining_requests is not None else months.get(str(watch_id), 0)
         requests = sum(work.values())
-        delay = max([self.effective_request_delay] + [self._provider_backoffs.get(key, {}).get("delay", 0) for key in pending_providers])
+        delay = max(self._request_delay(key) for key in pending_providers)
         # Other providers can use a cooldown to make progress, but it still sets
         # a lower bound on when the final blocked provider can finish.
-        durations = {key: count * ((self.effective_request_delay if key == "recreation" else
-                     max(self.api_request_delay_seconds, self._provider_backoffs.get(key, {}).get("delay", 0)))
-                     + self._request_seconds) for key, count in work.items()}
+        durations = {key: count * (self._request_delay(key) + self._request_seconds) for key, count in work.items()}
         estimate = math.ceil(max(sum(durations.values()), max(
             (remaining[key] + duration for key, duration in durations.items()), default=0
         ))) if self.full_scan_pending else None
@@ -328,6 +355,7 @@ class Scanner:
             "effective_request_delay_seconds": delay,
             "estimated_remaining_seconds": estimate,
             "estimated_requests_remaining": requests,
+            "completed_stay_count": completed_stays,
         }
 
     def _begin_full_scan(self, watches: list[dict] | None = None) -> None:
@@ -503,9 +531,13 @@ class Scanner:
         if not self._sweep["pending"]:
             self._sweep["status"] = "incomplete" if self._sweep["failed_count"] else "completed"
             if self._sweep["status"] == "completed":
-                self._rate_limit_streak = 0
-                self._adaptive_delay = max(self.api_request_delay_seconds, round(self._adaptive_delay * 0.8, 2))
-                for state in self._provider_backoffs.values():
+                completed_providers = set(self._sweep.get("providers", {}).values())
+                if "recreation" in completed_providers and not self._rate_limit_remaining_seconds("recreation"):
+                    self._rate_limit_streak = 0
+                    self._adaptive_delay = max(self.api_request_delay_seconds, round(self._adaptive_delay * 0.8, 2))
+                for key, state in self._provider_backoffs.items():
+                    if key not in completed_providers or self._rate_limit_remaining_seconds(key):
+                        continue
                     state["streak"] = 0
                     state["delay"] = max(self.api_request_delay_seconds, round(state.get("delay", 0) * 0.8, 2))
             self._save_runtime()
@@ -602,7 +634,12 @@ class Scanner:
         cart_attempt_count = 0
         new_results: list[dict] = []
         pending_results: dict[int, dict] = {}
-        seen_dedupe_keys: set[str] = set()
+        progress = self._date_progress(watch, trips)
+        seen_dedupe_keys = {key for keys in progress["completed"].values() for key in keys}
+        available_count = len(seen_dedupe_keys)
+        if progress["completed"]:
+            self._log_scan_event(run_id, watch, "info", "resumed",
+                                 f"Resuming after {len(progress['completed'])} completed stay check(s).")
         monthly_cache: dict[date, dict[str, Campsite]] = {}
 
         backoff_minutes = self._rate_limit_remaining_minutes(provider)
@@ -620,11 +657,16 @@ class Scanner:
                 "available_count": 0,
             }
 
+        cancel_token = request_cancel_check.set(self._raise_if_cancel_requested)
         try:
             filters = watch.get("site_filters") or {}
             if (filters.get("equipment") or filters.get("vehicle_length_ft") is not None) and provider not in {"recreation", "ud_ca", "ud_metro"}:
                 raise ProviderResponseError(f"{provider_label} cannot verify equipment compatibility. Remove the equipment filter for this target.")
             for trip_index, trip in enumerate(trips, start=1):
+                stay_key = f"{trip.arrival_date}/{trip.departure_date}"
+                if stay_key in progress["completed"]:
+                    continue
+                stay_dedupe_keys = []
                 if is_goingtocamp(provider):
                     validate_watch_filters(watch.get("site_filters"), watch["campground_id"])
                 self._raise_if_cancel_requested()
@@ -696,6 +738,7 @@ class Scanner:
                         }
                     )
                     seen_dedupe_keys.add(result["dedupe_key"])
+                    stay_dedupe_keys.append(result["dedupe_key"])
                     available_count += 1
                     if is_new:
                         new_results.append({**result, "watch_name": watch["name"]})
@@ -712,6 +755,13 @@ class Scanner:
                             f"{trip.arrival_date.isoformat()} to {trip.departure_date.isoformat()}."
                         ),
                     )
+
+                progress["completed"][stay_key] = stay_dedupe_keys
+                unfinished = [t for t in trips if f"{t.arrival_date}/{t.departure_date}" not in progress["completed"]]
+                progress["remaining_requests"] = (len({month for t in unfinished
+                    for month in months_for_trip(t.arrival_date, t.departure_date)})
+                    if provider == "recreation" else len(unfinished))
+                self.store.save_scan_checkpoint(watch["id"], progress)
 
             missing_count = self.store.mark_missing_results_booked(
                 watch["id"],
@@ -757,6 +807,7 @@ class Scanner:
             self.store.finish_scan_run(run_id, "success", message, len(trips), available_count)
             self.store.update_target_scan_status(watch["target_id"], status)
             next_delay = self._schedule_next_scan(watch)
+            self.store.clear_scan_checkpoint(watch["id"])
             self._log_scan_event(
                 run_id,
                 watch,
@@ -816,6 +867,7 @@ class Scanner:
             self._log_scan_event(run_id, watch, "error", "error", str(exc))
             raise
         finally:
+            request_cancel_check.reset(cancel_token)
             self._clear_active_run(run_id)
 
     async def _notify_pending_results(self, results: dict[int, dict]) -> int:
@@ -896,6 +948,8 @@ class Scanner:
 
     async def _wait_for_api_slot(self, provider: str = "recreation") -> None:
         self._raise_if_cancel_requested()
+        if self._shared_requests:
+            return
         delay = self.effective_request_delay if provider == "recreation" else max(self.api_request_delay_seconds, self._provider_backoffs.get(provider, {}).get("delay", 0))
         if delay <= 0:
             return
@@ -937,6 +991,8 @@ class Scanner:
         self.store.log_scan_event(run_id, watch["id"], watch["target_id"], level, event_type, message)
 
     def _start_rate_limit_backoff(self, exc: RateLimitError, provider: str = "recreation") -> None:
+        if getattr(exc, "cooldown_recorded", False):
+            return
         if provider != "recreation":
             state = self._provider_backoffs.setdefault(provider, {})
             state["streak"] = state.get("streak", 0) + 1

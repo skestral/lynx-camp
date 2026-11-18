@@ -6,7 +6,7 @@ from .activenet import KingCountyClient, RequestGate
 from .cedar import SkagitCountyClient
 from .goingtocamp import GoingToCampClient
 from .provider_ids import provider_key
-from .provider_registry import GTC_TENANTS, USEDIRECT_TENANTS, is_goingtocamp
+from .provider_registry import GTC_TENANTS, USEDIRECT_TENANTS, is_goingtocamp, gtc_provider_key
 from .usedirect import UseDirectClient
 from .recreation import RecreationClient
 
@@ -20,6 +20,15 @@ class CampgroundClient(RecreationClient):
         self.washington = GoingToCampClient(store)
         self.gtc = {tenant: GoingToCampClient(store, tenant=tenant) for tenant in GTC_TENANTS if tenant != "wa"}
         self.usedirect = {tenant: UseDirectClient(tenant, store) for tenant in USEDIRECT_TENANTS}
+
+    def set_request_limiter(self, limiter):
+        self.request_limiter = limiter
+        adapters = {"snohomish": self.snohomish, "king": self.king, "skagit": self.skagit,
+                    **{gtc_provider_key(tenant): self.gtc_client(tenant) for tenant in GTC_TENANTS},
+                    **{f"ud_{tenant}": adapter for tenant, adapter in self.usedirect.items()}}
+        for key, adapter in adapters.items():
+            adapter.request_limiter = limiter
+            adapter.limiter_key = key
 
     def gtc_client(self, tenant: str):
         return self.washington if tenant == "wa" else self.gtc[tenant]

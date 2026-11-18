@@ -12,6 +12,7 @@ import httpx
 from fake_useragent import UserAgent
 
 from .goingtocamp import connection_state
+from .request_limiter import limited_request
 from .provider_diagnostics import capture_diagnostic
 from .provider_errors import ProviderResponseError
 from .provider_ids import campground_url, usedirect_identity
@@ -174,6 +175,7 @@ class UseDirectClient:
             self._catalog = None
             await self._save_state({"state": "unverified"})
 
+    @limited_request()
     async def _request(self, path, body=None, before_request=None):
         require(path in {"/rdr/fd/places", "/rdr/fd/facilities", "/rdr/search/filters", "/rdr/search/grid"}, "unsupported API operation")
         async with self._lock:

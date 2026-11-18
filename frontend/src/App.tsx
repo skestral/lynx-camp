@@ -133,7 +133,7 @@ const SCAN_CONTROL_FIELDS: ScanControlField[] = [
     min: 1,
     max: 1440,
     step: 1,
-    help: "Lowest interval any target or watch cadence can use."
+    help: "Minimum minutes between normal checks. Recreation.gov release-window checks may run sooner."
   },
   {
     key: "release_scan_interval_minutes",
@@ -165,7 +165,7 @@ const SCAN_CONTROL_FIELDS: ScanControlField[] = [
     min: 0,
     max: 1440,
     step: 1,
-    help: "Minutes to reuse campground/month responses across similar watches."
+    help: "Minutes to reuse monthly or exact-stay responses across similar watches."
   },
   {
     key: "api_request_delay_seconds",
@@ -173,7 +173,7 @@ const SCAN_CONTROL_FIELDS: ScanControlField[] = [
     min: 0,
     max: 60,
     step: 0.25,
-    help: "Seconds between uncached availability requests to each provider."
+    help: "Seconds between provider requests, including searches and details. State and county providers have a five-second floor."
   },
   {
     key: "rate_limit_backoff_minutes",
@@ -181,7 +181,7 @@ const SCAN_CONTROL_FIELDS: ScanControlField[] = [
     min: 1,
     max: 1440,
     step: 1,
-    help: "Minimum minutes to pause a provider after HTTP 429."
+    help: "Minimum minutes to pause after HTTP 429, shared by scans and searches. Repeated limits increase it; longer Retry-After values take precedence."
   }
 ];
 
@@ -3378,7 +3378,8 @@ export default function App() {
               {crawlStatus.current_target && crawlStatus.status === "running" && <small>Checking {crawlStatus.current_target}. </small>}
               {crawlStatus.retry_at && <small>Next attempt after {formatDateTime(crawlStatus.retry_at)}. </small>}
               {crawlStatus.estimated_remaining_seconds !== null && <small>Estimated remaining: about {Math.max(1, Math.ceil(crawlStatus.estimated_remaining_seconds / 60))} min, including known cooldowns. Further rate limits may extend this. </small>}
-              <small>Availability request spacing: {crawlStatus.effective_request_delay_seconds}s. {crawlStatus.status === "completed" && !crawlStatus.crawl_paused ? "Watching continues as checks become due." : ""}</small>
+              {crawlStatus.completed_stay_count > 0 && <small>{crawlStatus.completed_stay_count} stay checks saved in pending campgrounds. </small>}
+              <small>Provider request spacing: {crawlStatus.effective_request_delay_seconds}s. {crawlStatus.status === "completed" && !crawlStatus.crawl_paused ? "Watching continues as checks become due." : ""}</small>
               {notificationStatus.channels.length > 0 && !notificationStatus.channels.some((channel) => channel.configured) && <small>Notifications are not configured. <button className="icon-button" onClick={() => openDrawer("settings")}><Bell size={16} />Set up alerts</button></small>}
             </div>
             <div className="row-actions">

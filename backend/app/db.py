@@ -130,6 +130,11 @@ class Store:
                     updated_at TEXT NOT NULL
                 );
 
+                CREATE TABLE IF NOT EXISTS scan_checkpoints (
+                    watch_id INTEGER PRIMARY KEY REFERENCES watches(id) ON DELETE CASCADE,
+                    progress_json TEXT NOT NULL
+                );
+
                 CREATE TABLE IF NOT EXISTS scan_runs (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     watch_id INTEGER NOT NULL REFERENCES watches(id) ON DELETE CASCADE,
@@ -946,6 +951,8 @@ class Store:
 
         with (nullcontext(_conn) if _conn is not None else self.connect()) as conn:
             conn.execute(f"UPDATE watches SET {', '.join(set_parts)} WHERE id = ?", values)
+            if set(updates) - {"active", "name", "group_id"}:
+                conn.execute("DELETE FROM scan_checkpoints WHERE watch_id = ?", (watch_id,))
         return self.get_watch(watch_id, _conn)
 
     def due_watches(self, limit: int = 5) -> list[dict[str, Any]]:
@@ -1186,6 +1193,34 @@ class Store:
             )
             row = conn.execute("SELECT * FROM results WHERE dedupe_key = ?", (dedupe_key,)).fetchone()
             return _row_to_dict(row) or {}, True
+
+    def scan_checkpoint(self, watch_id: int) -> dict:
+        with self.connect() as conn:
+            row = conn.execute("SELECT progress_json FROM scan_checkpoints WHERE watch_id = ?", (watch_id,)).fetchone()
+        return json.loads(row[0]) if row else {}
+
+    def save_scan_checkpoint(self, watch_id: int, progress: dict) -> None:
+        with self.connect() as conn:
+            conn.execute("INSERT INTO scan_checkpoints(watch_id, progress_json) VALUES (?, ?) "
+                         "ON CONFLICT(watch_id) DO UPDATE SET progress_json = excluded.progress_json",
+                         (watch_id, json.dumps(progress)))
+
+    def clear_scan_checkpoint(self, watch_id: int) -> None:
+        with self.connect() as conn:
+            conn.execute("DELETE FROM scan_checkpoints WHERE watch_id = ?", (watch_id,))
+
+    def scan_checkpoint_summaries(self) -> dict[int, dict]:
+        with self.connect() as conn:
+            return {row["watch_id"]: dict(row) for row in conn.execute(
+                "SELECT watch_id, json_extract(progress_json, '$.remaining_requests') AS remaining_requests, "
+                "(SELECT COUNT(*) FROM json_each(progress_json, '$.completed')) AS completed_stays "
+                "FROM scan_checkpoints")}
+
+    def pending_notification_stays(self, watch_id: int) -> set[str]:
+        with self.connect() as conn:
+            return {f"{row[0]}/{row[1]}" for row in conn.execute(
+                "SELECT DISTINCT arrival_date, departure_date FROM results WHERE watch_id = ? AND notification_pending = 1",
+                (watch_id,))}
 
     def pending_notification_ids(self, result_ids: Iterable[int]) -> set[int]:
         ids = sorted(set(result_ids))

@@ -16,6 +16,7 @@ import httpx
 from fake_useragent import UserAgent
 
 from .activenet import RequestGate
+from .request_limiter import limited_request
 from .provider_errors import ProviderResponseError
 from .provider_diagnostics import capture_diagnostic
 from .provider_ids import campground_url, goingtocamp_identity
@@ -225,6 +226,7 @@ class GoingToCampClient:
         async with self._request_lock:
             await self._check_state()
 
+    @limited_request()
     async def _request(self, path: str, params: dict | None = None, before_request: RequestGate | None = None):
         if path not in {"/resourceLocation", "/resourcecategory", "/availability/map"}:
             raise ValueError("Unsupported Washington API operation")
