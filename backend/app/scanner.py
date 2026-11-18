@@ -589,6 +589,7 @@ class Scanner:
         missing_count = 0
         cart_attempt_count = 0
         new_results: list[dict] = []
+        pending_results: dict[int, dict] = {}
         seen_dedupe_keys: set[str] = set()
         monthly_cache: dict[date, dict[str, Campsite]] = {}
 
@@ -610,7 +611,7 @@ class Scanner:
         try:
             for trip_index, trip in enumerate(trips, start=1):
                 if provider == "goingtocamp":
-                    validate_watch_filters(watch.get("site_filters"))
+                    validate_watch_filters(watch.get("site_filters"), watch["campground_id"])
                 self._raise_if_cancel_requested()
                 if trip_index == 1 or trip_index % 25 == 0 or trip_index == len(trips):
                     self._log_scan_event(
@@ -677,6 +678,8 @@ class Scanner:
                     available_count += 1
                     if is_new:
                         new_results.append({**result, "watch_name": watch["name"]})
+                    if result["notification_pending"]:
+                        pending_results[result["id"]] = {**result, "watch_name": watch["name"]}
                 if sites:
                     self._log_scan_event(
                         run_id,
@@ -710,13 +713,15 @@ class Scanner:
                             }
                             for result in new_results
                         ]
-                await self.notifier.notify_results(new_results, self.store, self.max_notification_results)
+                pending_results.update((result["id"], result) for result in new_results)
+            if pending_results:
+                notified_count = await self._notify_pending_results(pending_results)
                 self._log_scan_event(
                     run_id,
                     watch,
                     "info",
                     "notified",
-                    f"Prepared notifications for {len(new_results)} new result(s).",
+                    f"Prepared notifications for {notified_count} pending result(s).",
                 )
 
             status = "available" if available_count else "clear"
@@ -772,9 +777,9 @@ class Scanner:
             self.store.update_target_scan_status(watch["target_id"], "rate_limited")
             self.store.schedule_next_scan(watch["id"], backoff_minutes)
             self._log_scan_event(run_id, watch, "warning", "rate_limited", message)
-            if new_results:
+            if pending_results:
                 try:
-                    await self.notifier.notify_results(new_results, self.store, self.max_notification_results)
+                    await self._notify_pending_results(pending_results)
                 except Exception:
                     logging.getLogger(__name__).exception("Notification failed for partial scan results")
             return {
@@ -791,6 +796,19 @@ class Scanner:
             raise
         finally:
             self._clear_active_run(run_id)
+
+    async def _notify_pending_results(self, results: dict[int, dict]) -> int:
+        self._raise_if_cancel_requested()
+        # Recheck user actions after fetching later stays or awaiting Cart Assist.
+        pending_ids = self.store.pending_notification_ids(results)
+        pending = [result for result_id, result in results.items() if result_id in pending_ids]
+        if not pending:
+            return 0
+        await self.notifier.notify_results(pending, self.store, self.max_notification_results)
+        # A completed no-channel call consumes the alert too; later configuration
+        # must not turn historical matches into a new notification backlog.
+        self.store.complete_result_notifications(pending_ids)
+        return len(pending)
 
     async def _monthly_availability(self, campground_id: str, month: date) -> dict[str, Campsite]:
         key = (campground_id, month)
@@ -813,11 +831,13 @@ class Scanner:
         return campsites
 
     async def _trip_availability(self, campground_id: str, trip: TripWindow) -> list[Campsite]:
+        provider = provider_key(campground_id)
+        if provider == "goingtocamp" and hasattr(self.client, "washington"):
+            await self.client.washington.ensure_access()
         key = (campground_id, trip.arrival_date, trip.departure_date)
         cached = self._trip_cache.get(key)
         if cached and self.availability_cache_minutes > 0 and datetime.now(UTC) - cached[0] <= timedelta(minutes=self.availability_cache_minutes):
             return cached[1]
-        provider = provider_key(campground_id)
         async def before_request(stage: str = "Checking stay availability") -> None:
             await self._wait_for_api_slot(provider)
             if self._active_run_id is not None:

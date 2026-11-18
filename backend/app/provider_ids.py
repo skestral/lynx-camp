@@ -1,4 +1,4 @@
-from urllib.parse import urlencode
+from urllib.parse import parse_qs, urlencode, urlsplit
 import re
 
 
@@ -29,6 +29,29 @@ def provider_name(campground_id: str) -> str:
     return {"snohomish": "Snohomish County Parks", "king": "King County Parks", "skagit": "Skagit County Parks",
             "goingtocamp": "Washington State Parks",
             "recreation": "Recreation.gov"}[provider_key(campground_id)]
+
+
+def normalize_result_booking_url(campground_id: str, arrival: str, departure: str, *,
+                                 campsite_id: str, booking_url: str | None = None) -> str:
+    fallback = campground_url(campground_id, arrival, departure, campsite_id=campsite_id)
+    if provider_key(campground_id) != "goingtocamp" or not booking_url:
+        return fallback
+    try:
+        supplied = urlsplit(booking_url)
+        query = parse_qs(supplied.query, keep_blank_values=True, strict_parsing=True)
+        leaf = query["mapId"]
+        if len(leaf) != 1:
+            return fallback
+        candidate = campground_url(campground_id, arrival, departure,
+            campsite_id=f"{campground_id}:{leaf[0]}:{campsite_id.split(':')[-1]}")
+        expected = urlsplit(candidate)
+        if ((supplied.scheme, supplied.netloc, supplied.path, supplied.fragment)
+                == (expected.scheme, expected.netloc, expected.path, "")
+                and query == parse_qs(expected.query)):
+            return candidate
+    except (ValueError, KeyError, TypeError):
+        pass
+    return fallback
 
 
 def campground_url(campground_id: str, arrival: str | None = None, departure: str | None = None,

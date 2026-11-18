@@ -11,7 +11,7 @@ from uuid import uuid4
 
 from .app_settings import EXPORTABLE_APP_SETTING_KEYS, SECRET_APP_SETTING_KEYS
 from .coordinates import CAMPGROUND_COORDINATES
-from .provider_ids import campground_url, provider_key
+from .provider_ids import campground_url, normalize_result_booking_url, provider_key
 from .regions import RegionScope, matches_region
 
 
@@ -224,6 +224,9 @@ class Store:
             self._ensure_column(conn, "results", "opened_at", "TEXT")
             self._ensure_column(conn, "results", "booked_at", "TEXT")
             self._ensure_column(conn, "results", "dismissed_at", "TEXT")
+            # Existing rows are neither pending alerts nor proven automatic disappearances.
+            self._ensure_column(conn, "results", "notification_pending", "INTEGER NOT NULL DEFAULT 0")
+            self._ensure_column(conn, "results", "auto_missing", "INTEGER NOT NULL DEFAULT 0")
             self._backfill_result_booking_urls(conn)
             self._ensure_column(conn, "watches", "group_id", "TEXT")
             conn.execute("CREATE INDEX IF NOT EXISTS watches_group_id ON watches(group_id)")
@@ -1112,7 +1115,8 @@ class Store:
         booking_url = (
             _campsite_booking_url(data["campsite_id"], data["arrival_date"])
             if provider_key(data["campground_id"]) == "recreation"
-            else campground_url(data["campground_id"], data["arrival_date"], data["departure_date"], campsite_id=data["campsite_id"])
+            else normalize_result_booking_url(data["campground_id"], data["arrival_date"], data["departure_date"],
+                                              campsite_id=data["campsite_id"], booking_url=data.get("booking_url"))
         )
         dedupe_key = "|".join(
             [
@@ -1125,14 +1129,19 @@ class Store:
         with self.connect() as conn:
             existing = conn.execute("SELECT * FROM results WHERE dedupe_key = ?", (dedupe_key,)).fetchone()
             if existing:
-                active = 0 if existing["status"] in {"booked", "dismissed"} else 1
+                reappeared = existing["status"] == "booked" and bool(existing["auto_missing"])
+                status = "available" if reappeared else existing["status"]
+                active = 0 if status in {"booked", "dismissed"} else 1
+                pending = int(active and (reappeared or existing["notification_pending"]))
                 conn.execute(
                     """
                     UPDATE results
-                    SET last_seen_at = ?, active = ?, booking_url = ?
+                    SET last_seen_at = ?, active = ?, booking_url = ?, status = ?,
+                        notification_pending = ?, auto_missing = 0, booked_at = ?
                     WHERE dedupe_key = ?
                     """,
-                    (now, active, booking_url, dedupe_key),
+                    (now, active, booking_url, status, pending,
+                     None if reappeared else existing["booked_at"], dedupe_key),
                 )
                 row = conn.execute("SELECT * FROM results WHERE dedupe_key = ?", (dedupe_key,)).fetchone()
                 return _row_to_dict(row) or {}, False
@@ -1142,8 +1151,8 @@ class Store:
                 INSERT INTO results (
                     watch_id, target_id, campground_id, campground_name, campsite_id, site, loop,
                     campsite_type, arrival_date, departure_date, booking_url, discovered_at,
-                    last_seen_at, dedupe_key
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    last_seen_at, dedupe_key, notification_pending
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
                 """,
                 (
                     data["watch_id"],
@@ -1164,6 +1173,28 @@ class Store:
             )
             row = conn.execute("SELECT * FROM results WHERE dedupe_key = ?", (dedupe_key,)).fetchone()
             return _row_to_dict(row) or {}, True
+
+    def pending_notification_ids(self, result_ids: Iterable[int]) -> set[int]:
+        ids = sorted(set(result_ids))
+        pending = set()
+        with self.connect() as conn:
+            for offset in range(0, len(ids), 500):
+                chunk = ids[offset:offset + 500]
+                pending.update(row["id"] for row in conn.execute(
+                    f"""SELECT id FROM results WHERE id IN ({','.join('?' for _ in chunk)})
+                        AND notification_pending = 1 AND active = 1
+                        AND status IN ('available', 'opened')""", chunk))
+        return pending
+
+    def complete_result_notifications(self, result_ids: Iterable[int]) -> None:
+        ids = sorted(set(result_ids))
+        with self.connect() as conn:
+            for offset in range(0, len(ids), 500):
+                chunk = ids[offset:offset + 500]
+                conn.execute(
+                    f"UPDATE results SET notification_pending = 0 WHERE id IN ({','.join('?' for _ in chunk)})",
+                    chunk,
+                )
 
     def list_results(self, limit: int = 2000) -> list[dict[str, Any]]:
         with self.connect() as conn:
@@ -1211,7 +1242,7 @@ class Store:
                 placeholders = ",".join("?" for _ in chunk)
                 cursor = conn.execute(
                     f"""UPDATE results
-                    SET status = 'dismissed', active = 0,
+                    SET status = 'dismissed', active = 0, notification_pending = 0, auto_missing = 0,
                         dismissed_at = COALESCE(dismissed_at, ?)
                     WHERE id IN ({placeholders}) AND active = 1
                         AND status IN ('available', 'opened')""",
@@ -1228,6 +1259,7 @@ class Store:
                 UPDATE results
                 SET status = 'dismissed',
                     active = 0,
+                    notification_pending = 0, auto_missing = 0,
                     dismissed_at = COALESCE(dismissed_at, ?)
                 WHERE active = 1
                 """,
@@ -1261,6 +1293,7 @@ class Store:
                 UPDATE results
                 SET status = 'booked',
                     active = 0,
+                    notification_pending = 0, auto_missing = 1,
                     booked_at = COALESCE(booked_at, ?)
                 WHERE watch_id = ?
                   AND active = 1
@@ -1291,16 +1324,18 @@ class Store:
                     UPDATE results
                     SET status = ?,
                         active = ?,
+                        notification_pending = CASE WHEN ? = 1 THEN notification_pending ELSE 0 END,
+                        auto_missing = 0,
                         {timestamp_column} = COALESCE({timestamp_column}, ?)
                     WHERE id = ?
                     """,
-                    (status, active, now, result_id),
+                    (status, active, active, now, result_id),
                 )
             else:
                 cursor = conn.execute(
                     """
                     UPDATE results
-                    SET status = ?, active = ?, booked_at = NULL, dismissed_at = NULL
+                    SET status = ?, active = ?, booked_at = NULL, dismissed_at = NULL, auto_missing = 0
                     WHERE id = ?
                     """,
                     (status, active, result_id),
@@ -1429,10 +1464,12 @@ class Store:
                     UPDATE results
                     SET status = ?,
                         active = ?,
+                        notification_pending = CASE WHEN ? = 1 THEN notification_pending ELSE 0 END,
+                        auto_missing = 0,
                         {timestamp_column} = COALESCE({timestamp_column}, ?)
                     WHERE id = ?
                     """,
-                    (result_status, active, now, int(current["result_id"])),
+                    (result_status, active, active, now, int(current["result_id"])),
                 )
 
             row = conn.execute("SELECT * FROM cart_attempts WHERE id = ?", (attempt_id,)).fetchone()

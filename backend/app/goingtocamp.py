@@ -1,7 +1,7 @@
 """Native Washington adapter derived from GoCamp's discovery/search workflow.
 
-Uses the newer resourceLocation/availability/map contract, not the retired
-mapdatabyid or resource/details calls. See third_party/gocamp for provenance.
+Uses the resourceLocation/availability/map contract and Camply's Chrome header
+generation with anonymous session cookies. No retired site-details calls.
 """
 from __future__ import annotations
 
@@ -12,6 +12,7 @@ import time
 from datetime import UTC, date, datetime, timedelta
 
 import httpx
+from fake_useragent import UserAgent
 
 from .activenet import RequestGate
 from .provider_errors import ProviderResponseError
@@ -30,11 +31,14 @@ def unknown(message: str) -> ProviderResponseError:
     return ProviderResponseError(f"Washington State Parks: {message}; availability is unknown.")
 
 
-def validate_watch_filters(filters: dict | None):
+def validate_watch_filters(filters: dict | None, campground_id: str | None = None):
     filters = filters or {}
+    site_type = str(filters.get("site_type") or "").strip().casefold()
     if (filters.get("min_people") is not None or str(filters.get("loop") or "").strip()
-            or str(filters.get("site_type") or "").strip().casefold() not in {"", "camping", "roofed"}):
-        raise unknown("the experimental API cannot verify capacity, loop, or specific accommodation filters. Use Camping or Roofed without those filters")
+            or str(filters.get("site") or "").strip() or site_type not in {"", "camping", "roofed"}):
+        raise unknown("the API cannot verify site names, capacity, loop, or specific accommodation filters. Select Camping or Roofed targets and leave these filters empty")
+    if campground_id and site_type and site_type != KINDS[goingtocamp_identity(campground_id)[1]].casefold():
+        raise unknown("the site-type filter does not match this target's Camping or Roofed category")
 
 
 def identifier(value) -> int:
@@ -132,30 +136,25 @@ def parse_catalog(locations, categories) -> dict[str, dict]:
     return targets
 
 
-def parse_map(payload, arrival: date, departure: date, map_id: int, location: int, *, daily: bool) -> tuple[dict, set[int]]:
+def parse_map(payload, arrival: date, departure: date, map_id: int, location: int, category: int) -> tuple[dict, set[int]]:
     if not isinstance(payload, dict):
         raise unknown("invalid availability map")
     for key, expected in {"startDate": arrival.isoformat(), "endDate": departure.isoformat(),
-                          "mapId": map_id, "resourceLocationId": location}.items():
+                          "mapId": map_id, "resourceLocationId": location, "bookingCategoryId": category}.items():
         if key in payload and str(payload[key]) != str(expected):
             raise unknown("availability response does not match the requested stay")
     resources, links = payload.get("resourceAvailabilities"), payload.get("mapLinkAvailabilities")
     if not isinstance(resources, dict) or not isinstance(links, dict) or len(links) > MAX_MAPS or len(resources) > 10000:
         raise unknown("incomplete availability map")
-    expected_count = (departure - arrival).days if daily else 1
     statuses = {}
     for resource, records in resources.items():
         resource_id = identifier(resource)
-        if not isinstance(records, list) or len(records) != expected_count:
+        if not isinstance(records, list) or len(records) != 1:
             raise unknown("availability does not cover the complete requested stay")
-        values = []
-        for index, record in enumerate(records):
-            if not isinstance(record, dict) or type(record.get("availability")) is not int or record["availability"] < 0:
-                raise unknown("unrecognized availability status")
-            if daily and "date" in record and str(record["date"])[:10] != (arrival + timedelta(days=index)).isoformat():
-                raise unknown("daily availability dates are incomplete or out of order")
-            values.append(record["availability"])
-        statuses[resource_id] = tuple(values)
+        record = records[0]
+        if not isinstance(record, dict) or type(record.get("availability")) is not int or record["availability"] < 0:
+            raise unknown("unrecognized availability status")
+        statuses[resource_id] = record["availability"]
     return statuses, {identifier(value) for value in links}
 
 
@@ -169,6 +168,8 @@ class GoingToCampClient:
         self._state = None
         self._catalog = None
         self._catalog_at = 0.0
+        self._user_agents = UserAgent(browsers=["chrome"])
+        self._cookies = httpx.Cookies()
 
     async def _save_state(self, state: dict):
         self._state = state
@@ -195,7 +196,13 @@ class GoingToCampClient:
             if self._state.get("retry_at") and datetime.fromisoformat(self._state["retry_at"]) > datetime.now(UTC):
                 raise unknown("the recorded cooldown has not elapsed")
             self._catalog = None
+            self._cookies = httpx.Cookies()
             await self._save_state({"state": "unverified"})
+
+    async def ensure_access(self):
+        """Check persisted access state before serving scanner-cached results."""
+        async with self._request_lock:
+            await self._check_state()
 
     async def _request(self, path: str, params: dict | None = None, before_request: RequestGate | None = None):
         if path not in {"/resourceLocation", "/resourcecategory", "/availability/map"}:
@@ -212,8 +219,11 @@ class GoingToCampClient:
                                         outcome=outcome, response=response, error=error)
             try:
                 async with httpx.AsyncClient(timeout=20, transport=self.transport, follow_redirects=False,
-                                             headers={"User-Agent": "CampFinder/1.0 (availability monitor)", "Accept": "application/json"}) as client:
+                                             cookies=self._cookies,
+                                             headers={"User-Agent": self._user_agents.random,
+                                                      "Accept-Language": "en-US,en;q=0.9"}) as client:
                     response = await client.get(BASE_URL + path, params=params)
+                    self._cookies = client.cookies
             except httpx.RequestError as exc:
                 await record("transport_error", error=exc)
                 raise unknown("API could not be reached") from exc
@@ -262,7 +272,7 @@ class GoingToCampClient:
                 await self._check_state()
                 self._catalog, self._catalog_at = catalog, time.monotonic()
                 await self._save_state({"state": "catalog_loaded", "checked_at": datetime.now(UTC).isoformat(),
-                                        "message": "Park catalog loaded; live stay compatibility is still experimental."})
+                                        "message": "Camping and Roofed catalog loaded. Watches check exact-stay availability."})
             return catalog
 
     async def discover(self):
@@ -294,29 +304,29 @@ class GoingToCampClient:
             if category == 0:
                 params.update(equipmentCategoryId=-32768, numEquipment=1)
             full = await self._request("/availability/map", params, before_request)
-            aggregate, children = parse_map(full, arrival, departure, map_id, location, daily=False)
-            params["getDailyAvailability"] = "true"
-            days = await self._request("/availability/map", params, before_request)
-            daily, daily_children = parse_map(days, arrival, departure, map_id, location, daily=True)
-            if set(aggregate) != set(daily) or children != daily_children:
-                raise unknown("inventory changed between full-stay and nightly checks")
+            # Exact-stay status includes the requested departure and booking rules.
+            # Daily calendar statuses are not occupied-night inventory: requiring
+            # each day to be reservable incorrectly rejects valid cabin stays.
+            aggregate, children = parse_map(full, arrival, departure, map_id, location, category)
             graph[map_id] = children
             queue.extend((child, (*ancestors, map_id)) for child in sorted(children))
-            for resource_id, statuses in daily.items():
-                signature = (aggregate[resource_id], statuses)
+            for resource_id, status in aggregate.items():
                 if resource_id in seen:
-                    if seen[resource_id] != signature:
+                    if seen[resource_id] != status:
                         raise unknown("conflicting duplicate campsite availability")
                     continue
-                seen[resource_id] = signature
-                if aggregate[resource_id] != (0,) or any(status != 0 for status in statuses):
+                seen[resource_id] = status
+                if status != 0:
                     continue
-                site_id = f"{campground_id}:{map_id}:{resource_id}"
+                # A resource may be returned on both parent and leaf maps. Keep
+                # its result identity stable; the booking URL still uses the leaf.
+                site_id = f"{campground_id}:{catalog[campground_id]['root_map_id']}:{resource_id}"
+                booking_site_id = f"{campground_id}:{map_id}:{resource_id}"
                 # The removed details endpoint cannot establish name, capacity,
                 # or eligibility. Keep those unknown rather than invent values.
                 available.append(Campsite(site_id, f"Site {resource_id}", "", KINDS[category], None, {},
                                            booking_url=campground_url(campground_id, arrival.isoformat(),
-                                                                       departure.isoformat(), campsite_id=site_id)))
+                                                                       departure.isoformat(), campsite_id=booking_site_id)))
         # Shared children can hide cycles from the breadth-first ancestry path.
         checked, checking = set(), set()
         def check_cycle(map_id):

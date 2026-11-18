@@ -102,9 +102,9 @@ SOURCE_DEFINITIONS: list[SourceDefinition] = [
         "region": "WA",
         "areas": ["Puget Sound", "Olympic Peninsula", "Mount Rainier", "Snoqualmie and Cascades", "Everett and North Sound"],
         "counties": ["Clallam", "Jefferson", "Kitsap", "Mason", "King", "Pierce", "Lewis", "Snohomish", "Island", "Skagit", "Thurston", "Grays Harbor"],
-        "status": "experimental",
+        "status": "ready",
         "source_type": "goingtocamp",
-        "description": "Experimental direct API for Camping and Roofed stays. No browser required. Live compatibility is unverified; access denials stop requests.",
+        "description": "Live Camping and Roofed availability, including cabins and yurts. Separate targets for each category; no browser or login required. Site names, capacity, and accommodation-specific filters are not available.",
         "official_url": "https://parks.wa.gov/passes-permits/reservations/reservation-parks",
         "queries": [],
     },
@@ -240,7 +240,7 @@ def _get_source(source_id: str) -> SourceDefinition:
 
 def _supports_discovery(source: SourceDefinition) -> bool:
     if source.get("source_type") == "goingtocamp":
-        return source.get("status") == "experimental"
+        return source.get("status") in {"ready", "experimental"}
     return source.get("status") == "ready" and source.get("source_type") in {"recreation_search", "camava", "activenet", "cedar"}
 
 

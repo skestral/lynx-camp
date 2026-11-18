@@ -48,6 +48,7 @@ class DiagnosticRecord(BaseModel):
     cache_header_present: bool = False
     azure_edge_header_present: bool = False
     set_cookie_present: bool = False
+    request_cookie_present: bool = False
     authenticate_header_present: bool = False
     redirect: Literal["none", "same_origin", "other_origin", "unparseable"] = "none"
     transport_error: Literal["timeout", "proxy", "connection", "protocol", "other"] | None = None
@@ -147,6 +148,10 @@ def diagnostic_record(path: str, params: dict | None, elapsed: float, *, respons
                       set_cookie_present="set-cookie" in headers, authenticate_header_present="www-authenticate" in headers,
                       request_ids={key: headers[key] for key in REQUEST_ID_HEADERS
                                    if key in headers and ID_PATTERN.fullmatch(headers[key])})
+        try:
+            record["request_cookie_present"] = "cookie" in response.request.headers
+        except RuntimeError:
+            pass
     return DiagnosticRecord.model_validate(record).model_dump()
 
 

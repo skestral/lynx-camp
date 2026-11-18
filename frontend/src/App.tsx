@@ -1832,7 +1832,7 @@ export default function App() {
     setResettingSourceId(source.id);
     try {
       await api.resetSourceAccess(source.id);
-      setMessage(`${source.name}: access stop reset. Live compatibility remains experimental.`);
+      setMessage(`${source.name}: access stop reset. Check the source to verify access from this server.`);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Access stop could not be reset.");
     } finally {
@@ -3961,7 +3961,7 @@ export default function App() {
               )}
               <label>
                 Site type
-                <input value={filterSiteType} onChange={(event) => setFilterSiteType(event.target.value)} placeholder="Tent, RV, group" />
+                <input value={filterSiteType} onChange={(event) => setFilterSiteType(event.target.value)} placeholder="Tent, RV, Camping, Roofed" />
               </label>
               <label>
                 Loop

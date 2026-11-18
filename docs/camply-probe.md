@@ -4,6 +4,8 @@ This is an isolated compatibility test for Camply, not a second crawler or a rep
 
 The probe has no web interface, browser worker, exposed port, appdata mount, account login, or notification configuration. It does not import targets, create watches, change the application's access stop, or reserve inventory. Default execution is offline.
 
+For normal watches, use the integrated [Washington State Parks connector](washington-state-parks.md). The app now incorporates the successful request behavior and exact-stay contract, adds Roofed searches, and keeps its existing pacing/notification pipeline. This standalone probe remains useful for upstream comparisons, not scheduled scanning. Verification below describes each historical probe run, not the current app's full capabilities.
+
 ## Build and Offline Check
 
 Run from the repository root with Docker available:

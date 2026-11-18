@@ -1,6 +1,6 @@
 # Camp Finder
 
-Camp Finder is a local-network web app for monitoring campground availability across supported reservation providers. Recreation.gov, Snohomish County Parks, King County's Tolt-MacDonald campground, and Skagit County's Howard Miller Steelhead Park are currently connected. It runs in Docker, persists its data in SQLite, and notifies you when a configured campground/date rule has availability.
+Camp Finder is a local-network web app for monitoring campground availability across supported reservation providers. Recreation.gov, Washington State Parks, Snohomish County Parks, King County's Tolt-MacDonald campground, and Skagit County's Howard Miller Steelhead Park are currently connected. It runs in Docker, persists its data in SQLite, and notifies you when a configured campground/date rule has availability.
 
 The app is still notification-first. Matches link to the reservation provider, and Recreation.gov watches can be flagged as high priority for Cart Assist logging. The current Cart Assist implementation is a guarded audit trail and readiness check; it does not automatically click Add to Cart, submit payment, or try to get around login or CAPTCHA checks.
 
@@ -28,6 +28,7 @@ Current dashboard with grouped availability and a crawl waiting through a provid
 - Discover and monitor Snohomish County campgrounds, including cabins and yurts, alongside federal campgrounds.
 - Monitor King County's Tolt-MacDonald tent, RV, yurt, camping-container, and group sites as one campground target.
 - Monitor Howard Miller Steelhead Park's public tent, RV, cabin, and Adirondack sites through Skagit County's calendar.
+- Discover Washington State Parks Camping and Roofed targets, including cabins and yurts, and monitor them through the same watches and notifications without a browser console.
 - Browse sources by region and manage saved campgrounds in collapsible park/county groups.
 - Opt regional watches into future imports so new matching campgrounds join the same date and filter rules across connected providers.
 - Import preset target packs for Pacific Northwest, Northern Rockies, Greater Yellowstone, or California national parks, then trim targets you do not want.
@@ -109,7 +110,7 @@ Sources can be filtered to Puget Sound, Olympic Peninsula, Mount Rainier, Snoqua
 - National forests: live Recreation.gov discovery for Washington national forests such as Olympic, Mount Baker-Snoqualmie, Okanogan-Wenatchee, Gifford Pinchot, and Colville.
 - Regions: a Washington Recreation.gov state starter for federal campgrounds that are not covered by a named park or forest source yet.
 - County and regional parks: Snohomish County, King County's Tolt-MacDonald campground, and Skagit County's Howard Miller Steelhead Park have live discovery and exact-stay availability searches. Clallam, Lewis, and Tacoma Power parks have official links but their reservation connectors are not connected. Jefferson County camping is directory-only.
-- Washington State Parks: an experimental native GoingToCamp API adapter, adapted from GoCamp's workflow, with Camping and Roofed targets. Live compatibility remains unverified because direct access was denied from the development host. WA DNR remains directory-only.
+- Washington State Parks: live GoingToCamp Camping and Roofed targets, using the adapted GoCamp/Camply workflow. Local Docker checks include camping and a browser-confirmed two-night cabin match. WA DNR remains directory-only.
 
 The [Washington State Parks setup guide](docs/washington-state-parks.md) covers
 the direct API path. It runs inside the regular Camp Finder container without
@@ -170,7 +171,7 @@ These local footprints are meant for watch selection, not legal park boundaries.
 
 Park, selected-park, state, and map-view watches appear as one regional listing. Expand Campgrounds to inspect individual scan schedules, run a campground check, or pause a member. The group controls edit the shared dates and filters, select all members, pause/resume the region, or delete it after confirmation. A group edit applies to every remaining member. Creation and shared edits are atomic: a failed request does not save half a region.
 
-By default, membership is the set of active imported targets selected when the watch is created. Check **Include future imports** to save a state, exact park-group names, or the current map bounds with the watch. When an active matching target is imported or updated later, it joins the same group and inherits its dates, filters, and Cart Assist setting. The selector is provider-independent: a Washington watch can include federal, Snohomish, King, and Skagit County targets. Preset-only markers and unconnected source directories are not monitored until a supported target is imported.
+By default, membership is the set of active imported targets selected when the watch is created. Check **Include future imports** to save a state, exact park-group names, or the current map bounds with the watch. When an active matching target is imported or updated later, it joins the same group and inherits its dates, filters, and Cart Assist setting. The selector is provider-independent: a Washington watch can include federal, Washington State Parks, Snohomish, King, and Skagit County targets. Preset-only markers and unconnected source directories are not monitored until a supported target is imported.
 
 To upgrade an existing regional watch, open its group edit button, choose State, Park group, Selected park groups, or Current map view, enable Include future imports, and save. Saving also adds already imported active targets that match the chosen area. Existing members are retained if you change the inclusion area; remove individual members you no longer want. A saved map area does not move when you pan the dashboard map later. Map membership needs valid coordinates; state and park-group membership do not.
 
@@ -195,11 +196,11 @@ Source definitions describe coverage, grouping, and discovery capabilities. Prov
 - Custom Recreation.gov searches for a state, region, or keyword.
 - Washington state sources as their own provider family, not mixed into federal national-park packs.
 
-Washington State Parks uses [GoingToCamp](https://parks.wa.gov/passes-permits/reservations/making-reservations). The native adapter uses a fixed provider host, serialized requests, a cached catalog, full-stay plus nightly map checks, and persisted denial/cooldown state. A direct catalog request from the development host returned HTTP 403 on November 17, 2026. No access workaround was attempted, and verified live state-park coverage is not claimed.
+Washington State Parks uses [GoingToCamp](https://parks.wa.gov/passes-permits/reservations/making-reservations). The connector incorporates Camply's working request behavior and PR #398's map/filter workflow into the existing backend. It uses a fixed provider host, serialized requests, anonymous in-memory cookies, a cached catalog, and exact-stay availability. No separate Camply service, browser console, or account is required.
 
-A later read-only inspection in an existing user-operated browser confirmed anonymous camping and cabin search results. This establishes a browser workflow to evaluate, not a working Docker connector. No login, cart, reservation, or provider-notification action was submitted.
+The November 17, 2026 local Docker check discovered 75 Camping and 27 Roofed targets. For November 28-30 it returned 19 Bogachiel campsites and one Lincoln Rock Roofed match; the normal reservation website independently showed cabin C7 available for that stay. These are point-in-time matches, not reserved inventory. Production Unraid access still requires verification on that host.
 
-The experimental Washington connector is wired into discovery, regional watches, scan diagnostics, and the existing notification channels. Its intended coverage is Camping and Roofed stays, including cabins and yurts. Until live contracts are verified, leave detailed type, loop, and capacity filters unset; unknown metadata is not invented. See the [state-park integration notes](docs/washington-state-parks.md) for setup, current limits, and the live verification checklist.
+Open **Targets > Sources > Washington state > Washington State Parks** and import the source. A Washington watch with **Include future imports** enabled adds the new targets automatically. Leave Site type blank for mixed Camping/Roofed watches; select Roofed targets for cabin/yurt searches. Names, individual cabin-versus-yurt types, loops, and capacities are not supplied by the availability endpoint, so unsupported filters report an error. Existing access stops survive upgrades: pause Washington watches, wait for any cooldown, then explicitly reset the reviewed stop and check the source. See the [state-park guide](docs/washington-state-parks.md).
 
 [Tacoma Power Parks](https://www.mytpu.org/community-environment-parks/parks-recreation/reservations-fees/) uses its own GoingToCamp service. Its browser page loaded during the same review, but a server-style metadata request received a firewall challenge. It remains unconnected; opening an interactive page is not proof that the Docker crawler can use its API.
 
@@ -323,6 +324,8 @@ Existing databases receive the watch/history deletion indexes automatically duri
 
 The saved regional coverage table is also created automatically. Existing watches remain fixed-membership until Include future imports is explicitly enabled in their group editor.
 
+Startup also adds notification-handoff and automatic-disappearance tracking to existing result rows. Old results are not queued for alerts again, and existing booked/dismissed choices are preserved. No database reset is needed for Washington support.
+
 ## Configuration Backups
 
 The Settings drawer can download and restore a JSON config backup. A backup includes targets, watches, saved regional coverage and exclusions, target release settings, watch Cart Assist flags, scan control overrides, notification settings, and server-level Cart Assist settings. Availability results, scan logs, notification delivery history, Cart Assist attempt history, and the runtime crawl queue are not included. A stopped-container appdata backup preserves those records and the saved cooldown/pause state as well.
@@ -377,6 +380,8 @@ The minimum scan interval controls repeat checks, not how quickly a large region
 Availability results link to their reservation provider and include status actions. Recreation.gov campsite links include the arrival date as `startDate`; the dashboard also adds it to older saved links before opening or copying them. Snohomish links preserve both stay dates. King and Skagit links open the provider map/calendar, where you must re-enter the dates. Open marks a fresh match as opened. Copy puts a booking brief on your clipboard with the campground, watch, site, loop, type, stay dates, and provider link. If the browser blocks clipboard access, the same brief appears above the results for manual selection. Booked records that you successfully reserved it, Dismiss removes it from active attention, and Reopen moves a handled result back to active availability. Future scans preserve booked and dismissed decisions for the same campsite/date result instead of notifying you about the same handled match again.
 
 Each successful scan also revalidates active results for the same watch and date ranges. If a previously active site/date match is not returned again, Camp Finder marks it booked and removes it from the active list. Scan errors and Recreation.gov rate limits do not clear old results, because those runs did not prove the match disappeared.
+
+An automatically removed match can become active and notify again when it reappears. This does not reopen a result that you explicitly marked Booked or Dismissed.
 
 Results are grouped by national park, campground, and stay dates. When 12 or fewer results match the current filters, campground and stay sections open automatically so sites are immediately visible. Larger result sets start collapsed below the park level. Your explicit expand/collapse choices take precedence until the page is reloaded. The dashboard loads up to 2,000 recent result rows, shows server-side total and active counts, and warns if the loaded working set is clipped. Use the status filter and search field to narrow the dashboard before selecting results. Bulk actions apply to selected results only; Clear All dismisses every active availability result.
 
@@ -439,7 +444,9 @@ Discord webhooks work because Camp Finder sends a simple `content` payload.
 3. Use Test at the top of Settings. This sends a test to every configured channel, including Home Assistant or email if enabled. Confirm that the message reaches the intended Discord channel.
 4. Leave the server running. New matches are sent after each campground check; they do not wait for an entire regional pass to finish.
 
-Configured means a value is present, not that delivery has succeeded. Adding a webhook does not replay every result already saved in the dashboard. Review the test response for connection errors, and use Alerts or Logs to inspect delivery records for actual matches. There is no durable notification retry queue in this version.
+Configured means a value is present, not that delivery has succeeded. Adding a webhook does not replay every result already saved in the dashboard. Review the test response for connection errors, and use Alerts or Logs to inspect delivery records for actual matches.
+
+New matches remain pending until the scanner hands them to the notification service. If cancellation, an error, or a restart interrupts that handoff, a later scan can notify when it sees the match again. Handled channel delivery failures are logged but are not automatically retried. A crash after an external service accepts a message but before the database acknowledgment can produce a duplicate alert.
 
 ![Notification settings with a configured demo webhook and empty secret input](docs/screenshots/notification-settings.png)
 
@@ -514,7 +521,7 @@ On Unraid, `/mnt/user/appdata/...` is a user-share view over local storage, not 
 
 ## Next Useful Phases
 
-1. Connect Washington State Parks live availability through permitted provider access, then add the remaining county reservation systems. Verify full-stay tent and cabin coverage before enabling each source.
+1. Add the remaining county reservation systems and broaden Washington accommodation metadata. Verify complete-stay camping and cabin coverage before enabling each source.
 2. Add filters for equipment, max vehicle length, accessible sites, and electric/water hookups when the API exposes them consistently.
 3. Persist source definitions and last source-check results in SQLite instead of keeping the catalog code-defined.
 4. Add custom source creation for a Recreation.gov parent area, state, region, or keyword.

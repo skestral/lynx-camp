@@ -2,25 +2,25 @@
 
 ## Status
 
-Washington State Parks now has an **experimental native API connector** in the regular Camp Finder backend. It adapts GoCamp's discovery/search workflow to the newer availability-map contract. There is no browser-console requirement, separate worker dependency, or account login. Sources exposes Check and Import, and imported targets use the existing watch, notification, and scan-log pipeline.
+Washington State Parks supports **live Camping and Roofed monitoring** in the regular Camp Finder backend. It incorporates the successful Camply request behavior and PR #398's root-map/filter workflow while retaining the app's asynchronous scanner, cancellation, and notifications. There is no browser-console requirement, separate worker, or account login.
 
-Live compatibility is **not verified**. On November 17, 2026, the direct catalog request returned HTTP 403 from the development host, and testing stopped. Earlier normal browser access from that host also encountered a firewall denial. No workaround was attempted. Access from the production Docker host has not been verified. Retrying through another host, copying challenge cookies, or rotating browser identities is not an integration solution.
+Local Docker checks on November 17, 2026 discovered 75 Camping and 27 Roofed targets. An exact November 28-30 stay returned 19 Bogachiel campsites and one Lincoln Rock Roofed match. The normal reservation website independently showed Lincoln Rock cabin C7 as Available for those dates. No reservation, cart hold, or real notification was sent during verification.
 
-The remaining requirement is a permitted data-access path and validation against current responses. Passing synthetic tests proves the integration behavior, not provider access or complete campground coverage. The source is deliberately not counted among verified live sources.
+Production Unraid access, sustained statewide polling, and every park-specific rule remain unverified. A successful local request is not a provider availability guarantee or permission to ignore access controls. The earlier fixed-identity client received 403; the current request profile succeeded without imported browser cookies, proxies, or challenge solving. Existing access stops are intentionally preserved on upgrade.
 
 ## Setup
 
-1. Update the regular Camp Finder image using the [README installation instructions](../README.md). Existing databases require no destructive migration; connection state uses the existing app-settings table.
-2. Open **Targets > Sources > Washington state**. Washington State Parks is labeled **Experimental API**. Check requests the park and accommodation catalogs; Import discovers and saves supported targets. Neither action makes a reservation.
+1. Back up appdata with the container stopped, then update the regular Camp Finder image using the [README installation instructions](../README.md). Startup applies additive database changes; no reset or export/import is required.
+2. Open **Targets > Sources > Washington state**. Washington State Parks is labeled **Live monitoring**. If an older version saved an access stop, pause Washington watches, wait until its cooldown has elapsed, then explicitly reset the reviewed stop. Check requests the park/accommodation catalogs; Import discovers and saves targets. Neither action makes a reservation.
 3. A successful import creates separate Camping and Roofed targets per park when those categories are recognized. Day-use-only locations are excluded. A Washington regional watch with **Include future imports** enabled picks them up automatically; otherwise edit the watch's saved coverage or create a watch for the Washington State Parks group.
-4. For Friday and Saturday nights, use Friday arrival and two nights. Leave site type blank to include both categories, or use `Camping` or `Roofed`. The experimental response does not establish individual cabin/yurt type, loop, or capacity, so those detailed filters produce an explicit error instead of a misleading empty result.
+4. For Friday and Saturday nights, use Friday arrival and two nights. Leave Site type blank for mixed-category regional watches. For cabin/yurt searches, select the desired **Roofed** targets. `Camping` or `Roofed` filters must match the selected target categories. Individual cabin-versus-yurt type, display names such as C7, loop, and capacity are not available from this endpoint; those filters produce an explicit error instead of silently hiding results.
 5. Existing Discord, Home Assistant, and email settings apply to new matches. Review the provider's final rules, party size, equipment, and eligibility before booking. Results are candidates, not reservations or cart holds.
 
 No new environment variable, API key, or browser profile is required. The optional browser worker can remain stopped. Do not delete the database to clear an access problem.
 
 ### Access Stops and Rate Limits
 
-The connector makes serialized requests with at least five seconds between responses and subsequent requests. Scan requests also honor **Settings > Scan controls**. A complete park check may require many nested maps and two availability requests per map; completion estimates are approximate and can grow as those maps are discovered.
+The connector makes serialized requests with at least five seconds between responses and subsequent requests. Scan requests also honor **Settings > Scan controls**. Each map needs one exact-stay request; a large park can contain several maps. Completion estimates can grow as those maps are discovered. Start with a few parks and a narrow date range before expanding a regional watch.
 
 HTTP 429 waits at least one hour, or longer when Retry-After requires it. The existing crawler also applies its provider-specific cooldown. A 401/403, redirect, or HTML challenge stops API requests until reviewed, even across a container restart. It never falls back to a browser or turns a denial into "no availability." Previously saved results remain intact on failed checks.
 
@@ -30,20 +30,35 @@ Sources shows the saved error and earliest review time. Check and Import are dis
 
 - Catalog requests use `/api/resourceLocation` and `/api/resourcecategory`, require recognized Camping and Roofed category metadata, and use each location's `rootMapId`. Complete metadata is cached for 24 hours; explicit Check/Import refreshes it. The location endpoint's capitalization matches the observed browser request; that correction is not evidence that it caused or fixes the 403.
 - Searches use GET `/api/availability/map`, JSON-encoded `filterData`, booking category 0 or 1, and the requested arrival/departure. Camping uses the upstream tent-equipment default; Roofed omits camping equipment. This does not prove suitability for every RV size or party.
-- Each map is requested with full-stay and daily availability. A candidate must be open in the full-stay result and on every occupied night. Child maps are traversed completely with cycle, duplicate, and size checks. Incomplete or conflicting records raise an error.
-- Site names fall back to provider IDs; capacity, facilities, eligibility restrictions, and specific roofed type remain unknown. Party size is one in the upstream query. Booking links carry category, park, leaf map, arrival, departure, and nights, but current provider date-prefill behavior has not been verified.
-- The full-stay/nightly response shapes are assumptions from public upstream code, not captured live fixtures. Changed contracts fail visibly. Availability code zero is the only accepted positive status; nonzero codes are not emitted as matches.
-- Targets and watches are included in normal configuration exports. Runtime denial/cooldown state is not portable configuration and stays in appdata. This connector stores no account credentials or browser cookies.
+- Each map uses `getDailyAvailability=false` for the requested arrival/departure. Only a single integer status of zero is accepted. The daily calendar is not occupied-night inventory: the verified Lincoln Rock cabin had full-stay status 0 but daily statuses `[0, 3, 3]`. Requiring each daily entry to be zero would incorrectly discard that available cabin. Child maps are traversed completely with duplicate, cycle, and size checks.
+- Site names fall back to provider IDs; capacity, facilities, eligibility restrictions, and individual roofed type remain unknown. Party size is one. Review these requirements in the provider's booking interface before reserving. The Lincoln Rock link was verified to prefill Roofed, park, leaf map, arrival, departure, and two nights.
+- Result IDs use the catalog root map plus resource ID, so the same resource returned at a different map level does not create another match. Booking links retain the matching map independently and are validated when saved. Older experimental leaf-map result IDs may appear as a new result once; existing target/watch IDs are unchanged.
+- Targets and watches are included in normal configuration exports. Runtime denial/cooldown state stays in appdata. Anonymous cookies received directly from the provider stay only in memory, expire normally, and are cleared on reset/restart; no account or browser-cookie import is used.
+- The full Camply package is not a runtime dependency. Its Pydantic 1 requirement conflicts with the app's Pydantic 2 stack, and its reviewed connector is Camping-only. The app reuses its `fake-useragent==1.4.0` Chrome header pattern and Accept-Language, with the existing HTTPX client and provider safeguards. This is an adapted integration, not an embedded Camply CLI.
 
-[Camply PR 391](https://github.com/juftin/camply/pull/391) and [PR 398](https://github.com/juftin/camply/pull/398) describe newer `rootMapId`, removed-detail-endpoint, and filter serialization changes. They inform this adapter; their authors' live checks are not Camp Finder verification. [GoCamp attribution](../third_party/gocamp/NOTICE.md) and its MIT license are included in the repository and Docker image.
+[Camply PR 391](https://github.com/juftin/camply/pull/391) and [PR 398](https://github.com/juftin/camply/pull/398) describe the root-map and filter changes. [Camply attribution](../third_party/camply/NOTICE.md), [GoCamp attribution](../third_party/gocamp/NOTICE.md), and their MIT licenses are included in the repository and Docker image. The retired `/api/resource/details` endpoint is not called, and placeholder capacities are never treated as verified data.
 
-[Desktop source status](screenshots/washington-source.png) | [Mobile source status](screenshots/washington-source-mobile.png)
+### Reproduce the Adapter Check
+
+The normal app uses its saved stops and scan controls. For a separate developer check, pause Washington watches and inspect the current access state first. From the repository root, with backend dependencies installed:
+
+```sh
+python -m scripts.check_washington --live --arrival 2026-11-28 --departure 2026-11-30
+```
+
+Update the dates for future tests. This helper has no appdata access and does not send notifications. It checks Bogachiel Camping and Lincoln Rock Roofed, with a maximum of 30 requests and the normal five-second floor. Supply `--not-before` with the existing timezone-aware cooldown timestamp when applicable. Do not use it to bypass an unresolved stop. It exits on failure rather than starting a retry loop. Live responses should not be turned into permanent test expectations; availability changes.
+
+![Connected Washington source in the Targets drawer](screenshots/washington-live-source.png)
+
+[Camping and Roofed results](screenshots/washington-live-results.png) | [Mobile cabin result](screenshots/washington-live-mobile.png)
+
+These images show the local Docker test instance with real point-in-time availability, not held inventory. Camping and Roofed were scanned through saved watches and produced 20 persisted results. The browser check identified the sole Roofed result as cabin C7; Camp Finder displays its resource ID because the API used here does not supply site labels. Discord and Home Assistant handoff was tested with mocked HTTP responses, not real messages. Sustained polling and production-host access remain separate checks.
 
 ## Request Diagnostics
 
 Open **Logs > Provider Diagnostics**, or select the log icon beside Washington State Parks in Sources. The latest 30 HTTP attempts are stored in appdata, newest first, and survive container restarts. There is no new service, environment variable, database replacement, or browser-console requirement. Existing databases use the app-settings table they already have.
 
-Each expandable row includes the endpoint, allowlisted search parameters, status, elapsed time, response size/type, known server family, and coarse body classifications such as `access_denied` or `human_verification`. Header-presence flags include Via, X-Cache, X-Azure-Ref, Set-Cookie, and WWW-Authenticate. Proxy, proxy-exclusion, and custom-CA settings are recorded only as booleans. A configured proxy is not proof that a particular request used it; a classification is a clue, not a definitive diagnosis.
+Each expandable row includes the endpoint, allowlisted search parameters, status, elapsed time, response size/type, known server family, and coarse body classifications such as `access_denied` or `human_verification`. Header-presence flags include Via, X-Cache, X-Azure-Ref, Set-Cookie, and WWW-Authenticate. The JSON download also records whether a request had anonymous cookies, never their values. Proxy, proxy-exclusion, and custom-CA settings are booleans. A configured proxy is not proof that a request used it; a classification is a clue, not a definitive diagnosis.
 
 The report never retains raw response bodies, cookies, authorization headers, redirect URLs, proxy addresses, exception messages, cart/booking identifiers, or arbitrary query parameters. Request IDs are limited to named correlation headers and constrained hexadecimal/UUID formats. Search dates and public resource IDs remain in the report, so review it before sharing. Runtime diagnostics are excluded from Settings configuration exports; a full appdata backup still contains them.
 
@@ -64,7 +79,7 @@ A normal, unsigned-in Edge session was inspected through its Network panel. No a
 
 The earlier native catalog attempt returned 403, before detailed diagnostics were installed. Its headers and body were not retained, so the rejection cannot yet be attributed to the origin API, an edge policy, a proxy, authentication, or endpoint capitalization. The existing Docker access stop was preserved during this comparison. Changing the endpoint spelling to match the browser is a contract correction, not an access workaround or a verified fix.
 
-Compare the next permitted native report with the browser's status, content type, header-presence flags, and safe search fields. A denial on catalog discovery happens before date/equipment filtering, so changing availability parameters alone does not explain that denial. Provider access guidance may still be necessary. Do not copy challenge cookies, impersonate browser identities, disable TLS checks, or rotate network routes.
+This comparison preceded the successful Camply-profile integration. A denial on catalog discovery happens before date/equipment filtering, so availability parameters alone do not explain it. The current client follows Camply's header generation without a denial-recovery loop. Do not copy challenge cookies, disable TLS checks, or rotate network routes after a denial.
 
 The screenshots below use a synthetic denial in the isolated documentation demo, not a captured provider response.
 
@@ -84,7 +99,7 @@ The earlier browser-based proposal is not the chosen scanning architecture. The 
 
 [Playwright supports Docker](https://playwright.dev/python/docs/docker), but a production crawler needs a non-root sandboxed browser and private control endpoints. Browser profiles are sensitive; [Playwright's authentication guidance](https://playwright.dev/python/docs/auth) warns against committing stored browser state. Exclude profiles from Git, image build contexts, ordinary settings exports, and diagnostic screenshots. Do not use the owner's everyday browser profile as the server profile.
 
-A local browser helper would require the owner's computer to remain available, so it does not meet the remote-only deployment requirement. The native adapter runs with Camp Finder on the server; only its live access and compatibility remain unverified.
+A local browser helper would require the owner's computer to remain available, so it does not meet the remote-only deployment requirement. The integrated adapter runs entirely in Camp Finder's Docker container; production-host access still needs a check after deployment.
 
 ## Interactive Verification
 
@@ -101,7 +116,7 @@ Observed controls include `park-autocomplete-input`, `arrival-date-field`, `depa
 
 The provider also exposes a Notify me action. Its account requirements, delivery behavior, and automation interface have not been verified; Camp Finder does not subscribe to those alerts.
 
-## Intended Coverage
+## Coverage
 
 - Discover reservable Washington state parks and their overnight accommodation categories dynamically.
 - Search complete stays for tent/RV sites, cabins, yurts, and other verified roofed accommodations. Exclude day-use inventory.
@@ -119,7 +134,7 @@ The [reservation parks directory](https://parks.wa.gov/passes-permits/reservatio
 
 [OpenCamp](https://github.com/opencamp-hq/cli) targets Recreation.gov and does not supply a Washington State Parks connector.
 
-[Camply's GoingToCamp implementation](https://github.com/juftin/camply/blob/9c4eee52c51bd734ddd72c223c0a4fd0f6f066b0/camply/providers/going_to_camp/going_to_camp_provider.py) is a useful public contract reference. It was reviewed at commit `9c4eee52c51bd734ddd72c223c0a4fd0f6f066b0`; it is not installed as a Camp Finder dependency. There are important gaps to resolve before reuse:
+[Camply's GoingToCamp implementation](https://github.com/juftin/camply/blob/9c4eee52c51bd734ddd72c223c0a4fd0f6f066b0/camply/providers/going_to_camp/going_to_camp_provider.py) is a useful public contract reference. The initial review at commit `9c4eee52c51bd734ddd72c223c0a4fd0f6f066b0` identified the gaps below. The current adapter adds root-map discovery, Roofed searches, complete traversal, and exact-stay validation rather than embedding that implementation unchanged:
 
 - [Issue 377](https://github.com/juftin/camply/issues/377) reports a Washington discovery failure when maps have no resource-location ID. Validate the location's `rootMapId` relationship instead of joining every map by location ID.
 - The reviewed search fixes `bookingCategoryId` to `0` and limits discovery to named camping categories. This does not establish roofed-accommodation coverage. Discover and verify the applicable categories and equipment requirements.
@@ -154,7 +169,9 @@ GoCamp is an additional contract reference, not a drop-in connector or a solutio
 to denied access. A permitted direct API integration remains an option; the browser
 diagnostic worker does not commit Camp Finder to browser-only scanning.
 
-## Enablement Checklist
+## Further Validation
+
+The integration now has local Docker discovery, a two-night Camping check, a browser-confirmed two-night cabin match, and automated watch/notification coverage. The checklist below remains useful for extending accommodation filters, auditing other parks, or validating a different deployment host. It is not a claim that every item has been live-tested.
 
 1. Establish a permitted API/feed or browser workflow, authentication requirements if any, request limits, and caching guidance. Keep any credentials outside Git. Resolve the observed denial before unattended testing; do not switch request routes to evade it.
 2. Validate discovery against current campground, root-map, and accommodation-category records. Preserve provider-qualified IDs without changing existing federal or county IDs.
@@ -177,6 +194,6 @@ I maintain a self-hosted campground availability monitor for personal trip plann
 
 Is there an approved API, data feed, or integration program for retrieving campground metadata and checking complete-stay availability? The application would cache metadata, serialize requests, honor your polling limits and Retry-After responses, and link visitors to your website for booking. It would not create reservations or access customer records.
 
-A development browser received a firewall denial, while manual searches in an existing interactive browser worked. Unattended access has not been verified. Please advise on the supported access method, any credentials or approval required, acceptable polling and caching intervals, and coverage of cabins and yurts as well as campsites.
+An initial fixed-identity API request received a denial. Bounded Docker checks with Camply-compatible headers and anonymous session cookies subsequently returned Camping and Roofed matches. Sustained polling has not been verified. Please advise on the supported access method, any credentials or approval required, acceptable polling and caching intervals, and coverage of cabins and yurts as well as campsites.
 
 Thank you.

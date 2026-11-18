@@ -319,8 +319,10 @@ def source_diagnostics(source_id: str) -> dict:
         raise HTTPException(status_code=404, detail="No HTTP diagnostics are available for this source.")
     return {"source_id": source_id, "provider": "Washington State Parks", "history_limit": HISTORY_LIMIT,
             "connection": connection_state(store), "records": read_diagnostics(store),
-            "client": {"method": "GET", "host": "washington.goingtocamp.com", "user_agent": "CampFinder/1.0 (availability monitor)",
-                       "accept": "application/json", "browser_required": False, "automatic_redirects": False}}
+            "client": {"method": "GET", "host": "washington.goingtocamp.com",
+                       "user_agent": "Camply-compatible Chrome (fake-useragent 1.4.0)",
+                       "accept": "*/*", "accept_language": "en-US,en;q=0.9", "cookies": "anonymous, memory only",
+                       "browser_required": False, "automatic_redirects": False}}
 
 
 @app.get("/api/config/export")
