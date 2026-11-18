@@ -110,6 +110,34 @@ def test_catalog_categories_root_identity_and_no_day_use():
     assert targets[CAMPING]["latitude"] == 47.7
 
 
+@pytest.mark.parametrize("gps,expected", [
+    ("48.16386, -122.6782", (48.16386, -122.6782)),
+    (" 47.7 , -122.8 ", (47.7, -122.8)),
+    ("", None), ("north, west", None), ("nan, -122", None),
+    ("47, inf", None), ("-122, 47", None), ("47, -122, 0", None), (None, None),
+])
+def test_catalog_gps_coordinates(gps, expected):
+    locations = deepcopy(LOCATIONS)
+    locations[0].pop("latitude")
+    locations[0].pop("longitude")
+    locations[0]["gpsCoordinates"] = gps
+    target = parse_catalog(locations, CATEGORIES)[CAMPING]
+    assert (target.get("latitude"), target.get("longitude")) == (expected or (None, None))
+
+
+def test_catalog_fills_existing_missing_coordinates_without_import_or_settings_changes(store):
+    first = store.create_target({"name": "Custom park", "campground_id": CAMPING, "active": False})
+    second = store.create_target({"name": "Custom cabin", "campground_id": ROOFED, "latitude": 45.0, "longitude": -120.0})
+    provider = Provider()
+    asyncio.run(provider.client(store).catalog())
+    updated = store.get_target(first["id"])
+    assert updated["latitude"] == 47.7 and updated["longitude"] == -122.8
+    assert updated["name"] == first["name"] and updated["active"] == first["active"]
+    assert store.get_target(second["id"])["latitude"] == 45.0
+    assert len(store.list_targets()) == 2
+    assert store.list_watches() == []
+
+
 @pytest.mark.parametrize("value", [None, True, 1.5, "bad", "01", "-0", "1.0", 2**31, [], {}])
 def test_invalid_id_fails_with_provider_error(value):
     with pytest.raises(ProviderResponseError):

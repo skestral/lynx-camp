@@ -80,7 +80,7 @@ def test_existing_populated_database_gets_indexes_without_data_loss(tmp_path):
     with store.connect() as conn:
         # Reproduce the previously shipped schema: only the group and UNIQUE indexes.
         indexes = conn.execute("SELECT name FROM sqlite_master WHERE type = 'index' AND sql IS NOT NULL AND name != 'watches_group_id'").fetchall()
-        assert len(indexes) == 11
+        assert len(indexes) == 12  # Child-key indexes plus the active-stay calendar index.
         for index in indexes:
             conn.execute(f"DROP INDEX {index['name']}")
     reopened = Store(store.database_path)

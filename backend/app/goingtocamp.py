@@ -138,6 +138,14 @@ def parse_catalog(locations, categories, tenant="wa") -> dict[str, dict]:
                       "park_name": config["name"], "state_code": config["state"], "timezone": timezone,
                       "poll_interval_minutes": 60, "booking_url": campground_url(target_id), "root_map_id": root_map}
             coordinates = [item.get("latitude"), item.get("longitude")]
+            # Camis also publishes a decimal latitude/longitude pair as one field.
+            if any(value is None for value in coordinates) and isinstance(item.get("gpsCoordinates"), str):
+                parts = item["gpsCoordinates"].split(",")
+                if len(parts) == 2:
+                    try:
+                        coordinates = [float(part.strip()) for part in parts]
+                    except ValueError:
+                        coordinates = [None, None]
             if all(type(value) in (int, float) and math.isfinite(value) for value in coordinates):
                 if -90 <= coordinates[0] <= 90 and -180 <= coordinates[1] <= 180:
                     target.update(latitude=coordinates[0], longitude=coordinates[1])
@@ -286,6 +294,8 @@ class GoingToCampClient:
                 self._catalog, self._catalog_at = catalog, time.monotonic()
                 await self._save_state({"state": "catalog_loaded", "checked_at": datetime.now(UTC).isoformat(),
                                         "message": "Overnight catalog loaded. Watches check exact-stay availability."})
+            if self.store:
+                await asyncio.to_thread(self.store.fill_missing_target_coordinates, list(catalog.values()))
             return catalog
 
     async def discover(self):

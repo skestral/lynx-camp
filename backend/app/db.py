@@ -230,6 +230,9 @@ class Store:
             self._backfill_result_booking_urls(conn)
             self._ensure_column(conn, "watches", "group_id", "TEXT")
             conn.execute("CREATE INDEX IF NOT EXISTS watches_group_id ON watches(group_id)")
+            conn.execute("""CREATE INDEX IF NOT EXISTS results_active_stay
+                ON results(arrival_date, departure_date, campground_id)
+                WHERE active = 1 AND status IN ('available', 'opened')""")
             # Cascades otherwise rescan entire child tables for every deleted parent.
             # Run on every startup so existing databases receive the same indexes.
             for table, column in (
@@ -281,6 +284,16 @@ class Store:
                 for row in rows
                 if row is not None and (target := _target_with_coordinates(_row_to_dict(row)))
             ]
+
+    def fill_missing_target_coordinates(self, catalog: list[dict[str, Any]]) -> None:
+        coordinates = [(target["latitude"], target["longitude"], target["campground_id"])
+                       for target in catalog if "latitude" in target and "longitude" in target]
+        if not coordinates:
+            return
+        # Existing target settings, custom coordinates and watch membership stay intact.
+        with self.connect() as conn:
+            conn.executemany("""UPDATE targets SET latitude = ?, longitude = ?
+                WHERE campground_id = ? AND latitude IS NULL AND longitude IS NULL""", coordinates)
 
     def delete_target(self, target_id: int) -> bool:
         with self.connect() as conn:
@@ -1215,6 +1228,41 @@ class Store:
                 (limit,),
             ).fetchall()
             return [_row_to_dict(row) for row in rows if row is not None]
+
+    def availability_calendar(self) -> list[dict[str, Any]]:
+        # Aggregate before sending to the browser; never apply the result-list cap.
+        with self.connect() as conn:
+            return [dict(row) for row in conn.execute("""
+                SELECT campground_id, arrival_date, departure_date,
+                    COUNT(*) AS match_count, MAX(last_seen_at) AS last_seen_at
+                FROM results
+                WHERE active = 1 AND status IN ('available', 'opened')
+                GROUP BY campground_id, arrival_date, departure_date
+                ORDER BY arrival_date, departure_date, campground_id
+            """)]
+
+    def results_for_stay(self, arrival: str, departure: str, campground_id: str | None = None,
+                         park_name: str | None = None, limit: int = 2000) -> dict[str, Any]:
+        where = """results.active = 1 AND results.status IN ('available', 'opened')
+            AND results.arrival_date <= ? AND results.departure_date >= ?"""
+        params: list[Any] = [arrival, departure]
+        if campground_id is not None:
+            where += " AND results.campground_id = ?"
+            params.append(campground_id)
+        if park_name is not None:
+            where += " AND COALESCE(NULLIF(targets.park_name, ''), 'Unassigned park') = ?"
+            params.append(park_name)
+        joins = "JOIN watches ON watches.id = results.watch_id JOIN targets ON targets.id = results.target_id"
+        with self.connect() as conn:
+            # Keep the count and working set on the same read snapshot.
+            conn.execute("BEGIN")
+            total = conn.execute(f"SELECT COUNT(*) FROM results {joins} WHERE {where}", params).fetchone()[0]
+            rows = conn.execute(f"""SELECT results.*, watches.name AS watch_name,
+                targets.name AS target_name, targets.park_name, targets.state_code
+                FROM results {joins} WHERE {where}
+                ORDER BY results.arrival_date, results.departure_date, results.id DESC LIMIT ?
+            """, [*params, limit]).fetchall()
+            return {"results": [dict(row) for row in rows], "total_count": total}
 
     def result_summary(self) -> dict[str, int]:
         with self.connect() as conn:

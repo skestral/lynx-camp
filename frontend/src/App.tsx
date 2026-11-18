@@ -36,7 +36,11 @@ import { RESULTS_LIMIT, api } from "./api";
 import { WatchGroup } from "./WatchGroup";
 import { SavedTargets } from "./SavedTargets";
 import { ProviderDiagnostics } from "./ProviderDiagnostics";
+import { AvailabilityDates } from "./AvailabilityDates";
+import { availabilityCounts, selectedStay } from "./availability";
 import type {
+  AvailabilityWindow,
+  StayResults,
   CrawlStatus,
   CartAssistStatus,
   CartAttempt,
@@ -429,7 +433,7 @@ const mapTileUrl = import.meta.env.VITE_CAMPFINDER_TILE_URL || "https://tile.ope
 const mapTileAttribution =
   import.meta.env.VITE_CAMPFINDER_TILE_ATTRIBUTION ||
   '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
-const washingtonMapBounds: L.LatLngBoundsExpression = [
+const washingtonMapBounds: LatLngBoundsTuple = [
   [45.45, -125.15],
   [49.1, -116.85]
 ];
@@ -843,6 +847,13 @@ export default function App() {
   const [resultView, setResultView] = useState<ResultView>("active");
   const [resultSort, setResultSort] = useState<ResultSort>("arrival");
   const [resultQuery, setResultQuery] = useState("");
+  const [mapArrival, setMapArrival] = useState("");
+  const [mapDeparture, setMapDeparture] = useState("");
+  const [availability, setAvailability] = useState<AvailabilityWindow[]>([]);
+  const [availabilityError, setAvailabilityError] = useState("");
+  const [availabilityLoaded, setAvailabilityLoaded] = useState(false);
+  const [stayResults, setStayResults] = useState<(StayResults & { key: string }) | null>(null);
+  const [stayResultsError, setStayResultsError] = useState("");
   const [selectedResultIds, setSelectedResultIds] = useState<number[]>([]);
   const [bulkResultBusy, setBulkResultBusy] = useState<Result["status"] | null>(null);
   const [scanProgress, setScanProgress] = useState<ScanProgress | null>(null);
@@ -894,6 +905,7 @@ export default function App() {
   const leafletMapRef = useRef<L.Map | null>(null);
   const markerLayerRef = useRef<L.LayerGroup | null>(null);
   const mapFitKeyRef = useRef("");
+  const mapViewportBoundsRef = useRef<L.LatLngBounds | null>(null);
 
   const activeTargets = targets.filter((target) => target.active);
   const activeWatches = watches.filter((watch) => watch.active && watch.target_active);
@@ -907,16 +919,21 @@ export default function App() {
   }, [watches]);
   const activeWatchCount = new Set(activeWatches.map((watch) => watch.group_id || `single:${watch.id}`)).size;
   const activeResults = results.filter(isActiveAvailability);
-  const loadedResultCount = results.length;
-  const totalResultCount = resultSummary.total_count || loadedResultCount;
+  const dateFilterActive = Boolean(mapArrival || mapDeparture);
+  const { stay: mapStay, error: mapDateError } = useMemo(() => selectedStay(mapArrival, mapDeparture), [mapArrival, mapDeparture]);
+  const stayQueryKey = JSON.stringify([mapStay, mapSelection]);
+  const stayResultsReady = stayResults?.key === stayQueryKey;
+  const displayedResults = dateFilterActive ? (stayResultsReady ? stayResults.results : []) : results;
+  const loadedResultCount = displayedResults.length;
+  const totalResultCount = dateFilterActive ? (stayResultsReady ? stayResults.total_count : 0) : resultSummary.total_count || loadedResultCount;
   const activeResultCount = resultSummary.active_count || activeResults.length;
   const resultListTruncated = totalResultCount > loadedResultCount;
   const isLogsPage = pageView === "logs";
   const selectedResultSet = useMemo(() => new Set(selectedResultIds), [selectedResultIds]);
   const selectedParkGroupSet = useMemo(() => new Set(selectedParkGroups), [selectedParkGroups]);
   const selectedResults = useMemo(
-    () => results.filter((result) => selectedResultSet.has(result.id)),
-    [results, selectedResultSet]
+    () => displayedResults.filter((result) => selectedResultSet.has(result.id)),
+    [displayedResults, selectedResultSet]
   );
   const cartAttemptByResultId = useMemo(
     () => new Map(cartAttempts.map((attempt) => [attempt.result_id, attempt])),
@@ -937,7 +954,7 @@ export default function App() {
   );
   const filteredResults = useMemo(() => {
     const query = resultQuery.trim().toLowerCase();
-    const filtered = results.filter((result) => {
+    const filtered = displayedResults.filter((result) => {
       const matchesView =
         resultView === "all"
           ? true
@@ -947,7 +964,7 @@ export default function App() {
       if (!matchesView) return false;
       if (!query) return true;
       return [
-        result.park_name,
+        result.park_name || "Unassigned park",
         result.target_name,
         result.campground_name,
         result.site,
@@ -976,7 +993,7 @@ export default function App() {
       }
       return b.discovered_at.localeCompare(a.discovered_at);
     });
-  }, [results, resultQuery, resultSort, resultView]);
+  }, [displayedResults, resultQuery, resultSort, resultView]);
   const visibleResultIds = useMemo(() => filteredResults.map((result) => result.id), [filteredResults]);
   const allVisibleResultsSelected =
     visibleResultIds.length > 0 && visibleResultIds.every((id) => selectedResultSet.has(id));
@@ -1165,13 +1182,13 @@ export default function App() {
       if (savedTarget?.active) summary.activeTargetCount += 1;
       const stateCode = savedTarget?.state_code || sourceTarget.state_code || "";
       if (stateCode) summary.stateCodeSet.add(stateCode);
-      const latitude = Number(savedTarget?.latitude ?? sourceTarget.latitude);
-      const longitude = Number(savedTarget?.longitude ?? sourceTarget.longitude);
+      const latitude = Number(savedTarget?.latitude ?? sourceTarget.latitude ?? NaN);
+      const longitude = Number(savedTarget?.longitude ?? sourceTarget.longitude ?? NaN);
       const resultCounts = resultCountsByCampground.get(sourceTarget.campground_id) || {
         resultCount: 0,
         activeResultCount: 0
       };
-      if (Number.isFinite(latitude) && Number.isFinite(longitude)) {
+      if (Number.isFinite(latitude) && Number.isFinite(longitude) && Math.abs(latitude) <= 90 && Math.abs(longitude) <= 180) {
         summary.campgrounds.push({
           id: sourceTarget.campground_id,
           targetId: savedTarget?.id || null,
@@ -1239,6 +1256,27 @@ export default function App() {
         };
       });
   }, [presets, results, targets]);
+  const dateCounts = useMemo(() => mapStay && !availabilityError
+    ? availabilityCounts(availability, mapStay) : new Map<string, number>(), [availability, mapStay, availabilityError]);
+  const mapParkSummaries = useMemo(() => {
+    if (!dateFilterActive) return parkSummaries;
+    return parkSummaries.flatMap(summary => {
+      const campgrounds = summary.campgrounds.filter(campground => dateCounts.has(campground.campgroundId))
+        .map(campground => ({ ...campground, resultCount: dateCounts.get(campground.campgroundId)!, activeResultCount: dateCounts.get(campground.campgroundId)! }));
+      if (!campgrounds.length) return [];
+      const shape = regionShapeForCampgrounds(campgrounds);
+      const count = campgrounds.reduce((total, campground) => total + campground.activeResultCount, 0);
+      return [{ ...summary, campgrounds, targetCount: campgrounds.length,
+        activeTargetCount: campgrounds.filter(campground => campground.active).length,
+        activeResultCount: count, resultCount: count,
+        latitude: campgrounds.reduce((total, campground) => total + campground.latitude, 0) / campgrounds.length,
+        longitude: campgrounds.reduce((total, campground) => total + campground.longitude, 0) / campgrounds.length,
+        bounds: shape?.bounds || null, regionKind: shape?.kind || null, regionPoints: shape?.points || [] }];
+    });
+  }, [dateFilterActive, dateCounts, parkSummaries]);
+  const mappedDateCampgrounds = mapParkSummaries.reduce((total, summary) => total + summary.campgrounds.length, 0);
+  const missingDateCoordinates = dateFilterActive ? Math.max(0, dateCounts.size - mappedDateCampgrounds) : 0;
+  const dateMatchCount = [...dateCounts.values()].reduce((total, count) => total + count, 0);
   const targetById = useMemo(() => new Map(targets.map((target) => [target.id, target])), [targets]);
   const watchParkOptions = useMemo(
     () =>
@@ -1264,18 +1302,18 @@ export default function App() {
   const selectedMapPark = useMemo(
     () =>
       mapSelection?.kind === "park"
-        ? parkSummaries.find((summary) => summary.parkName === mapSelection.parkName) || null
+        ? mapParkSummaries.find((summary) => summary.parkName === mapSelection.parkName) || null
         : null,
-    [mapSelection, parkSummaries]
+    [mapSelection, mapParkSummaries]
   );
   const selectedMapCampground = useMemo(
     () =>
       mapSelection?.kind === "campground"
-        ? parkSummaries
+        ? mapParkSummaries
             .flatMap((summary) => summary.campgrounds)
             .find((campground) => campground.campgroundId === mapSelection.campgroundId) || null
         : null,
-    [mapSelection, parkSummaries]
+    [mapSelection, mapParkSummaries]
   );
   const resultGroups = useMemo<ResultParkGroup[]>(() => {
     const parkMap = new Map<string, ResultParkGroup>();
@@ -1342,6 +1380,7 @@ export default function App() {
 
     const map = L.map(mapElementRef.current, {
       scrollWheelZoom: false,
+      zoomAnimation: false,
       zoomControl: true
     }).fitBounds(washingtonMapBounds, { padding: [10, 10] });
     L.tileLayer(mapTileUrl, {
@@ -1352,11 +1391,13 @@ export default function App() {
     leafletMapRef.current = map;
     markerLayerRef.current = markerLayer;
     mapFitKeyRef.current = "";
+    mapViewportBoundsRef.current = L.latLngBounds(washingtonMapBounds);
 
     return () => {
       map.remove();
       leafletMapRef.current = null;
       markerLayerRef.current = null;
+      mapViewportBoundsRef.current = null;
     };
   }, [pageView]);
 
@@ -1364,7 +1405,11 @@ export default function App() {
     if (pageView !== "monitor") return;
     if (!mapElementRef.current) return;
     const observer = new ResizeObserver(() => {
-      leafletMapRef.current?.invalidateSize();
+      const map = leafletMapRef.current;
+      map?.invalidateSize({ pan: false });
+      if (map && mapViewportBoundsRef.current?.isValid()) {
+        map.fitBounds(mapViewportBoundsRef.current, { padding: [10, 10], maxZoom: 9, animate: false });
+      }
     });
     observer.observe(mapElementRef.current);
     return () => observer.disconnect();
@@ -1377,6 +1422,7 @@ export default function App() {
 
     markerLayer.clearLayers();
     const selectedBounds = L.latLngBounds([]);
+    const matchingBounds = L.latLngBounds([]);
     const query = resultQuery.trim().toLowerCase();
     const fitKey = [
       resultQuery,
@@ -1384,10 +1430,12 @@ export default function App() {
       mapSelection?.kind === "park" ? mapSelection.parkName : "",
       mapSelection?.kind === "campground" ? mapSelection.campgroundId : "",
       selectedParkGroups.join("|"),
-      parkSummaries.map((summary) => `${summary.parkName}:${summary.targetCount}:${summary.activeResultCount}`).join("|")
+      mapArrival, mapDeparture,
+      mapParkSummaries.map((summary) => `${summary.parkName}:${summary.targetCount}:${summary.activeResultCount}`).join("|")
     ].join("::");
 
-    for (const summary of parkSummaries) {
+    for (const summary of mapParkSummaries) {
+      if (!summary.campgrounds.length) continue;
       const selectedPark =
         resultQuery === summary.parkName || (mapSelection?.kind === "park" && mapSelection.parkName === summary.parkName);
       const selectedGroup = selectedParkGroupSet.has(summary.parkName);
@@ -1446,6 +1494,7 @@ export default function App() {
       }
 
       for (const campground of summary.campgrounds) {
+        matchingBounds.extend([campground.latitude, campground.longitude]);
         const selectedCampground =
           resultQuery === campground.name ||
           (mapSelection?.kind === "campground" && mapSelection.campgroundId === campground.campgroundId);
@@ -1490,12 +1539,26 @@ export default function App() {
     if (mapFitKeyRef.current !== fitKey) {
       mapFitKeyRef.current = fitKey;
       if (selectedBounds.isValid()) {
-        map.fitBounds(selectedBounds.pad(0.2), { maxZoom: 9 });
+        mapViewportBoundsRef.current = selectedBounds.pad(0.2);
+      } else if (dateFilterActive && matchingBounds.isValid()) {
+        mapViewportBoundsRef.current = matchingBounds.pad(0.2);
       } else {
-        map.fitBounds(washingtonMapBounds, { padding: [10, 10] });
+        mapViewportBoundsRef.current = L.latLngBounds(washingtonMapBounds);
       }
+      map.fitBounds(mapViewportBoundsRef.current, { padding: [10, 10], maxZoom: 9, animate: false });
     }
-  }, [mapHover, mapSelection, parkSummaries, resultQuery, selectedParkGroupSet, selectedParkGroups]);
+  }, [pageView, mapHover, mapSelection, mapParkSummaries, resultQuery, selectedParkGroupSet, selectedParkGroups, dateFilterActive, mapArrival, mapDeparture]);
+
+  async function refreshAvailability() {
+    try {
+      setAvailability(await api.availability());
+      setAvailabilityError("");
+      setAvailabilityLoaded(true);
+    } catch (error) {
+      setAvailabilityError(error instanceof Error ? error.message : "Saved availability could not be refreshed.");
+      throw error;
+    }
+  }
 
   async function refresh(options?: { silent?: boolean }) {
     if (!options?.silent) setLoadState("loading");
@@ -1513,6 +1576,7 @@ export default function App() {
       }),
       api.results().then(setResults),
       api.resultSummary().then(setResultSummary),
+      refreshAvailability(),
       api.scanRuns().then(setScanRuns),
       api.crawlStatus().then(setCrawlStatus),
       api.scanEvents().then(setScanEvents),
@@ -1569,6 +1633,7 @@ export default function App() {
         setResultSummary(resultSummaryData);
         setCartAttempts(cartAttemptData);
         setCrawlStatus(crawlData);
+        await refreshAvailability();
       } catch {
         // The normal refresh loop and scan completion handler will surface persistent API failures.
       }
@@ -1577,6 +1642,21 @@ export default function App() {
     const handle = window.setInterval(pollLiveScanState, crawlStatus?.status === "waiting" ? 15000 : 3000);
     return () => window.clearInterval(handle);
   }, [scanInProgress, crawlStatus?.status]);
+
+  useEffect(() => {
+    setStayResultsError("");
+    if (!mapStay) { setStayResults(null); return; }
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 15000);
+    let current = true;
+    api.resultsForStay(mapStay.arrival, mapStay.departure,
+      mapSelection?.kind === "campground" ? mapSelection.campgroundId : undefined,
+      mapSelection?.kind === "park" ? mapSelection.parkName : undefined, controller.signal)
+      .then(data => { if (current) setStayResults({ ...data, key: stayQueryKey }); })
+      .catch(error => { if (current) { setStayResults(null); setStayResultsError(error instanceof Error ? error.message : "Unable to load matching stays."); } })
+      .finally(() => window.clearTimeout(timeout));
+    return () => { current = false; controller.abort(); window.clearTimeout(timeout); };
+  }, [stayQueryKey, availability]);
 
   useEffect(() => {
     if (!cartAssistStatus || cartAssistConfigDirty || cartAssistConfigBusy) return;
@@ -2571,7 +2651,7 @@ export default function App() {
     setMapSelection({ kind: "park", parkName: summary.parkName });
     setResultQuery(summary.parkName);
     setResultSort("park");
-    setResultView(summary.activeResultCount > 0 ? "active" : "all");
+    setResultView(dateFilterActive || summary.activeResultCount > 0 ? "active" : "all");
     setResultGroupOpen((current) => ({ ...current, [`park:${summary.parkName}`]: true }));
   }
 
@@ -2605,6 +2685,25 @@ export default function App() {
       [`campground:${campground.parkName}:${campground.name}`]: true
     }));
     scrollToResults();
+  }
+
+  function changeMapDates(arrival: string, departure: string) {
+    setMapArrival(arrival);
+    setMapDeparture(departure);
+    setMapSelection(null);
+    setMapHover(null);
+    setResultQuery("");
+    setResultView("active");
+    setSelectedResultIds([]);
+  }
+
+  function fitMatchingCampgrounds() {
+    const points = mapParkSummaries.flatMap(summary => summary.campgrounds.map(campground =>
+      [campground.latitude, campground.longitude] as LatLngTuple));
+    if (points.length) {
+      mapViewportBoundsRef.current = L.latLngBounds(points).pad(0.2);
+      leafletMapRef.current?.fitBounds(mapViewportBoundsRef.current, { padding: [10, 10], maxZoom: 9, animate: false });
+    }
   }
 
   function activeTargetsInMapView() {
@@ -4536,12 +4635,11 @@ export default function App() {
           </section>
         ) : (
         <div className="content-grid lower">
-          <section className="map-dashboard" aria-label="Target map">
+          <section className="map-dashboard" id="availability-map" aria-label="Target map">
             <div className="map-panel">
               <div className="map-toolbar">
                 <div>
-                  <h2>Target Map</h2>
-                  <p>Tap a marker for details, campground links, and bulk watch actions.</p>
+                  <h2>{dateFilterActive ? "Availability Map" : "Target Map"}</h2>
                 </div>
                 <div className="map-actions">
                   <a className="icon-button primary" href="#results" onClick={scrollToResults}>
@@ -4555,8 +4653,7 @@ export default function App() {
                   <button
                     className="icon-button"
                     onClick={() => {
-                      setResultQuery("");
-                      setMapSelection(null);
+                      changeMapDates("", "");
                     }}
                     type="button"
                   >
@@ -4569,13 +4666,25 @@ export default function App() {
                   </button>
                 </div>
               </div>
+              <AvailabilityDates windows={availability} arrival={mapArrival} departure={mapDeparture}
+                error={mapDateError} onChange={changeMapDates} onFit={fitMatchingCampgrounds}
+                canFit={dateFilterActive && mappedDateCampgrounds > 0} />
+              <div className="map-availability-status" role="status">
+                {availabilityError ? <span className="map-date-error">Saved availability could not be refreshed.</span>
+                  : !availabilityLoaded ? <span>Loading saved availability...</span>
+                  : mapStay ? <>
+                    <strong>Stays covering {formatDate(mapStay.arrival)} to {formatDate(mapStay.departure)}</strong>
+                    <span>{dateMatchCount} saved matches &middot; {dateCounts.size} campgrounds
+                      {missingDateCoordinates > 0 ? ` (${missingDateCoordinates} without map coordinates)` : ""}</span>
+                  </> : !dateFilterActive ? <span>All target campgrounds &middot; All saved dates</span> : null}
+              </div>
               <div className="map-canvas proper-map">
                 <div className="leaflet-map" ref={mapElementRef} />
-                {parkSummaries.length === 0 && (
+                {mapParkSummaries.length === 0 && (
                   <div className="map-empty">
                     <MapPin size={28} />
-                    <strong>No target parks yet</strong>
-                    <small>No imported campgrounds.</small>
+                    <strong>{dateFilterActive ? availabilityError ? "Availability unavailable" : mapDateError ? "Choose valid dates" : !availabilityLoaded ? "Loading availability" : missingDateCoordinates ? "Matches have no map coordinates" : "No saved matches cover these nights" : "No target parks yet"}</strong>
+                    {missingDateCoordinates > 0 && <a href="#results" onClick={scrollToResults}>View matching results</a>}
                   </div>
                 )}
               </div>
@@ -4583,9 +4692,9 @@ export default function App() {
             <aside className="map-list">
               {renderMapSelectionPanel()}
               <div className="subheading">
-                <strong>Park Queue</strong>
+                <strong>{dateFilterActive ? "Matching Parks" : "Park Queue"}</strong>
                 <small>
-                  {parkSummaries.length} park group{parkSummaries.length === 1 ? "" : "s"} tracked
+                  {mapParkSummaries.length} park group{mapParkSummaries.length === 1 ? "" : "s"}
                   {selectedParkGroups.length ? ` · ${selectedParkGroups.length} selected` : ""}
                 </small>
               </div>
@@ -4602,7 +4711,7 @@ export default function App() {
                 </div>
               )}
               <div className="park-chip-strip">
-                {parkSummaries.map((summary) => {
+                {mapParkSummaries.map((summary) => {
                   const selectedGroup = selectedParkGroupSet.has(summary.parkName);
                   const activePark =
                     resultQuery === summary.parkName ||
@@ -4631,7 +4740,7 @@ export default function App() {
                       <button className="park-chip-main" onClick={() => selectParkRegion(summary)} type="button">
                         <span>
                           <strong>{summary.parkName}</strong>
-                          <small>{summary.activeTargetCount}/{summary.targetCount} targets active</small>
+                          <small>{dateFilterActive ? `${summary.targetCount} matching campgrounds` : `${summary.activeTargetCount}/${summary.targetCount} targets active`}</small>
                         </span>
                         <span className={`status ${summary.activeResultCount ? "success" : "quiet"}`}>
                           {summary.activeResultCount || summary.resultCount}
@@ -5057,7 +5166,7 @@ export default function App() {
             <div className="panel-heading">
               <div>
                 <h2>Availability Results</h2>
-                <p>Matches from connected reservation providers.</p>
+                <p>{mapStay ? `Saved stays covering ${formatDate(mapStay.arrival)} to ${formatDate(mapStay.departure)}` : "Matches from connected reservation providers."}</p>
               </div>
               <button
                 className="icon-button"
@@ -5070,6 +5179,11 @@ export default function App() {
                 <span>{clearResultsBusy ? "Clearing" : "Clear All"}</span>
               </button>
             </div>
+            {dateFilterActive && <div className="result-date-context">
+              <a className="icon-button" href="#availability-map"><MapPinned size={16} />Map and dates</a>
+              <button className="icon-button" type="button" onClick={() => changeMapDates("", "")}><X size={16} />Clear dates</button>
+              {stayResultsError && <span role="alert">{stayResultsError}</span>}
+            </div>}
             {bookingPreview && (
               <div className="booking-preview">
                 <div className="subheading">
@@ -5086,7 +5200,7 @@ export default function App() {
             <div className="result-toolbar">
               <label className="toolbar-field">
                 <Filter size={16} />
-                <select value={resultView} onChange={(event) => setResultView(event.target.value as ResultView)}>
+                <select aria-label="Result status" disabled={dateFilterActive} value={resultView} onChange={(event) => setResultView(event.target.value as ResultView)}>
                   {resultViewOptions.map((option) => (
                     <option key={option.value} value={option.value}>{option.label}</option>
                   ))}
@@ -5096,13 +5210,13 @@ export default function App() {
                 <Search size={16} />
                 <input
                   value={resultQuery}
-                  onChange={(event) => setResultQuery(event.target.value)}
+                  onChange={(event) => { setResultQuery(event.target.value); setMapSelection(null); }}
                   placeholder="Search park, campground, site"
                 />
                 {resultQuery && (
                   <button
                     className="inline-clear"
-                    onClick={() => setResultQuery("")}
+                    onClick={() => { setResultQuery(""); setMapSelection(null); }}
                     title="Clear result search"
                     type="button"
                   >
@@ -5163,12 +5277,12 @@ export default function App() {
             </div>
             {resultListTruncated && (
               <div className="result-limit-note">
-                Showing the newest active working set: {loadedResultCount} of {totalResultCount} saved results. This browser view loads up to {RESULTS_LIMIT} rows; search and Select Visible apply to loaded rows.
+                Showing {loadedResultCount} of {totalResultCount} {dateFilterActive ? "matching stays" : "saved results"}. This browser view loads up to {RESULTS_LIMIT} rows; search and Select Visible apply to loaded rows. {dateFilterActive ? "Map counts include all matching stays. Select a campground on the map to narrow this list." : ""}
               </div>
             )}
             <div className="result-groups">
               {resultGroups.length === 0 && (
-                <p className="empty">{results.length ? "No results match the current view." : "No availability saved yet."}</p>
+                <p className="empty">{dateFilterActive ? mapDateError || (stayResultsError ? "Matching results could not be loaded." : !stayResultsReady ? "Loading matching stays..." : "No saved matches cover these nights in the current view.") : results.length ? "No results match the current view." : "No availability saved yet."}</p>
               )}
               {resultGroups.map((park) => {
                 const parkOpen = isResultGroupOpen(park.id);

@@ -53,6 +53,7 @@ Active watches start background work as soon as the server starts. Use the read-
 | `backend/app/presets.py`, `sources.py` | Bundled targets and source discovery |
 | `frontend/src/App.tsx`, `WatchGroup.tsx`, `SavedTargets.tsx` | Dashboard, drawers, logs, regional watch controls, grouped target inventory |
 | `frontend/src/api.ts`, `types.ts` | Frontend API calls and response contracts |
+| `frontend/src/availability.ts`, `AvailabilityDates.tsx` | Map stay filters, calendar-day arithmetic, saved-stay selector |
 | `backend/tests/` | Unit and API tests with isolated databases and fake providers |
 | `scripts/camply_probe/`, `scripts/check_washington.py` | Standalone library comparison and bounded native connector checks |
 
@@ -65,6 +66,11 @@ included the optional worker.
 The [Camply probe](camply-probe.md) remains a separate library comparison, with released and pinned PR #398 images. Its successful request behavior is now adapted into `goingtocamp.py`; the full Camply package is not installed into the main backend because its Pydantic major version conflicts with ours. The app uses `fake-useragent==1.4.0`, the same version as the tested PR, and keeps anonymous response cookies in memory. The regular connector supports Roofed as well as Camping; the upstream library probe only searches Camping.
 
 ## Scan Lifecycle
+
+The [availability-map guide](availability-map.md) covers date-filtered mapping,
+the two read-only result endpoints, working-set limits, and coordinate backfills.
+Date changes must never trigger provider requests. Keep full-stay matching on a
+single result row and retain that result's original booking dates.
 
 The background scheduler selects due active watches and processes one campground check at a time. A regional watch has a shared group ID but a separate schedule and scan history for each member. Completion schedules the next check using the watch/target interval and global minimum. Finished members are not rechecked within the same pending cycle.
 
@@ -187,8 +193,14 @@ python -m pytest backend/tests -q
 From `frontend`:
 
 ```bash
+npm test
 npm run build
 ```
+
+The date tests use Node's native type stripping (Node 22.6+ with the supplied
+flag). They cover checkout exclusion, whole-stay coverage, invalid dates, DST,
+and unique campground counts. Backend map tests include the 2,000-row boundary
+and startup index migration on a populated database.
 
 Use fake availability clients and temporary SQLite stores for scanner changes. Cover cooldown suppression, queue recovery after restart, partial-result notifications, and pause/resume behavior when touching the crawl lifecycle. Successful unit tests do not establish live provider limits, production storage health, or notification delivery.
 

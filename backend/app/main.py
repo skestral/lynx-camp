@@ -477,6 +477,23 @@ def result_summary() -> dict:
     return store.result_summary()
 
 
+@app.get("/api/results/availability")
+def availability_calendar() -> list[dict]:
+    return store.availability_calendar()
+
+
+@app.get("/api/results/for-stay")
+def results_for_stay(
+    arrival: date, departure: date,
+    campground_id: str | None = Query(default=None, min_length=1, max_length=200),
+    park_name: str | None = Query(default=None, min_length=1, max_length=300),
+    limit: int = Query(default=2000, ge=1, le=2000),
+) -> dict:
+    if departure <= arrival:
+        raise HTTPException(status_code=422, detail="Check-out must be after arrival.")
+    return store.results_for_stay(arrival.isoformat(), departure.isoformat(), campground_id, park_name, limit)
+
+
 @app.post("/api/results/clear")
 def clear_results() -> dict:
     return {"cleared_count": store.clear_active_results()}

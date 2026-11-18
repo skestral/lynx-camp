@@ -141,6 +141,16 @@ export type ResultSummary = {
   active_count: number;
 };
 
+export type AvailabilityWindow = {
+  campground_id: string;
+  arrival_date: string;
+  departure_date: string;
+  match_count: number;
+  last_seen_at: string;
+};
+
+export type StayResults = { results: Result[]; total_count: number };
+
 export type NotificationEvent = {
   id: number;
   result_id: number;

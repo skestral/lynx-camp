@@ -555,6 +555,7 @@ small {
 }
 
 .map-dashboard {
+  scroll-margin-top: 80px;
   order: 5;
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(260px, 320px);
@@ -594,6 +595,37 @@ small {
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: 8px;
+}
+
+.availability-dates {
+  display: grid;
+  grid-template-columns: minmax(180px, 2fr) repeat(2, minmax(150px, 1fr)) auto;
+  gap: 12px;
+  padding: 12px 0;
+  border-top: 1px solid var(--line);
+}
+
+.availability-dates label { display: grid; gap: 6px; min-width: 0; font-size: 12px; font-weight: 700; }
+.availability-dates label > span { display: flex; align-items: center; gap: 6px; }
+.availability-dates input, .availability-dates select {
+  width: 100%; min-width: 0; min-height: 40px; border: 1px solid var(--line);
+  border-radius: 6px; background: var(--surface); color: var(--text); padding: 8px; font: inherit;
+}
+.availability-date-actions { display: flex; gap: 6px; align-items: end; }
+.availability-date-actions .icon-button { width: 40px; height: 40px; padding: 0; justify-content: center; }
+.map-date-error { color: #a32b29; grid-column: 1 / -1; margin: 0; font-size: 13px; }
+.map-availability-status { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px 16px; font-size: 13px; margin: 0 0 12px; }
+.result-date-context { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }
+
+@media (max-width: 1400px) {
+  .availability-dates { grid-template-columns: repeat(2, minmax(0, 1fr)) auto; }
+  .availability-dates .available-stays-field { grid-column: 1 / -1; }
+}
+
+@media (max-width: 520px) {
+  .availability-dates { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .availability-date-actions { grid-column: 1 / -1; justify-content: flex-end; }
+  .availability-dates input { padding: 6px; }
 }
 
 .map-canvas {
@@ -1071,12 +1103,12 @@ small {
 
 .content-grid.lower .results-panel {
   grid-column: 1 / -1;
-  grid-row: 1;
+  grid-row: 2;
 }
 
 .content-grid.lower .map-dashboard {
   grid-column: 1 / -1;
-  grid-row: 2;
+  grid-row: 1;
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(300px, 360px);
   gap: 12px;
@@ -2703,7 +2735,7 @@ th {
   }
 
   .content-grid.lower .results-panel {
-    order: 1;
+    order: 2;
     grid-column: auto;
     grid-row: auto;
     max-height: none;
@@ -2712,7 +2744,7 @@ th {
   }
 
   .content-grid.lower .map-dashboard {
-    order: 2;
+    order: 1;
     grid-column: auto;
     grid-row: auto;
     grid-template-columns: 1fr;

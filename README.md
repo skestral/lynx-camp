@@ -11,7 +11,15 @@ The app is still notification-first. Matches link to the reservation provider, a
 
 ## Screenshots
 
-Current dashboard with grouped availability and a crawl waiting through a provider cooldown. These screenshots use synthetic data; the sites, progress, and delivery records are examples, not live availability.
+Date-filtered availability map using saved local matches. Choose a night or a
+check-in/check-out range, or select one of the stays already found by your watches.
+Saved matches are not a guarantee that inventory is still available.
+
+![Map showing campgrounds with saved matches for a selected stay](docs/screenshots/availability-map-desktop.png)
+
+[Mobile availability map](docs/screenshots/availability-map-mobile.png) | [Date-map guide](docs/availability-map.md)
+
+Grouped availability and a crawl waiting through a provider cooldown. The following earlier screenshots use synthetic data; the sites, progress, and delivery records are examples, not live availability.
 
 ![Dashboard showing pending crawl checks, estimated time, and grouped campsite matches](docs/screenshots/dashboard-overview.png)
 
@@ -22,6 +30,7 @@ Current dashboard with grouped availability and a crawl waiting through a provid
 - [Install on a server](#server-install)
 - [First-run setup](#first-run-setup)
 - [Continuous crawling and rate limits](#scanning)
+- [Find a stay on the map](docs/availability-map.md)
 - [Discord and other notifications](#notification-setup)
 - [Backups](#configuration-backups) and [upgrades](#upgrading)
 - [Troubleshooting](#diagnosing-api-failures)
@@ -65,6 +74,7 @@ Current dashboard with grouped availability and a crawl waiting through a provid
 - Configure server-level Cart Assist from the dashboard or from Docker environment variables.
 - Triage availability results as opened, booked, dismissed, or active again.
 - Filter, sort, select, and bulk-update availability results from the dashboard.
+- Filter the map by a night or full stay, or choose from saved available dates. Counts include all active matches, beyond the result list's 2,000-row cap.
 - Inspect map markers with Recreation.gov descriptions, details links, Google Maps navigation links, activity tags, notices, and images when Recreation.gov provides media.
 - Use visible park footprint polygons and Park Queue checkboxes to inspect and select campground groups directly from the map.
 - Show notification channel status, configure delivery settings, and send a test notification.
@@ -78,9 +88,9 @@ Current dashboard with grouped availability and a crawl waiting through a provid
 The dashboard is organized around the work that usually matters first:
 
 1. Check the crawl banner and summary counts. Waiting means a provider cooldown is active, not that all campgrounds have been checked. Pause crawl retains pending work; Resume crawl continues it.
-2. Review Availability Results above the map. Expand park, campground, and stay-date groups, or use search and the status/sort controls. Select Visible supports bulk actions; the X beside a group dismisses its active matches after confirmation.
+2. Choose a night, check-out date, or saved stay above the map. Matching campgrounds and park counts update together; View Results opens the matching stays below. Clear dates restores the full target map.
 3. Open Watches to manage regional listings and their member campgrounds. Targets, Watches, Alerts, Activity, and Settings are slide-out drawers, not separate dashboard sections.
-4. Use the Washington-centered map and Park Queue to inspect campgrounds or build a regional watch. Watch View selects active imported targets within the current map bounds; park checkboxes build a selected group set.
+4. Expand park, campground, and stay-date groups in Availability Results, or use search and sort. Select Visible supports bulk actions; the X beside a group dismisses its active matches after confirmation. The Washington-centered map and Park Queue also support regional watches; Watch View still selects all active imported targets inside the map bounds, not just date matches.
 5. Use Activity for recent scan checkpoints and Logs for detailed runs and notification delivery. Dashboard in the sidebar returns home from Logs.
 6. Trip Control and the full-width release planner remain below the primary results area for planning the next trip.
 

@@ -1,4 +1,6 @@
 import type {
+  AvailabilityWindow,
+  StayResults,
   CrawlStatus,
   CartAssistConfigPayload,
   CartAssistStatus,
@@ -76,6 +78,13 @@ export const api = {
       method: "POST", body: JSON.stringify({ watch_ids, action })
     }),
   results: (limit = RESULTS_LIMIT) => request<Result[]>(`/api/results?limit=${limit}`),
+  availability: () => request<AvailabilityWindow[]>("/api/results/availability"),
+  resultsForStay: (arrival: string, departure: string, campgroundId?: string, parkName?: string, signal?: AbortSignal) => {
+    const query = new URLSearchParams({ arrival, departure });
+    if (campgroundId) query.set("campground_id", campgroundId);
+    if (parkName) query.set("park_name", parkName);
+    return request<StayResults>(`/api/results/for-stay?${query}`, { signal });
+  },
   dismissResultGroup: (result_ids: number[]) => request<{ dismissed_count: number }>("/api/results/dismiss-group", {
     method: "POST", body: JSON.stringify({ result_ids })
   }),
